@@ -24,6 +24,7 @@ const BROKER_FIELDS = {
 };
 
 function AccountCredentials({ account, credentials, onSave }) {
+  const { settings } = useJournal();
   const fields = BROKER_FIELDS[account.broker] || [];
   const [creds, setCreds] = useState(credentials || {});
   const [saved, setSaved] = useState(false);
