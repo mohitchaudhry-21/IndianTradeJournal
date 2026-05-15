@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import AccountBadge from '../components/AccountBadge';
 import DateRangeSelector from '../components/DateRangeSelector';
@@ -279,7 +278,8 @@ export default function TradeHistory() {
 
 
   // ── Export to Excel ──────────────────────────────────────────────────────
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
+    const XLSX = await import('xlsx');
     if (!all.length) return;
 
     const fmtD = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—';
