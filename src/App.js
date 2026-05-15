@@ -1,5 +1,5 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import React, { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { JournalProvider } from './context/JournalContext';
 import Sidebar from './components/Sidebar';
 import LoginScreen, { isAuthEnabled, isAuthenticated } from './components/LoginScreen';
@@ -13,6 +13,28 @@ import Settings from './pages/Settings';
 import ScreenshotImport from './pages/ScreenshotImport';
 import Calendar from './pages/Calendar';
 
+
+const PAGE_TITLES = {
+  '/':           'Dashboard',
+  '/positions':  'Open Positions',
+  '/history':    'Trade History',
+  '/analytics':  'Analytics',
+  '/calendar':   'Calendar',
+  '/entry':      'Add Trade',
+  '/screenshot': 'Screenshot Import',
+  '/broker':     'Broker Connect',
+  '/settings':   'Settings',
+};
+
+function TitleUpdater() {
+  const location = useLocation();
+  useEffect(() => {
+    const page = PAGE_TITLES[location.pathname] || 'OptionsDesk';
+    document.title = `${page} | OptionsDesk`;
+  }, [location.pathname]);
+  return null;
+}
+
 export default function App() {
   if (isAuthEnabled() && !isAuthenticated()) {
     return <LoginScreen />;
@@ -20,6 +42,7 @@ export default function App() {
   return (
     <JournalProvider>
       <BrowserRouter>
+        <TitleUpdater />
         <div className="app-layout">
           <Sidebar />
           <main className="main-content">
