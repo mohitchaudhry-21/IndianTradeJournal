@@ -42,13 +42,15 @@ export default function Sidebar() {
   return (
     <div style={s.sidebar}>
       {/* Logo */}
-      <div style={s.logo}>
+      <NavLink to="/" end style={{ textDecoration:'none' }}>
+      <div style={{...s.logo, cursor:'pointer'}}>
         <div style={s.logoMark}>◈</div>
         <div>
           <div style={s.logoName}>OptionsDesk</div>
           <div style={s.logoSub}>Indian Market Journal</div>
         </div>
       </div>
+      </NavLink>
 
       {/* Quick stats */}
       <div style={s.statsRow}>
