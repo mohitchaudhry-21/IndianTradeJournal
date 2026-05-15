@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, useLocation } from 'react-router-dom';
+import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { JournalProvider } from './context/JournalContext';
 import Sidebar from './components/Sidebar';
 import LoginScreen, { isAuthEnabled, isAuthenticated } from './components/LoginScreen';
@@ -41,7 +41,7 @@ export default function App() {
   }
   return (
     <JournalProvider>
-      <BrowserRouter>
+      <HashRouter>
         <TitleUpdater />
         <div className="app-layout">
           <Sidebar />
@@ -59,7 +59,7 @@ export default function App() {
             </Routes>
           </main>
         </div>
-      </BrowserRouter>
+      </HashRouter>
     </JournalProvider>
   );
 }
