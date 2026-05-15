@@ -128,10 +128,37 @@ function MarginCell({ value, onSave }) {
   );
 }
 
+
+// Editable charges cell (brokerage + taxes)
+function ChargesCell({ value, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value ? String(value) : '');
+  const save = () => { const v = parseFloat(draft); onSave(isNaN(v) ? null : v); setEditing(false); };
+  const fmt = n => n >= 100000 ? '₹'+(n/100000).toFixed(1)+'L' : n >= 1000 ? '₹'+(n/1000).toFixed(0)+'K' : '₹'+n;
+  if (editing) return (
+    <div style={{ display:'flex', alignItems:'center', gap:3, minWidth:100 }}>
+      <span style={{ fontSize:11, color:'var(--text-muted)' }}>₹</span>
+      <input autoFocus value={draft} onChange={e => setDraft(e.target.value)} type="number"
+        onKeyDown={e => { if (e.key==='Enter') save(); if (e.key==='Escape') setEditing(false); }}
+        style={{ background:'var(--bg-primary)', border:'1px solid var(--accent)', borderRadius:4, color:'var(--text-primary)', fontFamily:"'JetBrains Mono',monospace", fontSize:12, padding:'3px 6px', width:80, outline:'none' }} />
+      <button onClick={save} style={{ background:'none', border:'none', color:'var(--profit)', cursor:'pointer', fontSize:14 }}>✓</button>
+    </div>
+  );
+  return (
+    <div onClick={() => { setDraft(value ? String(value) : ''); setEditing(true); }}
+      style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:4 }} title="Click to set charges">
+      {value
+        ? <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, color:'var(--loss)' }}>-{fmt(value)}</span>
+        : <span style={{ fontSize:11, color:'var(--text-muted)', borderBottom:'1px dashed var(--text-muted)' }}>+ add</span>}
+    </div>
+  );
+}
+
 // Journal / notes panel
 function NotesPanel({ position, onClose, onSave }) {
   const [notes, setNotes] = useState(position.notes || '');
   const [margin, setMargin] = useState(position.margin ? String(position.margin) : '');
+  const [charges, setCharges] = useState(position.charges ? String(position.charges) : '');
   const textRef = useRef();
 
   useEffect(() => { textRef.current?.focus(); }, []);
@@ -140,6 +167,7 @@ function NotesPanel({ position, onClose, onSave }) {
     onSave({
       positionNotes: notes,
       positionMargin: margin ? parseFloat(margin) : null,
+      positionCharges: charges ? parseFloat(charges) : null,
     });
     onClose();
   };
@@ -147,6 +175,7 @@ function NotesPanel({ position, onClose, onSave }) {
   const pnl       = position.realizedPnL;
   const maxProfit = position.netPremiumCollected;
   const marginVal = margin ? parseFloat(margin) : null;
+  const chargesVal = charges ? parseFloat(charges) : null;
   const retOnMargin = pnl !== null && marginVal ? (pnl / marginVal) * 100 : null;
   const retOnPremium = pnl !== null && maxProfit ? (pnl / Math.abs(maxProfit)) * 100 : null;
 
@@ -177,7 +206,9 @@ function NotesPanel({ position, onClose, onSave }) {
           {[
             { label: 'Max Profit', value: fmtMoney(maxProfit), color: 'var(--profit)' },
             { label: 'P&L', value: pnl !== null ? fmtMoney(pnl) : '—', color: pnl >= 0 ? 'var(--profit)' : 'var(--loss)' },
-            { label: 'Return on Premium', value: retOnPremium !== null ? (retOnPremium >= 0 ? '+' : '') + retOnPremium.toFixed(1) + '%' : '—', color: retOnPremium >= 0 ? 'var(--profit)' : 'var(--loss)' },
+            { label: 'Charges', value: position.charges ? '-₹'+Math.round(position.charges).toLocaleString('en-IN') : '—', color: 'var(--loss)' },
+          { label: 'Net P&L', value: pnl !== null && position.charges ? fmtMoney(pnl - position.charges) : '—', color: (pnl||0) - (position.charges||0) >= 0 ? 'var(--profit)' : 'var(--loss)' },
+          { label: 'Return on Premium', value: retOnPremium !== null ? (retOnPremium >= 0 ? '+' : '') + retOnPremium.toFixed(1) + '%' : '—', color: retOnPremium >= 0 ? 'var(--profit)' : 'var(--loss)' },
             { label: 'Return on Margin', value: retOnMargin !== null ? (retOnMargin >= 0 ? '+' : '') + retOnMargin.toFixed(2) + '%' : '—', color: retOnMargin !== null ? (retOnMargin >= 0 ? 'var(--profit)' : 'var(--loss)') : 'var(--text-muted)' },
           ].map(s => (
             <div key={s.label} style={{ background: 'var(--bg-primary)', borderRadius: 8, padding: '10px 12px', border: '1px solid var(--border)' }}>
@@ -190,6 +221,25 @@ function NotesPanel({ position, onClose, onSave }) {
 
       {/* Body — scrollable */}
       <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
+        {/* Charges input */}
+        <div className="form-group">
+          <label className="form-label">Charges (Brokerage + Taxes) ₹</label>
+          <input
+            className="form-input"
+            type="number"
+            value={charges}
+            onChange={e => setCharges(e.target.value)}
+            placeholder="e.g. 2500"
+          />
+          {chargesVal && pnl !== null && (
+            <div style={{ marginTop:6, fontSize:12, fontFamily:"'JetBrains Mono',monospace", color:'var(--text-muted)' }}>
+              Net P&L: <span style={{ color: (pnl-chargesVal)>=0?'var(--profit)':'var(--loss)', fontWeight:600 }}>
+                {fmtMoney(pnl - chargesVal)}
+              </span>
+            </div>
+          )}
+        </div>
+
         {/* Margin input */}
         <div className="form-group">
           <label className="form-label">Margin Used (₹)</label>
@@ -307,6 +357,8 @@ export default function TradeHistory() {
         'Max Loss (₹)':      maxLoss != null ? fmtM(-Math.abs(maxLoss)) : 'Unlimited',
         'Margin Used (₹)':   margin ? fmtM(margin) : '',
         'P&L (₹)':           pnl != null && p.status !== 'OPEN' ? fmtM(pnl) : '',
+        'Charges (₹)':          p.charges ? Math.round(p.charges) : '',
+        'Net P&L (₹)':           pnl != null && p.status !== 'OPEN' ? fmtM(pnl - (p.charges || 0)) : '',
         'Return on Premium %': retPrem != null && p.status !== 'OPEN' ? parseFloat(retPrem.toFixed(2)) : '',
         'Return on Margin %':  retMargin != null ? parseFloat(retMargin.toFixed(2)) : '',
         'Legs':              p.legs?.length || 0,
@@ -444,6 +496,8 @@ export default function TradeHistory() {
                 <TH>Max Loss</TH>
                 <TH>Margin Used</TH>
                 <TH>P&amp;L</TH>
+                <TH>Charges</TH>
+                <TH>Net P&amp;L</TH>
                 <TH>Return %</TH>
                 <TH>Status</TH>
                 <TH>Exit Date</TH>
@@ -457,14 +511,16 @@ export default function TradeHistory() {
                 const maxProfit = p.netPremiumCollected;
                 const maxLoss   = calcMaxLoss(p);
                 const margin    = p.margin || null;
+                const charges   = p.charges || null;
+                const netPnl    = pnl !== null && charges ? pnl - charges : pnl;
                 const isOpen    = p.status === 'OPEN';
                 const hasNotes  = !!(p.notes && p.notes.trim());
 
                 // Return %: use margin if set, else use max profit (premium)
-                const ret = pnl !== null && !isOpen
+                const ret = netPnl !== null && !isOpen
                   ? margin
-                    ? (pnl / margin) * 100
-                    : maxProfit !== 0 ? (pnl / Math.abs(maxProfit)) * 100 : null
+                    ? (netPnl / margin) * 100
+                    : maxProfit !== 0 ? (netPnl / Math.abs(maxProfit)) * 100 : null
                   : null;
 
                 const retLabel = margin ? 'on margin' : 'on premium';
@@ -512,6 +568,24 @@ export default function TradeHistory() {
                         ? <span style={{ color: 'var(--text-muted)' }}>—</span>
                         : <span style={{ color: pnl > 0 ? 'var(--profit)' : pnl < 0 ? 'var(--loss)' : 'var(--text-muted)', fontWeight: 600 }}>{fmtMoney(pnl)}</span>,
                       { fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }
+                    )}
+
+                    {/* Charges */}
+                    {td(
+                      <ChargesCell value={p.charges}
+                        onSave={v => updatePositionMeta(p.positionId, { positionCharges: v })} />,
+                      { whiteSpace: 'nowrap' }
+                    )}
+
+                    {/* Net P&L */}
+                    {td(
+                      isOpen
+                        ? <span style={{ color: 'var(--text-muted)' }}>—</span>
+                        : <div>
+                            <span style={{ color: netPnl > 0 ? 'var(--profit)' : netPnl < 0 ? 'var(--loss)' : 'var(--text-muted)', fontWeight: 700, fontFamily:"'JetBrains Mono',monospace" }}>{fmtMoney(netPnl)}</span>
+                            {charges && <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:1 }}>after charges</div>}
+                          </div>,
+                      { whiteSpace: 'nowrap' }
                     )}
 
                     {/* Return % — with tooltip showing basis */}
