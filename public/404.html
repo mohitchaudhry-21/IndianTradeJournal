@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>OptionsDesk</title>
+  <script>
+    // GitHub Pages SPA redirect trick
+    // Stores the current path and redirects to index.html
+    var path = window.location.pathname;
+    var search = window.location.search;
+    var hash = window.location.hash;
+    var repoName = '/optionsdesk'; // change this if your repo is named differently
+    var redirect = path.replace(repoName, '');
+    sessionStorage.setItem('redirect', redirect + search + hash);
+    window.location.replace(window.location.origin + repoName);
+  </script>
+</head>
+<body></body>
+</html>
