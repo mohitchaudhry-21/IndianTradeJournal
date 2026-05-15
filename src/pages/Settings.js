@@ -28,282 +28,40 @@ function AccountCredentials({ account, credentials, onSave }) {
   const fields = BROKER_FIELDS[account.broker] || [];
   const [creds, setCreds] = useState(credentials || {});
   const [saved, setSaved] = useState(false);
+  const set = (k, v) => setCreds(prev => ({ ...prev, [k]: v }));
+  const handleSave = () => { onSave(creds); setSaved(true); setTimeout(() => setSaved(false), 2500); };
 
   if (fields.length === 0) return (
-    <div style={{ color: 'var(--text-muted)', fontSize: 13 }}>No API credentials needed for this broker.</div>
+    <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>No API credentials needed.</p>
   );
 
-  const handleSave = () => {
-    onSave(creds);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
-
   return (
-    <div>
+    <div onClick={e => e.stopPropagation()}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginBottom: 14 }}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))', gap:12, marginBottom:14 }}>
-          <div className="form-group" style={{ marginBottom:0 }}>
-            <label className="form-label">Brokerage Per Lot (₹)</label>
-            <input
-              className="form-input"
-              type="number"
-              placeholder={`Global default: ${settings.brokeragePerLot || 40}`}
-              value={creds['_brokerage'] || ''}
-              onChange={e => set('_brokerage', e.target.value)}
-            />
-          </div>
-          {fields.map(f => (
-            <div key={f.key} className="form-group" style={{ marginBottom:0 }}>
-              <label className="form-label">{f.label}</label>
-              <input
-                className="form-input"
-                type={f.type || 'text'}
-                placeholder={f.placeholder}
-                value={creds[f.key] || ''}
-                onChange={e => set(f.key, e.target.value)}
-              />
-            </div>
-          ))}
+        <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label">Brokerage Per Lot (₹)</label>
+          <input className="form-input" type="number"
+            placeholder={`Default: ₹${settings.brokeragePerLot || 40}`}
+            value={creds['_brokerage'] || ''}
+            onChange={e => set('_brokerage', e.target.value)} />
         </div>
-        {false && fields.map(f => (
+        {fields.map(f => (
           <div key={f.key} className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">{f.label}</label>
-            <input
-              className="form-input"
-              type={f.type}
+            <input className="form-input"
+              type={f.type || 'text'}
               placeholder={f.placeholder}
               value={creds[f.key] || ''}
-              onChange={e => setCreds(p => ({ ...p, [f.key]: e.target.value }))}
-            />
+              onChange={e => set(f.key, e.target.value)} />
           </div>
         ))}
       </div>
-      {saved && <div className="alert alert-success" style={{ marginBottom: 10 }}>✓ Credentials saved</div>}
+      {saved && <div className="alert alert-success" style={{ marginBottom: 10 }}>✓ Credentials saved!</div>}
       <button className="btn btn-primary btn-sm" onClick={handleSave}>Save Credentials</button>
     </div>
   );
 }
 
-import { v4 as uuidv4 } from 'uuid';
-
-function SupabaseSettings() {
-  const { accounts, trades, settings, syncStatus, lastSynced } = useJournal();
-  const saved = getSupabaseCredentials();
-  const [url, setUrl]       = useState(saved.url);
-  const [key, setKey]       = useState(saved.key);
-  const [msg, setMsg]       = useState('');
-  const [msgType, setMsgType] = useState('info');
-  const [testing, setTesting] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const isConnected = isSupabaseReady() && saved.url;
-
-  const showMsg = (text, type = 'info') => { setMsg(text); setMsgType(type); setTimeout(() => setMsg(''), 4000); };
-
-  const handleConnect = async () => {
-    if (!url || !key) { showMsg('Enter both URL and Anon Key.', 'error'); return; }
-    setTesting(true);
-    initSupabase(url, key);
-    const result = await testConnection();
-    setTesting(false);
-    if (result.ok) {
-      showMsg('✓ Connected to Supabase! Data will now sync automatically.', 'success');
-    } else {
-      showMsg('Connection failed: ' + result.error, 'error');
-      clearSupabase();
-    }
-  };
-
-  const handleSyncNow = async () => {
-    setSyncing(true);
-    const result = await cloudSave(accounts, trades, settings);
-    setSyncing(false);
-    showMsg(result.ok ? '✓ Synced to cloud!' : 'Sync failed: ' + result.error, result.ok ? 'success' : 'error');
-  };
-
-  const handleLoadFromCloud = async () => {
-    if (!window.confirm('This will overwrite your local data with cloud data. Continue?')) return;
-    setSyncing(true);
-    const result = await cloudLoad();
-    setSyncing(false);
-    if (result.ok && result.data) {
-      window.location.reload(); // simplest way to reload with new data
-    } else {
-      showMsg(result.ok ? 'No cloud data found.' : 'Load failed: ' + result.error, 'error');
-    }
-  };
-
-  const handleDisconnect = () => {
-    clearSupabase();
-    showMsg('Disconnected from Supabase. Data saved locally only.', 'info');
-    setUrl(''); setKey('');
-  };
-
-  return (
-    <div className="card" style={{ marginBottom: 20 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-        <div className="section-title">Cloud Sync — Supabase</div>
-        <span style={{ fontSize: 12, padding: '2px 8px', borderRadius: 20, fontWeight: 600,
-          background: isConnected ? 'var(--profit-dim)' : 'rgba(255,255,255,0.05)',
-          color: isConnected ? 'var(--profit)' : 'var(--text-muted)',
-          border: isConnected ? '1px solid rgba(16,217,160,0.2)' : '1px solid var(--border)',
-        }}>
-          {isConnected ? '● Connected' : '○ Not connected'}
-        </span>
-      </div>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
-        Connect to Supabase to sync across devices and access your journal from the web. Free forever.
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">Supabase Project URL</label>
-          <input className="form-input" type="text" value={url} onChange={e => setUrl(e.target.value)}
-            placeholder="https://xxxx.supabase.co" />
-        </div>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">Supabase Anon Key</label>
-          <input className="form-input" type="password" value={key} onChange={e => setKey(e.target.value)}
-            placeholder="eyJ..." />
-        </div>
-      </div>
-
-      {msg && <div className={`alert alert-${msgType}`} style={{ marginBottom: 12 }}>{msg}</div>}
-
-      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-        <button className="btn btn-primary" onClick={handleConnect} disabled={testing}>
-          {testing ? 'Connecting...' : isConnected ? '↺ Reconnect' : '⚡ Connect'}
-        </button>
-        {isConnected && <>
-          <button className="btn btn-outline" onClick={handleSyncNow} disabled={syncing}>
-            {syncing ? 'Syncing...' : '↑ Push to Cloud'}
-          </button>
-          <button className="btn btn-outline" onClick={handleLoadFromCloud} disabled={syncing}>
-            ↓ Pull from Cloud
-          </button>
-          <button className="btn btn-danger btn-sm" onClick={handleDisconnect} style={{ marginLeft: 'auto' }}>
-            Disconnect
-          </button>
-        </>}
-      </div>
-
-      {isConnected && (
-        <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-muted)' }}>
-          Auto-syncs 2 seconds after any change · {lastSynced ? `Last synced: ${lastSynced.toLocaleTimeString('en-IN')}` : 'Not synced yet this session'}
-        </div>
-      )}
-
-      {/* Setup guide */}
-      <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          First time setup
-        </div>
-        <ol style={{ paddingLeft: 18, color: 'var(--text-muted)', fontSize: 12, lineHeight: 2.2 }}>
-          <li>Go to <a href="https://supabase.com" target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>supabase.com</a> → sign up free → New project</li>
-          <li>In SQL Editor, run this query:
-            <div style={{ background: 'var(--bg-primary)', borderRadius: 6, padding: '8px 12px', marginTop: 6, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.8 }}>
-              {'create table if not exists od_data ('}<br/>
-              {'  key text primary key,'}<br/>
-              {'  value jsonb not null,'}<br/>
-              {'  updated_at timestamptz default now()'}<br/>
-              {');'}<br/>
-              {'alter table od_data enable row level security;'}<br/>
-              {'create policy "Allow all" on od_data for all using (true);'}
-            </div>
-          </li>
-          <li>Go to <strong>Project Settings → API</strong> → copy <strong>Project URL</strong> and <strong>anon/public key</strong></li>
-          <li>Paste both above → click Connect</li>
-        </ol>
-      </div>
-    </div>
-  );
-}
-
-function CustomDateRanges() {
-  const { settings, updateSettings } = useJournal();
-  const ranges = settings.customDateRanges || [];
-  const [name, setName]     = useState('');
-  const [from, setFrom]     = useState('');
-  const [to, setTo]         = useState('');
-  const [msg, setMsg]       = useState('');
-
-  const add = () => {
-    if (!name.trim()) { setMsg('Enter a name for this range.'); return; }
-    if (!from && !to)  { setMsg('Enter at least a start or end date.'); return; }
-    const newRange = { id: uuidv4(), name: name.trim(), from: from || null, to: to || null };
-    updateSettings({ customDateRanges: [...ranges, newRange] });
-    setName(''); setFrom(''); setTo('');
-    setMsg('✓ Saved!');
-    setTimeout(() => setMsg(''), 2000);
-  };
-
-  const remove = (id) => {
-    updateSettings({ customDateRanges: ranges.filter(r => r.id !== id) });
-  };
-
-  const fmtDate = (d) => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—';
-
-  return (
-    <div className="card" style={{ marginBottom: 20 }}>
-      <div className="section-title" style={{ marginBottom: 6 }}>Custom Date Ranges</div>
-      <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
-        Save named date ranges here — they appear in the date selector on all pages.
-      </div>
-
-      {/* Add form */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto auto auto', gap: 10, alignItems: 'flex-end', marginBottom: 12 }}>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">Range Name</label>
-          <input className="form-input" value={name} onChange={e => setName(e.target.value)}
-            placeholder="e.g. Diwali Rally, My Analysis..." onKeyDown={e => e.key === 'Enter' && add()} />
-        </div>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">From</label>
-          <input className="form-input" type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ minWidth: 140 }} />
-        </div>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label">To</label>
-          <input className="form-input" type="date" value={to} onChange={e => setTo(e.target.value)} style={{ minWidth: 140 }} />
-        </div>
-        <div className="form-group" style={{ marginBottom: 0 }}>
-          <label className="form-label" style={{ opacity: 0 }}>Add</label>
-          <button className="btn btn-primary" onClick={add} style={{ whiteSpace: 'nowrap' }}>+ Save Range</button>
-        </div>
-      </div>
-
-      {msg && (
-        <div className={`alert ${msg.startsWith('✓') ? 'alert-success' : 'alert-error'}`} style={{ marginBottom: 12 }}>
-          {msg}
-        </div>
-      )}
-
-      {/* Saved ranges */}
-      {ranges.length === 0 ? (
-        <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: '8px 0', fontStyle: 'italic' }}>
-          No custom ranges saved yet.
-        </div>
-      ) : (
-        <div>
-          {ranges.map(r => (
-            <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '9px 0', borderBottom: '1px solid var(--border)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <span style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: 13 }}>{r.name}</span>
-                <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace" }}>
-                  {fmtDate(r.from)} → {fmtDate(r.to)}
-                </span>
-              </div>
-              <button
-                onClick={() => remove(r.id)}
-                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 16, padding: '2px 6px', opacity: 0.6 }}
-                title="Delete this range"
-              >×</button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 export default function Settings() {
   const { accounts, addAccount, deleteAccount, settings, updateSettings, exportData, importData } = useJournal();
