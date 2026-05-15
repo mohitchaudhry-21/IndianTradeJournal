@@ -280,6 +280,7 @@ export function JournalProvider({ children }) {
         closeDate: allClosed ? legs.reduce((max, l) => (l.exitDate || '') > max ? (l.exitDate || '') : max, '') : null,
         notes: first.positionNotes || first.notes || '',
         margin: first.positionMargin || null,
+        charges: first.positionCharges || null,
       };
     });
   }, [trades, settings.lotSizes]);
