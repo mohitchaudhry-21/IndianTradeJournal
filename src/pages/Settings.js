@@ -42,19 +42,31 @@ function AccountCredentials({ account, credentials, onSave }) {
   return (
     <div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginBottom: 14 }}>
-        {/* Per-account brokerage */}
-        <div className="form-group" style={{ marginBottom: 12 }}>
-          <label className="form-label">Brokerage Per Lot (₹) — overrides global setting</label>
-          <input
-            className="form-input"
-            type="number"
-            placeholder={`Global: ${settings.brokeragePerLot || 40}`}
-            value={creds['_brokerage'] || ''}
-            onChange={e => set('_brokerage', e.target.value)}
-          />
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(180px, 1fr))', gap:12, marginBottom:14 }}>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Brokerage Per Lot (₹)</label>
+            <input
+              className="form-input"
+              type="number"
+              placeholder={`Global default: ${settings.brokeragePerLot || 40}`}
+              value={creds['_brokerage'] || ''}
+              onChange={e => set('_brokerage', e.target.value)}
+            />
+          </div>
+          {fields.map(f => (
+            <div key={f.key} className="form-group" style={{ marginBottom:0 }}>
+              <label className="form-label">{f.label}</label>
+              <input
+                className="form-input"
+                type={f.type || 'text'}
+                placeholder={f.placeholder}
+                value={creds[f.key] || ''}
+                onChange={e => set(f.key, e.target.value)}
+              />
+            </div>
+          ))}
         </div>
-
-        {fields.map(f => (
+        {false && fields.map(f => (
           <div key={f.key} className="form-group" style={{ marginBottom: 0 }}>
             <label className="form-label">{f.label}</label>
             <input
