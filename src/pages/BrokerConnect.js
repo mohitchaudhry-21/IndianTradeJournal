@@ -197,10 +197,9 @@ export default function BrokerConnect() {
         savedAccounts={accounts.filter(a => a.broker === 'kotak')}
         savedCredentials={settings.brokerCredentials || {}}
         fields={[
-          { key: 'consumerKey', label: 'Consumer Key', placeholder: 'From Kotak Neo API' },
-          { key: 'consumerSecret', label: 'Consumer Secret', type: 'password', placeholder: 'Consumer secret' },
+          { key: 'consumerKey', label: 'Consumer Key (Token)', placeholder: 'e.g. f70f5e1d-c563-...' },
           { key: 'mobile', label: 'Mobile Number', placeholder: 'Registered mobile' },
-          { key: 'password', label: 'Trading Password', type: 'password', placeholder: 'Trading password' },
+          { key: 'password', label: 'Trading Password', type: 'password', placeholder: 'Kotak Neo password' },
           { key: 'otp', label: 'OTP (when prompted)', placeholder: 'Enter after request' },
         ]}
       />
