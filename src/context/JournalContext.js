@@ -283,7 +283,7 @@ export function JournalProvider({ children }) {
         charges: first.positionCharges || null,
       };
     });
-  }, [trades, settings.lotSizes]);
+  }, [trades, settings.lotSizes, activeAccountId, dateFilter]);
 
   // ─── Stats ───────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
