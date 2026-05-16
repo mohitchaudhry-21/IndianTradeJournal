@@ -333,18 +333,30 @@ def connect_kotak():
     if missing:
         return jsonify({'success': False, 'error': f'Missing: {", ".join(missing)}'}), 400
 
+    # Ensure mobile has country code
+    if not mobile.startswith('+'):
+        mobile = '+91' + mobile.lstrip('0')
+
     try:
         client = KotakNeoAPI(consumer_key=access_token, environment='prod')
 
         # Step 1: TOTP login
-        login_resp = client.totp_login(mobile_number=mobile, ucc=ucc, totp=totp_code)
-        if not login_resp or login_resp.get('error'):
-            return jsonify({'success': False, 'error': str(login_resp)}), 400
+        try:
+            login_resp = client.totp_login(mobile_number=mobile, ucc=ucc, totp=totp_code)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Login failed: {str(e)}. Check Access Token and UCC.'}), 400
+
+        if login_resp and isinstance(login_resp, dict) and login_resp.get('error'):
+            return jsonify({'success': False, 'error': login_resp.get('message', str(login_resp))}), 400
 
         # Step 2: MPIN validate
-        val_resp = client.totp_validate(mpin=mpin)
-        if not val_resp or val_resp.get('error'):
-            return jsonify({'success': False, 'error': str(val_resp)}), 400
+        try:
+            val_resp = client.totp_validate(mpin=mpin)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'MPIN validation failed: {str(e)}'}), 400
+
+        if val_resp and isinstance(val_resp, dict) and val_resp.get('error'):
+            return jsonify({'success': False, 'error': val_resp.get('message', str(val_resp))}), 400
 
         kotak_client_obj = client
         sessions['kotak'] = {'accountId': data.get('accountId', 'kotak_default')}
