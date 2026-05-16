@@ -13,10 +13,9 @@ const BROKER_FIELDS = {
     { key: 'totpSecret',  label: 'TOTP Secret',      type: 'password', placeholder: 'Base32 secret from TOTP setup' },
   ],
   kotak: [
-    { key: 'consumerKey',    label: 'Consumer Key',     type: 'text',     placeholder: 'From Kotak Neo API' },
-    { key: 'consumerSecret', label: 'Consumer Secret',  type: 'password', placeholder: 'Consumer secret' },
-    { key: 'mobile',         label: 'Mobile Number',    type: 'text',     placeholder: 'Registered mobile' },
-    { key: 'password',       label: 'Trading Password', type: 'password', placeholder: 'Trading password' },
+    { key: 'consumerKey', label: 'Consumer Key (Token)', type: 'text',     placeholder: 'e.g. f70f5e1d-c563-...' },
+    { key: 'mobile',      label: 'Mobile Number',        type: 'text',     placeholder: 'Registered mobile' },
+    { key: 'password',    label: 'Trading Password',     type: 'password', placeholder: 'Your Kotak Neo password' },
   ],
   zerodha: [
     { key: 'userId',    label: 'User ID',     type: 'text',     placeholder: 'Zerodha user ID' },
