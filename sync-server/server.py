@@ -189,93 +189,53 @@ def map_angel_position(p, account_id):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# KOTAK NEO API
+# KOTAK NEO API v2 (uses official neo-api-client SDK)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-KOTAK_BASE = 'https://gw-napi.kotaksecurities.com'
+try:
+    from neo_api_client import NeoAPI as KotakNeoAPI
+    NEO_SDK_AVAILABLE = True
+except ImportError:
+    NEO_SDK_AVAILABLE = False
 
-def kotak_request_otp(consumer_key, consumer_secret, mobile, password):
-    """Step 1: Request OTP from Kotak."""
-    import base64
-    token = base64.b64encode(f'{consumer_key}:{consumer_secret}'.encode()).decode()
-    r = requests.post(
-        f'{KOTAK_BASE}/login/1.0/login/v2/validate',
-        json={'mobileNumber': mobile, 'password': password},
-        headers={'Authorization': f'Basic {token}', 'Content-Type': 'application/json'},
-        timeout=10
-    )
-    data = r.json()
-    if data.get('error_code') == '00000':
-        return True, data.get('sid', '')
-    raise Exception(data.get('description', 'Kotak OTP request failed'))
+# Store kotak client object globally (one instance)
+kotak_client_obj = None
 
-def kotak_validate_otp(consumer_key, consumer_secret, mobile, otp, sid):
-    """Step 2: Validate OTP and get token."""
-    import base64
-    token = base64.b64encode(f'{consumer_key}:{consumer_secret}'.encode()).decode()
-    r = requests.post(
-        f'{KOTAK_BASE}/login/1.0/login/v2/token',
-        json={'mobileNumber': mobile, 'otp': otp, 'sid': sid},
-        headers={'Authorization': f'Basic {token}', 'Content-Type': 'application/json'},
-        timeout=10
-    )
-    data = r.json()
-    if data.get('error_code') == '00000':
-        return data['data'].get('token', ''), data['data'].get('sid', '')
-    raise Exception(data.get('description', 'Kotak OTP validation failed'))
-
-def kotak_tradebook(token, sid, consumer_key, consumer_secret):
-    import base64
-    cred = base64.b64encode(f'{consumer_key}:{consumer_secret}'.encode()).decode()
-    r = requests.get(
-        f'{KOTAK_BASE}/Orders/2.0/quick/orders/trade/history/v2',
-        headers={
-            'Authorization': f'Bearer {token}',
-            'Sid': sid,
-            'Auth': token,
-            'neo-fin-key': 'neotradeapi',
-        },
-        timeout=10
-    )
-    return r.json().get('data', [])
-
-def kotak_positions(token, sid):
-    r = requests.get(
-        f'{KOTAK_BASE}/Orders/2.0/quick/user/positions/v2',
-        headers={
-            'Authorization': f'Bearer {token}',
-            'Sid': sid,
-            'neo-fin-key': 'neotradeapi',
-        },
-        timeout=10
-    )
-    return r.json().get('data', [])
-
-def map_kotak_trade(t, account_id):
-    sym = parse_symbol(t.get('trdSym', '') or t.get('sym', ''))
-    if not sym:
+def map_kotak_position(p, account_id):
+    """Map Kotak Neo position to OptionsDesk format."""
+    try:
+        symbol = p.get('trdSym', '') or p.get('sym', '') or ''
+        parsed = parse_symbol(symbol)
+        if not parsed:
+            return None
+        lot_size = get_lot_size(parsed['instrument'])
+        qty = int(p.get('flBuyQty', 0) or 0) - int(p.get('flSellQty', 0) or 0)
+        if qty == 0:
+            qty = int(p.get('netQty', 0) or 0)
+        if qty == 0:
+            return None
+        lots = abs(qty) // lot_size if lot_size > 0 else abs(qty)
+        tx_type = 'SELL' if qty < 0 else 'BUY'
+        price = float(p.get('avgBuyPrc', 0) or p.get('avgSellPrc', 0) or p.get('ltp', 0) or 0)
+        return {
+            'id': str(uuid4()),
+            'brokerTradeId': p.get('tok', ''),
+            'accountId': account_id,
+            'source': 'kotak',
+            'instrument': parsed['instrument'],
+            'expiry': parsed['expiry'],
+            'strike': parsed['strike'],
+            'optionType': parsed['optionType'],
+            'transactionType': tx_type,
+            'quantity': lots,
+            'lotSize': lot_size,
+            'premium': price,
+            'date': datetime.now().strftime('%Y-%m-%d'),
+            'status': 'OPEN',
+            'strategyName': 'Custom',
+        }
+    except Exception:
         return None
-    lot_size = get_lot_size(sym['instrument'])
-    qty = int(t.get('flQty', 0))
-    lots = qty // lot_size if lot_size > 0 else qty
-    return {
-        'id': str(uuid4()),
-        'brokerTradeId': t.get('ordId', ''),
-        'accountId': account_id,
-        'source': 'kotak',
-        'instrument': sym['instrument'],
-        'expiry': sym['expiry'],
-        'strike': sym['strike'],
-        'optionType': sym['optionType'],
-        'transactionType': 'BUY' if t.get('trnsTp', '').upper() == 'BUY' else 'SELL',
-        'quantity': lots,
-        'lotSize': lot_size,
-        'premium': float(t.get('flPrc', 0)),
-        'date': datetime.now().strftime('%Y-%m-%d'),
-        'status': 'CLOSED',
-        'strategyName': 'Custom',
-    }
-
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # API ENDPOINTS
@@ -358,118 +318,52 @@ def sync_angelone():
 
 @app.route('/connect/kotak', methods=['POST'])
 def connect_kotak():
+    global kotak_client_obj
+    if not NEO_SDK_AVAILABLE:
+        return jsonify({'success': False, 'error': 'Run: pip install neo-api-client, then restart server'}), 400
+
     data = request.json
-    required = ['consumerKey', 'mobile', 'password']
-    missing = [k for k in required if not data.get(k)]
+    access_token = data.get('consumerKey', '')
+    mobile       = data.get('mobile', '')
+    ucc          = data.get('ucc', '')
+    mpin         = data.get('password', '')
+    totp_code    = data.get('totp', '')
+
+    missing = [k for k, v in {'Access Token': access_token, 'Mobile': mobile, 'UCC': ucc, 'MPIN': mpin, 'TOTP': totp_code}.items() if not v]
     if missing:
         return jsonify({'success': False, 'error': f'Missing: {", ".join(missing)}'}), 400
+
     try:
-        if data.get('otp'):
-            # Step 2: validate OTP
-            sid = sessions.get('kotak_sid', '')
-            token, new_sid = kotak_validate_otp(
-                data['consumerKey'], data['consumerKey'],
-                data['mobile'], data['otp'], sid
-            )
-            sessions['kotak'] = {
-                'token': token,
-                'sid': new_sid,
-                'consumerKey': data['consumerKey'],
-                'consumerSecret': data['consumerKey'],  # neo api v2 uses key as secret
-                'accountId': data.get('accountId', 'kotak_default'),
-            }
-            return jsonify({'success': True, 'message': 'Connected to Kotak Neo'})
-        else:
-            # Step 1: request OTP
-            ok, sid = kotak_request_otp(
-                data['consumerKey'], data['consumerKey'],
-                data['mobile'], data['password']
-            )
-            sessions['kotak_sid'] = sid
-            return jsonify({'success': False, 'error': 'OTP sent to your mobile. Enter it and click Connect again.', 'needsOtp': True})
+        client = KotakNeoAPI(consumer_key=access_token, environment='prod')
+
+        # Step 1: TOTP login
+        login_resp = client.totp_login(mobile_number=mobile, ucc=ucc, totp=totp_code)
+        if not login_resp or login_resp.get('error'):
+            return jsonify({'success': False, 'error': str(login_resp)}), 400
+
+        # Step 2: MPIN validate
+        val_resp = client.totp_validate(mpin=mpin)
+        if not val_resp or val_resp.get('error'):
+            return jsonify({'success': False, 'error': str(val_resp)}), 400
+
+        kotak_client_obj = client
+        sessions['kotak'] = {'accountId': data.get('accountId', 'kotak_default')}
+        return jsonify({'success': True, 'message': f'Connected to Kotak Neo ({ucc})'})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 400
 
 @app.route('/sync/kotak', methods=['POST'])
 def sync_kotak():
-    s = sessions.get('kotak')
-    if not s:
+    global kotak_client_obj
+    if not kotak_client_obj or 'kotak' not in sessions:
         return jsonify({'success': False, 'error': 'Not connected. Connect first.'}), 401
     try:
-        trades_raw = kotak_tradebook(s['token'], s['sid'], s['consumerKey'], s.get('consumerSecret', s['consumerKey']))
-        account_id = s['accountId']
-        trades = [t for r in trades_raw if (t := map_kotak_trade(r, account_id)) is not None]
+        account_id = sessions['kotak']['accountId']
+        pos_resp   = kotak_client_obj.positions()
+        positions  = pos_resp.get('data', []) if isinstance(pos_resp, dict) else []
+        trades     = [t for p in positions if (t := map_kotak_position(p, account_id)) is not None]
+        trades     = group_open_positions(trades)
         return jsonify({'success': True, 'count': len(trades), 'trades': trades})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
-
-
-@app.route('/extract-screenshot', methods=['POST'])
-def extract_screenshot():
-    """Use Claude API to extract trades from a broker screenshot."""
-    data = request.json
-    api_key = data.get('apiKey', '')
-    image_data = data.get('image', '')
-    image_type = data.get('imageType', 'image/jpeg')
-
-    if not api_key:
-        return jsonify({'success': False, 'error': 'Anthropic API key not set. Add it in Settings.'}), 400
-    if not image_data:
-        return jsonify({'success': False, 'error': 'No image provided'}), 400
-
-    prompt = """Extract all option positions from this broker app screenshot.
-Return ONLY a JSON array with no markdown, no explanation:
-[
-  {
-    "instrument": "NIFTY",
-    "expiry": "2026-05-19",
-    "strike": 22850,
-    "optionType": "PE",
-    "transactionType": "BUY",
-    "lots": 3,
-    "avgPrice": 54.89,
-    "lotSize": 65
-  }
-]
-Rules:
-- expiry: ISO date YYYY-MM-DD
-- transactionType: BUY if buy tag or positive lots, SELL if sell tag or negative lots
-- optionType: CE or PE only
-- lotSize: read from "(1 Lot = X)" if visible, else 65 for NIFTY, 15 for BANKNIFTY, 25 for FINNIFTY
-- avgPrice: the Avg price shown (not LTP/current price)
-- Return [] if no option positions found"""
-
-    try:
-        res = requests.post(
-            'https://api.anthropic.com/v1/messages',
-            headers={
-                'x-api-key': api_key,
-                'anthropic-version': '2023-06-01',
-                'content-type': 'application/json',
-            },
-            json={
-                'model': 'claude-sonnet-4-20250514',
-                'max_tokens': 1000,
-                'messages': [{
-                    'role': 'user',
-                    'content': [
-                        {'type': 'image', 'source': {'type': 'base64', 'media_type': image_type, 'data': image_data}},
-                        {'type': 'text', 'text': prompt}
-                    ]
-                }]
-            },
-            timeout=30
-        )
-        result = res.json()
-        if 'error' in result:
-            return jsonify({'success': False, 'error': result['error'].get('message', 'API error')}), 400
-        
-        raw = result.get('content', [{}])[0].get('text', '[]')
-        clean = raw.replace('```json', '').replace('```', '').strip()
-        trades = json.loads(clean)
-        return jsonify({'success': True, 'trades': trades})
-    except json.JSONDecodeError:
-        return jsonify({'success': False, 'error': 'Could not parse extracted data. Try a clearer screenshot.'}), 400
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
