@@ -197,10 +197,11 @@ export default function BrokerConnect() {
         savedAccounts={accounts.filter(a => a.broker === 'kotak')}
         savedCredentials={settings.brokerCredentials || {}}
         fields={[
-          { key: 'consumerKey', label: 'Consumer Key (Token)', placeholder: 'e.g. f70f5e1d-c563-...' },
-          { key: 'mobile', label: 'Mobile Number', placeholder: 'Registered mobile' },
-          { key: 'password', label: 'Trading Password', type: 'password', placeholder: 'Kotak Neo password' },
-          { key: 'otp', label: 'OTP (when prompted)', placeholder: 'Enter after request' },
+          { key: 'consumerKey', label: 'Access Token',      placeholder: 'From Trade API dashboard' },
+          { key: 'ucc',         label: 'UCC / Client Code', placeholder: 'From your Kotak profile' },
+          { key: 'mobile',      label: 'Mobile Number',     placeholder: '+91XXXXXXXXXX' },
+          { key: 'password',    label: 'MPIN',              type: 'password', placeholder: '6-digit MPIN' },
+          { key: 'totp',        label: 'TOTP (6-digit)',    placeholder: 'From Google Authenticator now' },
         ]}
       />
 
