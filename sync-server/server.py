@@ -359,7 +359,7 @@ def sync_angelone():
 @app.route('/connect/kotak', methods=['POST'])
 def connect_kotak():
     data = request.json
-    required = ['consumerKey', 'consumerSecret', 'mobile', 'password']
+    required = ['consumerKey', 'mobile', 'password']
     missing = [k for k in required if not data.get(k)]
     if missing:
         return jsonify({'success': False, 'error': f'Missing: {", ".join(missing)}'}), 400
@@ -368,21 +368,21 @@ def connect_kotak():
             # Step 2: validate OTP
             sid = sessions.get('kotak_sid', '')
             token, new_sid = kotak_validate_otp(
-                data['consumerKey'], data['consumerSecret'],
+                data['consumerKey'], data['consumerKey'],
                 data['mobile'], data['otp'], sid
             )
             sessions['kotak'] = {
                 'token': token,
                 'sid': new_sid,
                 'consumerKey': data['consumerKey'],
-                'consumerSecret': data['consumerSecret'],
+                'consumerSecret': data['consumerKey'],  # neo api v2 uses key as secret
                 'accountId': data.get('accountId', 'kotak_default'),
             }
             return jsonify({'success': True, 'message': 'Connected to Kotak Neo'})
         else:
             # Step 1: request OTP
             ok, sid = kotak_request_otp(
-                data['consumerKey'], data['consumerSecret'],
+                data['consumerKey'], data['consumerKey'],
                 data['mobile'], data['password']
             )
             sessions['kotak_sid'] = sid
@@ -396,7 +396,7 @@ def sync_kotak():
     if not s:
         return jsonify({'success': False, 'error': 'Not connected. Connect first.'}), 401
     try:
-        trades_raw = kotak_tradebook(s['token'], s['sid'], s['consumerKey'], s['consumerSecret'])
+        trades_raw = kotak_tradebook(s['token'], s['sid'], s['consumerKey'], s.get('consumerSecret', s['consumerKey']))
         account_id = s['accountId']
         trades = [t for r in trades_raw if (t := map_kotak_trade(r, account_id)) is not None]
         return jsonify({'success': True, 'count': len(trades), 'trades': trades})
