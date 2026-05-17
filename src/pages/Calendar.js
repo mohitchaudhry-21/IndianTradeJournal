@@ -93,7 +93,7 @@ export default function Calendar() {
   const today = new Date().toISOString().slice(0,10);
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%', gap:0 }}>
+    <div style={{ display:'flex', flexDirection:'column', minHeight:'calc(100vh - 80px)', gap:0 }}>
 
       {/* ── Top bar ──────────────────────────────────────────────────────── */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:20, flexWrap:'wrap', gap:12 }}>
@@ -167,7 +167,7 @@ export default function Calendar() {
                   key={i}
                   onClick={() => inMonth && setSelected(isSelected ? null : key)}
                   style={{
-                    minHeight: 90,
+                    minHeight: 'clamp(80px, 8vh, 140px)',
                     padding: '10px 12px',
                     background: bg,
                     borderTop: '1px solid var(--border)',
