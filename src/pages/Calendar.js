@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import AccountBadge from '../components/AccountBadge';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
+import AccountTag from '../components/AccountTag';
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAY_LABELS  = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
