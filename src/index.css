@@ -23,7 +23,7 @@
   --text-secondary:#8A97B0;
   --text-muted:    #4A5670;
 
-  --sidebar-w:     clamp(180px, 16vw, 240px);
+  --sidebar-w:     230px;
   --radius:        10px;
   --radius-sm:     6px;
 }
@@ -44,15 +44,15 @@ body {
 
 /* Layout */
 .app-layout { display:flex; min-height:100vh; }
-.main-content { flex:1; margin-left:var(--sidebar-w); padding:clamp(14px,2vw,28px) clamp(16px,2.5vw,32px); min-height:100vh; overflow-x:hidden; }
+.main-content { flex:1; margin-left:var(--sidebar-w); padding:28px 32px; min-height:100vh; overflow-x:hidden; }
 
 /* Page header */
 .page-header { margin-bottom:28px; }
-.page-title { font-size:clamp(18px,2vw,22px); font-weight:700; color:var(--text-primary); letter-spacing:-0.4px; }
+.page-title { font-size:22px; font-weight:700; color:var(--text-primary); letter-spacing:-0.4px; }
 .page-subtitle { font-size:13px; color:var(--text-muted); margin-top:4px; }
 
 /* Cards */
-.card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:clamp(14px,1.5vw,20px); }
+.card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:20px; }
 .card-label { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); margin-bottom:8px; }
 
 /* Stat grid */
@@ -169,77 +169,14 @@ tbody td.mono{font-family:'JetBrains Mono',monospace;}
 .leg-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); }
 .leg-row:last-child { border-bottom:none; }
 
-/* ── Responsive layout ──────────────────────────────────────────────────── */
-/* Fluid content area */
-.page-header { flex-wrap: wrap; }
-
-/* Tables scroll horizontally on small screens */
-.table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-
-/* ── Mobile (< 768px) ────────────────────────────────────────────────────── */
-@media (max-width: 768px) {
-  .app-layout {
-    flex-direction: column !important;
-  }
-  .sidebar {
-    width: 100% !important;
-    min-width: unset !important;
-    max-height: 60px;
-    overflow: hidden;
-    flex-direction: row !important;
-    border-right: none !important;
-    border-bottom: 1px solid var(--border);
-  }
-  .sidebar.mobile-open {
-    max-height: 100vh;
-    flex-direction: column !important;
-  }
-  .main-content {
-    padding: 16px !important;
-  }
+/* ── Small screens only (MacBook Air and below) ── */
+@media (max-width: 1280px) {
+  .main-content { padding: 16px 18px !important; }
   .card { padding: 14px !important; }
-  .page-title { font-size: 20px !important; }
-  /* Calendar cells smaller on mobile */
-  [style*="minHeight: 90"] { min-height: 60px !important; }
+  .page-title { font-size: 18px !important; }
 }
 
-/* ── Small screens (768–1200px) — MacBook Air etc ───────────────────────── */
-@media (max-width: 1200px) {
-  .main-content {
-    padding: 16px 20px !important;
-  }
-}
-
-/* ── Large screens (> 1800px) — 2K / 4K monitors ────────────────────────── */
-@media (min-width: 1800px) {
-  .main-content {
-    max-width: 1600px;
-  }
-  .sidebar {
-    width: 240px !important;
-    min-width: 240px !important;
-  }
-}
-
-/* ── Trade History table responsive columns ─────────────────────────────── */
-/* Hide less important columns progressively as screen narrows */
-.col-hide-xl  { }                          /* always visible           */
-.col-hide-lg  { }                          /* hidden < 1400px          */
-.col-hide-md  { }                          /* hidden < 1200px          */
-.col-hide-sm  { }                          /* hidden < 1024px          */
-
-@media (max-width: 1400px) {
-  .col-hide-lg { display: none !important; }
-}
-@media (max-width: 1200px) {
-  .col-hide-md { display: none !important; }
-}
-@media (max-width: 1024px) {
-  .col-hide-sm { display: none !important; }
-}
-
-/* Thin scrollbar for tables */
-.table-scroll::-webkit-scrollbar { height: 5px; }
-.table-scroll::-webkit-scrollbar-track { background: var(--bg-card2); border-radius: 3px; }
-.table-scroll::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 3px; }
-.table-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+/* ── Thin scrollbar for overflow tables ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-card2); }
+::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 3px; }
