@@ -562,7 +562,13 @@ export default function TradeHistory() {
                         onChange={name => updatePositionStrategy(p.positionId, name)} />
                     )}
 
-                    {td(p.instrument, { fontWeight: 600, color: 'var(--text-primary)', whiteSpace: 'nowrap' })}
+                    {td(
+                      <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                        <span style={{ fontWeight:600, color:'var(--text-primary)' }}>{p.instrument}</span>
+                        <AccountTag accountId={p.accountId} />
+                      </div>,
+                      { whiteSpace: 'nowrap' }
+                    )}
 
                     {td(<LegsInline legs={p.legs} />, { minWidth: 200 })}
 
