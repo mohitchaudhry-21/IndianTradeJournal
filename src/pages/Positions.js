@@ -104,6 +104,7 @@ function PositionCard({ position, onClose, onDelete }) {
           <span className={`badge ${position.strategyName?.toLowerCase().replace(/ /g, '_') || 'custom'}`}>
             {position.strategyName || 'Custom'}
           </span>
+          <AccountTag accountId={position.accountId} />
           <span style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.2px' }}>
             {position.instrument}
           </span>
