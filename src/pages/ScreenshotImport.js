@@ -177,7 +177,7 @@ function parseOCRText(text) {
     // ── Avg price: handle any OCR rupee artifact (¥, %, ₹, 3, space) ──────
     if (cur) {
       const avgM = line.match(/[Aa][Vv][Gg][^\d]*([\d]+\.?[\d]*)/);
-      if (avgM && !cur.avgPrice) cur.avgPrice = parseFloat(avgM[1]);
+      if (avgM && !cur.avgPrice) cur.avgPrice = parseFloat(fixRupee(avgM[1]));
 
       // Lot size hint: "(1 Lot = 65)"
       const lsM = line.match(/1\s*[Ll]ot\s*[=:]\s*(\d+)/);
