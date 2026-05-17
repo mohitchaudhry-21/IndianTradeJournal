@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import AccountBadge from '../components/AccountBadge';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
-import AccountTag from '../components/AccountTag';
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAY_LABELS  = ['MON','TUE','WED','THU','FRI','SAT','SUN'];
@@ -24,6 +23,26 @@ function fmtFull(n) {
 function pad(n) { return String(n).padStart(2, '0'); }
 
 function dateStr(y, m, d) { return `${y}-${pad(m)}-${pad(d)}`; }
+
+
+// Inline account tag — shows coloured pill only when viewing All Accounts
+function AccountTag({ accountId }) {
+  const { accounts, activeAccountId } = useJournal();
+  if (activeAccountId || !accountId) return null;
+  const acc = accounts.find(a => a.id === accountId);
+  if (!acc) return null;
+  return (
+    <span style={{
+      display:'inline-flex', alignItems:'center', gap:3,
+      fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:10,
+      background:(acc.color||'#3B82F6')+'22', color:acc.color||'#3B82F6',
+      border:`1px solid ${acc.color||'#3B82F6'}44`, whiteSpace:'nowrap',
+    }}>
+      <span style={{width:5,height:5,borderRadius:'50%',background:acc.color||'#3B82F6'}}/>
+      {acc.name}
+    </span>
+  );
+}
 
 export default function Calendar() {
   const { positions } = useJournal();
@@ -270,40 +289,43 @@ export default function Calendar() {
 
         {/* Day detail panel */}
         {selected && (
-          <div className="card" style={{ position: 'sticky', top: 20 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+          <div className="card" style={{ position: 'sticky', top: 20, minWidth: 260 }}>
+            {/* Header */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 14, paddingBottom: 12, borderBottom: '1px solid var(--border)' }}>
               <div>
-                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>
+                <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--text-primary)' }}>
                   {new Date(selected + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
                 </div>
-                {selectedData && (
-                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, fontWeight: 700, marginTop: 4, color: selectedData.pnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
-                    {selectedData.closed.length > 0 ? fmtFull(selectedData.pnl) : ''}
+                {selectedData?.closed.length > 0 && (
+                  <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, fontWeight: 800, marginTop: 4, color: selectedData.pnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                    {fmtFull(selectedData.pnl)}
                   </div>
                 )}
               </div>
-              <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 18 }}>×</button>
+              <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 20, lineHeight: 1, padding: '0 2px' }}>×</button>
             </div>
 
             {/* Closed positions */}
             {selectedData?.closed.length > 0 && (
-              <div style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 8 }}>Closed</div>
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Closed</div>
                 {selectedData.closed.map(p => (
-                  <div key={p.positionId} style={{ background: 'var(--bg-primary)', borderRadius: 8, padding: '10px 12px', marginBottom: 8, border: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <span className={`badge ${(p.strategyName||'custom').toLowerCase().replace(/ /g,'_')}`} style={{ fontSize: 10 }}>{p.strategyName||'Custom'}</span>
-                        <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 13 }}>{p.instrument}</span>
+                  <div key={p.positionId} style={{ borderRadius: 8, padding: '10px 12px', marginBottom: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 6 }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 3 }}>
+                          <span className={`badge ${(p.strategyName||'custom').toLowerCase().replace(/ /g,'_')}`} style={{ fontSize: 10 }}>{p.strategyName||'Custom'}</span>
+                          <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 13 }}>{p.instrument}</span>
+                        </div>
                         <AccountTag accountId={p.accountId} />
                       </div>
-                      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, fontWeight: 700, color: (p.realizedPnL||0) >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, fontWeight: 700, color: (p.realizedPnL||0) >= 0 ? 'var(--profit)' : 'var(--loss)', flexShrink: 0 }}>
                         {fmtFull(p.realizedPnL)}
                       </span>
                     </div>
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
                       {p.legs?.map((leg, i) => (
-                        <span key={i} style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-card)', padding: '2px 6px', borderRadius: 4 }}>
+                        <span key={i} style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-card2)', padding: '2px 6px', borderRadius: 4 }}>
                           {leg.optionType} {leg.transactionType === 'SELL' ? 'S' : 'B'} {leg.strike}
                         </span>
                       ))}
@@ -316,20 +338,22 @@ export default function Calendar() {
             {/* Opened positions */}
             {selectedData?.opened.length > 0 && (
               <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 8 }}>Opened</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>Opened</div>
                 {selectedData.opened.map(p => (
-                  <div key={p.positionId} style={{ background: 'var(--bg-primary)', borderRadius: 8, padding: '10px 12px', marginBottom: 8, border: '1px solid var(--border)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <span className={`badge ${(p.strategyName||'custom').toLowerCase().replace(/ /g,'_')}`} style={{ fontSize: 10 }}>{p.strategyName||'Custom'}</span>
-                        <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 13 }}>{p.instrument}</span>
+                  <div key={p.positionId} style={{ borderRadius: 8, padding: '10px 12px', marginBottom: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8, marginBottom: 4 }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', marginBottom: 3 }}>
+                          <span className={`badge ${(p.strategyName||'custom').toLowerCase().replace(/ /g,'_')}`} style={{ fontSize: 10 }}>{p.strategyName||'Custom'}</span>
+                          <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 13 }}>{p.instrument}</span>
+                        </div>
                         <AccountTag accountId={p.accountId} />
                       </div>
-                      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--profit)' }}>
+                      <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--profit)', flexShrink: 0 }}>
                         +{fmtFull(p.netPremiumCollected)}
                       </span>
                     </div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
                       Exp: {p.expiry ? new Date(p.expiry + 'T12:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}
                       {p.daysToExpiry !== null ? ` · ${p.daysToExpiry}d left` : ''}
                     </div>
