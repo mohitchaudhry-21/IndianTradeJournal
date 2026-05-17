@@ -44,7 +44,7 @@ body {
 
 /* Layout */
 .app-layout { display:flex; min-height:100vh; }
-.main-content { flex:1; margin-left:var(--sidebar-w); padding:clamp(14px,2vw,28px) clamp(16px,2.5vw,32px); min-height:100vh; }
+.main-content { flex:1; margin-left:var(--sidebar-w); padding:clamp(14px,2vw,28px) clamp(16px,2.5vw,32px); min-height:100vh; overflow-x:hidden; }
 
 /* Page header */
 .page-header { margin-bottom:28px; }
@@ -237,3 +237,9 @@ tbody td.mono{font-family:'JetBrains Mono',monospace;}
 @media (max-width: 1024px) {
   .col-hide-sm { display: none !important; }
 }
+
+/* Thin scrollbar for tables */
+.table-scroll::-webkit-scrollbar { height: 5px; }
+.table-scroll::-webkit-scrollbar-track { background: var(--bg-card2); border-radius: 3px; }
+.table-scroll::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 3px; }
+.table-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
