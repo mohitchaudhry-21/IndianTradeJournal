@@ -178,7 +178,7 @@ export default function Dashboard() {
                 {openPositions.slice(0, 5).map(p => (
                   <tr key={p.positionId} style={{ cursor: 'pointer' }} onClick={() => navigate('/positions')}>
                     <td><span className={`badge ${p.strategyName?.toLowerCase().replace(' ', '_') || 'custom'}`}>{p.strategyName || 'Custom'}</span></td>
-                    <td className="text-primary">{p.instrument}</td>
+                    <td className="text-primary"><div style={{ display:'flex', alignItems:'center', gap:6 }}>{p.instrument}<AccountTag accountId={p.accountId} /></div></td>
                     <td className="mono">{p.expiry ? new Date(p.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}</td>
                     <td>
                       <span style={{ color: (p.daysToExpiry ?? 99) <= 3 ? 'var(--loss)' : (p.daysToExpiry ?? 99) <= 7 ? 'var(--accent)' : 'var(--text-secondary)', fontFamily: "'JetBrains Mono', monospace" }}>
@@ -228,7 +228,7 @@ export default function Dashboard() {
                   return (
                     <tr key={p.positionId}>
                       <td><span className={`badge ${p.strategyName?.toLowerCase().replace(' ', '_') || 'custom'}`}>{p.strategyName || 'Custom'}</span></td>
-                      <td className="text-primary">{p.instrument}</td>
+                      <td className="text-primary"><div style={{ display:'flex', alignItems:'center', gap:6 }}>{p.instrument}<AccountTag accountId={p.accountId} /></div></td>
                       <td className="mono">{p.expiry ? new Date(p.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}</td>
                       <td className="mono">{fmt(p.netPremiumCollected)}</td>
                       <td className={pnlClass(p.realizedPnL)}>{fmt(p.realizedPnL)}</td>
