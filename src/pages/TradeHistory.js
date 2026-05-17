@@ -224,7 +224,7 @@ function NotesPanel({ position, onClose, onSave }) {
       </div>
 
       {/* Body — scrollable */}
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '20px 24px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: 'clamp(12px,1.5vw,24px)' }}>
 
         {/* Date editing */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
@@ -308,7 +308,7 @@ function NotesPanel({ position, onClose, onSave }) {
 }
 
 const TH = ({ children, style = {} }) => (
-  <th style={{ padding: 'clamp(6px,0.6vw,10px) clamp(6px,0.8vw,12px)', textAlign: 'left', fontSize: 'clamp(9px,0.9vw,11px)', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', ...style }}>
+  <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', ...style }}>
     {children}
   </th>
 );
@@ -524,7 +524,7 @@ export default function TradeHistory() {
         <div className="card"><div className="empty-state"><div className="icon">📋</div><p>No positions yet.</p></div></div>
       ) : (
         <div style={{ overflowX: 'auto', overflowY: 'visible', borderRadius: 10, border: '1px solid var(--border)', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'thin' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'clamp(10px, 1.1vw, 13px)', tableLayout: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
                 <TH>Entry Date</TH>
