@@ -43,7 +43,7 @@ export default function App() {
     <JournalProvider>
       <HashRouter>
         <TitleUpdater />
-        <div className="app-layout">
+        <div className="app-layout" style={{ minHeight:'100vh', display:'flex' }}>
           <Sidebar />
           <main className="main-content">
             <Routes>
