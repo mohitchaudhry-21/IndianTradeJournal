@@ -44,6 +44,8 @@ Rules:
 - transactionType: BUY or SELL (negative lots = SELL)
 - avgPrice: the Avg/entry price shown, NOT the LTP/current price
 - lotSize: read from "(1 Lot = X)" if visible, else use 65 for NIFTY, 15 for BANKNIFTY, 25 for FINNIFTY, 75 for MIDCPNIFTY
+- For Kotak Neo screenshots: format is "{qty}LOTs NRML" then "{INSTRUMENT} {strike} PUT/CALL {DD MMM}" then "AVG {price} LTP {price}". PUT = PE, CALL = CE. Positions shown without BUY/SELL label are typically SELL (short options).
+- For Angel One screenshots: format shows instrument name, strike, expiry, qty, avg price on separate lines with ₹ symbols.
 - Return [] if no option positions found`;
 
 async function extractWithGemini(imageFile, apiKey) {
@@ -91,43 +93,90 @@ function parseOCRText(text) {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   const trades = [];
   let cur = null;
+  let pendingLots = null;
+  let pendingTx   = null;
+
+  const parseExpiry = (day, mon, yr) => {
+    const m = String(MONTHS[mon.toLowerCase()]).padStart(2,'0');
+    const d = String(parseInt(day)).padStart(2,'0');
+    const y = yr || new Date().getFullYear();
+    return `${y}-${m}-${d}`;
+  };
+
   for (const line of lines) {
     const upper = line.toUpperCase();
     const foundInst = INSTRUMENTS.find(i => upper.includes(i));
-    const dateM   = line.match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/i);
-    const strikeM = line.match(/\b(\d{4,6})\s+(CE|PE)\b/i);
-    if (foundInst && dateM && strikeM) {
+
+    // Date: "19 MAY 2026" or "19 MAY" (Kotak omits year)
+    const dateFullM = line.match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/i);
+    const dateShortM = !dateFullM && line.match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i);
+
+    // Strike + type: "22850 PUT" or "22850 PE" or "22850CE"
+    const strikePutCall = line.match(/\b(\d{4,6})\s*(PUT|CALL|PE|CE)\b/i);
+
+    if (foundInst && strikePutCall && (dateFullM || dateShortM)) {
       if (cur?.strike) trades.push(cur);
-      const [,day,mon,yr] = dateM;
+      const dm = dateFullM || dateShortM;
+      const [, day, mon, yr] = dm;
+      const rawType = strikePutCall[2].toUpperCase();
+      const optionType = rawType === 'PUT' ? 'PE' : rawType === 'CALL' ? 'CE' : rawType;
       cur = {
         instrument: foundInst,
-        expiry: `${yr}-${String(MONTHS[mon.toLowerCase()]).padStart(2,'0')}-${String(parseInt(day)).padStart(2,'0')}`,
-        strike: parseInt(strikeM[1]),
-        optionType: strikeM[2].toUpperCase(),
-        lots: null, avgPrice: null, lotSize: null, transactionType: null,
+        expiry: parseExpiry(day, mon, yr),
+        strike: parseInt(strikePutCall[1]),
+        optionType,
+        lots: pendingLots, avgPrice: null, lotSize: null,
+        transactionType: pendingTx || null,
       };
+      pendingLots = null; pendingTx = null;
       continue;
     }
-    if (!cur) continue;
-    const lotsM = line.match(/(-?\d+)\s*[Ll]ot/);
-    if (lotsM && !cur.lots) {
+
+    // Lots line — may come before or after instrument line
+    // Kotak: "1LOTs (§) NRML" or Angel: "1 Lot SELL" or Angel: "-3 Lots" (neg = SELL)
+    const lotsM = line.match(/(-?\d+)\s*[Ll][Oo][Tt]s?/);
+    if (lotsM) {
       const n = parseInt(lotsM[1]);
-      cur.lots = Math.abs(n);
-      if (!cur.transactionType && n !== 0) cur.transactionType = n < 0 ? 'SELL' : 'BUY';
+      const absLots = Math.abs(n);
+      // Kotak: positive = BUY, negative = SELL; Angel: sign comes from separate BUY/SELL label
+      const impliedTx = n < 0 ? 'SELL' : n > 0 ? 'BUY' : null;
+      if (cur && !cur.lots) {
+        cur.lots = absLots;
+        if (impliedTx && !cur.transactionType) cur.transactionType = impliedTx;
+      } else {
+        pendingLots = absLots;
+        if (impliedTx) pendingTx = impliedTx;
+      }
     }
-    const avgM = line.match(/[Aa]vg\s+([\d.]+)/);
+
+    // Transaction type
+    if (/\bSELL\b/i.test(line)) {
+      if (cur && !cur.transactionType) cur.transactionType = 'SELL';
+      else if (!cur) pendingTx = 'SELL';
+    } else if (/\bBUY\b/i.test(line)) {
+      if (cur && !cur.transactionType) cur.transactionType = 'BUY';
+      else if (!cur) pendingTx = 'BUY';
+    }
+
+    if (!cur) continue;
+
+    // Avg price: "AVG 33.65" or "Avg: 33.65"
+    const avgM = line.match(/[Aa][Vv][Gg][:\s]+([\d.]+)/);
     if (avgM && !cur.avgPrice) cur.avgPrice = parseFloat(fixRupee(avgM[1]));
+
+    // Lot size hint
     const lsM = line.match(/1\s*[Ll]ot\s*[=:]\s*(\d+)/);
     if (lsM) cur.lotSize = parseInt(lsM[1]);
-    if (!cur.transactionType) {
-      if (/\bBUY\b/i.test(line)) cur.transactionType = 'BUY';
-      else if (/\bSELL\b/i.test(line)) cur.transactionType = 'SELL';
-    }
   }
+
   if (cur?.strike) trades.push(cur);
   return trades
     .filter(t => t.instrument && t.strike && t.avgPrice && t.lots)
-    .map(t => ({ ...t, transactionType: t.transactionType || 'BUY', lotSize: t.lotSize || getLotSize(t.instrument) }));
+    .map(t => ({
+      ...t,
+      transactionType: t.transactionType || null,
+      lotSize: t.lotSize || getLotSize(t.instrument),
+    }));
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
