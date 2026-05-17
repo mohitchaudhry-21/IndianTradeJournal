@@ -224,7 +224,7 @@ function NotesPanel({ position, onClose, onSave }) {
       </div>
 
       {/* Body — scrollable */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '20px 24px' }}>
 
         {/* Date editing */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
@@ -523,7 +523,7 @@ export default function TradeHistory() {
       {all.length === 0 ? (
         <div className="card"><div className="empty-state"><div className="icon">📋</div><p>No positions yet.</p></div></div>
       ) : (
-        <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border)' }}>
+        <div style={{ overflowX: 'auto', overflowY: 'visible', borderRadius: 10, border: '1px solid var(--border)', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'thin' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'clamp(10px, 1.1vw, 13px)', tableLayout: 'auto' }}>
             <thead>
               <tr>
