@@ -225,6 +225,22 @@ function NotesPanel({ position, onClose, onSave }) {
 
       {/* Body — scrollable */}
       <div style={{ flex: 1, overflow: 'auto', padding: '20px 24px' }}>
+
+        {/* Date editing */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16, paddingBottom: 16, borderBottom: '1px solid var(--border)' }}>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Entry Date</label>
+            <input className="form-input" type="date" value={entryDate}
+              onChange={e => setEntryDate(e.target.value)} />
+          </div>
+          <div className="form-group" style={{ marginBottom: 0 }}>
+            <label className="form-label">Exit Date {position.status === 'OPEN' && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(open position)</span>}</label>
+            <input className="form-input" type="date" value={exitDate}
+              onChange={e => setExitDate(e.target.value)}
+              placeholder={position.status === 'OPEN' ? 'Still open' : ''} />
+          </div>
+        </div>
+
         {/* Charges input */}
         <div className="form-group">
           <label className="form-label">Charges (Brokerage + Taxes) ₹</label>
