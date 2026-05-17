@@ -103,7 +103,8 @@ function parseOCRText(text) {
     return `${y}-${m}-${d}`;
   };
 
-  for (const line of lines) {
+  for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+    const line = lines[lineIdx];
     const upper = line.toUpperCase();
     const foundInst = INSTRUMENTS.find(i => upper.includes(i));
 
@@ -120,12 +121,28 @@ function parseOCRText(text) {
       const [, day, mon, yr] = dm;
       const rawType = strikePutCall[2].toUpperCase();
       const optionType = rawType === 'PUT' ? 'PE' : rawType === 'CALL' ? 'CE' : rawType;
+
+      // Kotak fallback: if pendingLots not found (OCR mangled "1 LOTS" → "107s"),
+      // check previous lines for NRML/MIS and a sign indicator
+      if (!pendingLots) {
+        for (let back = 1; back <= 3; back++) {
+          const prevL = lines[lineIdx - back] || '';
+          if (/NRML|MIS/i.test(prevL)) {
+            // Negative sign or "11XX" pattern (OCR of "-1") = SELL
+            pendingTx = /^-|11\d/.test(prevL) ? 'SELL' : 'BUY';
+            pendingLots = 1; // default to 1, user can edit
+            break;
+          }
+        }
+      }
+
       cur = {
         instrument: foundInst,
         expiry: parseExpiry(day, mon, yr),
         strike: parseInt(strikePutCall[1]),
         optionType,
-        lots: pendingLots, avgPrice: null, lotSize: null,
+        lots: pendingLots || 1,
+        avgPrice: null, lotSize: null,
         transactionType: pendingTx || null,
       };
       pendingLots = null; pendingTx = null;
@@ -160,8 +177,8 @@ function parseOCRText(text) {
 
     if (!cur) continue;
 
-    // Avg price: "AVG 33.65" or "Avg: 33.65"
-    const avgM = line.match(/[Aa][Vv][Gg][:\s]+([\d.]+)/);
+    // Avg price: "AVG 33.65" or "Avg ¥105.73" or "Avg %54.89" (various OCR rupee artifacts)
+    const avgM = line.match(/[Aa][Vv][Gg][^\d]*([\d.]+)/);
     if (avgM && !cur.avgPrice) cur.avgPrice = parseFloat(fixRupee(avgM[1]));
 
     // Lot size hint
