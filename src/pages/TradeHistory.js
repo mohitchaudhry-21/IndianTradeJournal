@@ -308,7 +308,7 @@ function NotesPanel({ position, onClose, onSave }) {
 }
 
 const TH = ({ children, style = {} }) => (
-  <th style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', ...style }}>
+  <th style={{ padding: 'clamp(6px,0.6vw,10px) clamp(6px,0.8vw,12px)', textAlign: 'left', fontSize: 'clamp(9px,0.9vw,11px)', fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', ...style }}>
     {children}
   </th>
 );
@@ -524,7 +524,7 @@ export default function TradeHistory() {
         <div className="card"><div className="empty-state"><div className="icon">📋</div><p>No positions yet.</p></div></div>
       ) : (
         <div style={{ overflowX: 'auto', borderRadius: 10, border: '1px solid var(--border)' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 'clamp(10px, 1.1vw, 13px)', tableLayout: 'auto' }}>
             <thead>
               <tr>
                 <TH>Entry Date</TH>
@@ -532,15 +532,15 @@ export default function TradeHistory() {
                 <TH>Instrument</TH>
                 <TH>Strikes</TH>
                 <TH>Expiry</TH>
-                <TH>Max Profit</TH>
-                <TH>Max Loss</TH>
-                <TH>Margin Used</TH>
+                <TH className="col-hide-lg">Max Profit</TH>
+                <TH className="col-hide-lg">Max Loss</TH>
+                <TH className="col-hide-md">Margin Used</TH>
                 <TH>P&amp;L</TH>
-                <TH>Charges</TH>
+                <TH className="col-hide-lg">Charges</TH>
                 <TH>Net P&amp;L</TH>
-                <TH>Return %</TH>
+                <TH className="col-hide-sm">Return %</TH>
                 <TH>Status</TH>
-                <TH>Exit Date</TH>
+                <TH className="col-hide-md">Exit Date</TH>
                 <TH style={{ width: 60 }}>Notes</TH>
                 <TH style={{ width: 32 }}></TH>
               </tr>
