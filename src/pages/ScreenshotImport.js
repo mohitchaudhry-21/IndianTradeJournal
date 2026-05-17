@@ -108,29 +108,30 @@ function parseOCRText(text) {
     const upper = line.toUpperCase();
     const foundInst = INSTRUMENTS.find(i => upper.includes(i));
 
-    // Date: "19 MAY 2026" or "19 MAY" (Kotak omits year)
-    const dateFullM = line.match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/i);
+    // Date: "19 May 2026" or "19 MAY" (Kotak omits year)
+    const dateFullM  = line.match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+(\d{4})/i);
     const dateShortM = !dateFullM && line.match(/(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i);
 
-    // Strike + type: "22850 PUT" or "22850 PE" or "22850CE"
+    // Strike + type: "22850 PUT" / "22850 PE" / "22850CE"
     const strikePutCall = line.match(/\b(\d{4,6})\s*(PUT|CALL|PE|CE)\b/i);
 
+    // ── Instrument line detected ──────────────────────────────────────────
     if (foundInst && strikePutCall && (dateFullM || dateShortM)) {
-      if (cur?.strike) trades.push(cur);
+      if (cur?.instrument && cur.avgPrice) trades.push(cur);
       const dm = dateFullM || dateShortM;
-      const [, day, mon, yr] = dm;
       const rawType = strikePutCall[2].toUpperCase();
       const optionType = rawType === 'PUT' ? 'PE' : rawType === 'CALL' ? 'CE' : rawType;
 
-      // Kotak fallback: if pendingLots not found (OCR mangled "1 LOTS" → "107s"),
-      // check previous lines for NRML/MIS and a sign indicator
-      if (!pendingLots) {
-        for (let back = 1; back <= 3; back++) {
+      // Kotak fallback: if no pendingLots yet, scan nearby lines for NRML/MIS
+      if (pendingLots === null) {
+        for (let back = 1; back <= 2; back++) {
           const prevL = lines[lineIdx - back] || '';
           if (/NRML|MIS/i.test(prevL)) {
-            // Negative sign or "11XX" pattern (OCR of "-1") = SELL
-            pendingTx = /^-|11\d/.test(prevL) ? 'SELL' : 'BUY';
-            pendingLots = 1; // default to 1, user can edit
+            const numM = prevL.match(/^(-?\d+)/);
+            const hasNeg = prevL.startsWith('-') || /^11/.test(prevL);
+            pendingTx   = hasNeg ? 'SELL' : 'BUY';
+            pendingLots = numM ? Math.abs(parseInt(numM[1])) : 1;
+            if (pendingLots > 50 || pendingLots === 0) pendingLots = 1;
             break;
           }
         }
@@ -138,59 +139,59 @@ function parseOCRText(text) {
 
       cur = {
         instrument: foundInst,
-        expiry: parseExpiry(day, mon, yr),
+        expiry: parseExpiry(dm[1], dm[2], dm[3]),
         strike: parseInt(strikePutCall[1]),
         optionType,
-        lots: pendingLots || 1,
-        avgPrice: null, lotSize: null,
+        lots: pendingLots,      // null = not yet found (Angel One has lots on next line)
+        avgPrice: null,
+        lotSize: null,
         transactionType: pendingTx || null,
       };
       pendingLots = null; pendingTx = null;
       continue;
     }
 
-    // Lots line — may come before or after instrument line
-    // Kotak: "1LOTs (§) NRML" or Angel: "1 Lot SELL" or Angel: "-3 Lots" (neg = SELL)
+    // ── Lots line ─────────────────────────────────────────────────────────
+    // Angel One: "3 Lots • Avg ₹54.89" or "-3 Lots • Avg ₹105.73"
+    // Kotak:     "1 LOTS NRML" (may be OCR-mangled)
     const lotsM = line.match(/(-?\d+)\s*[Ll][Oo][Tt]s?/);
     if (lotsM) {
-      const n = parseInt(lotsM[1]);
-      const absLots = Math.abs(n);
-      // Kotak: positive = BUY, negative = SELL; Angel: sign comes from separate BUY/SELL label
-      const impliedTx = n < 0 ? 'SELL' : n > 0 ? 'BUY' : null;
-      if (cur && !cur.lots) {
-        cur.lots = absLots;
-        if (impliedTx && !cur.transactionType) cur.transactionType = impliedTx;
-      } else {
-        pendingLots = absLots;
-        if (impliedTx) pendingTx = impliedTx;
+      const n      = parseInt(lotsM[1]);
+      const absN   = Math.abs(n);
+      const implTx = n < 0 ? 'SELL' : n > 0 ? 'BUY' : null;
+      if (cur && cur.lots === null) {
+        cur.lots = absN;
+        if (implTx && !cur.transactionType) cur.transactionType = implTx;
+      } else if (!cur) {
+        pendingLots = absN;
+        if (implTx) pendingTx = implTx;
       }
     }
 
-    // Transaction type
-    if (/\bSELL\b/i.test(line)) {
-      if (cur && !cur.transactionType) cur.transactionType = 'SELL';
-      else if (!cur) pendingTx = 'SELL';
-    } else if (/\bBUY\b/i.test(line)) {
-      if (cur && !cur.transactionType) cur.transactionType = 'BUY';
-      else if (!cur) pendingTx = 'BUY';
+    // ── BUY / SELL label (Angel One shows as separate badge) ──────────────
+    if (cur && !cur.transactionType) {
+      if (/\bSELL\b/i.test(line)) cur.transactionType = 'SELL';
+      else if (/\bBUY\b/i.test(line))  cur.transactionType = 'BUY';
     }
 
-    if (!cur) continue;
+    // ── Avg price: handle any OCR rupee artifact (¥, %, ₹, 3, space) ──────
+    if (cur) {
+      const avgM = line.match(/[Aa][Vv][Gg][^\d]*([\d]+\.?[\d]*)/);
+      if (avgM && !cur.avgPrice) cur.avgPrice = parseFloat(avgM[1]);
 
-    // Avg price: "AVG 33.65" or "Avg ¥105.73" or "Avg %54.89" (various OCR rupee artifacts)
-    const avgM = line.match(/[Aa][Vv][Gg][^\d]*([\d.]+)/);
-    if (avgM && !cur.avgPrice) cur.avgPrice = parseFloat(fixRupee(avgM[1]));
-
-    // Lot size hint
-    const lsM = line.match(/1\s*[Ll]ot\s*[=:]\s*(\d+)/);
-    if (lsM) cur.lotSize = parseInt(lsM[1]);
+      // Lot size hint: "(1 Lot = 65)"
+      const lsM = line.match(/1\s*[Ll]ot\s*[=:]\s*(\d+)/);
+      if (lsM) cur.lotSize = parseInt(lsM[1]);
+    }
   }
 
-  if (cur?.strike) trades.push(cur);
+  if (cur?.instrument && cur.avgPrice) trades.push(cur);
+
   return trades
-    .filter(t => t.instrument && t.strike && t.avgPrice && t.lots)
+    .filter(t => t.instrument && t.strike && t.avgPrice)
     .map(t => ({
       ...t,
+      lots: t.lots || 1,
       transactionType: t.transactionType || null,
       lotSize: t.lotSize || getLotSize(t.instrument),
     }));
