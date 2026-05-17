@@ -159,8 +159,16 @@ export function JournalProvider({ children }) {
       let first = true;
       const next = prev.map(t => {
         if ((t.positionId || t.id) !== positionId) return t;
-        if (first) { first = false; return { ...t, ...updates }; }
-        return t;
+        const merged = { ...t, ...updates };
+        // Apply custom dates to all legs (openDate to all, closeDate to all)
+        if (updates.positionOpenDate)  merged.date    = updates.positionOpenDate;
+        if (updates.positionCloseDate) merged.exitDate = updates.positionCloseDate;
+        if (first) { first = false; return merged; }
+        // Apply dates to ALL legs, other meta only to first
+        const legMerge = { ...t };
+        if (updates.positionOpenDate)  legMerge.date    = updates.positionOpenDate;
+        if (updates.positionCloseDate) legMerge.exitDate = updates.positionCloseDate;
+        return legMerge;
       });
       persist(accounts, next, settings);
       return next;
@@ -281,6 +289,8 @@ export function JournalProvider({ children }) {
         notes: first.positionNotes || first.notes || '',
         margin: first.positionMargin || null,
         charges: first.positionCharges || null,
+        openDate: first.date || first.openDate || null,
+        closeDate: legs.find(l => l.exitDate)?.exitDate || null,
       };
     });
   }, [trades, settings.lotSizes, activeAccountId, dateFilter]);
