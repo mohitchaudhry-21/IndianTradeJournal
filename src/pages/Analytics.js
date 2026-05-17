@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend } from 'recharts';
+import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, PieChart, Pie, Legend, ReferenceLine } from 'recharts';
 import AccountBadge from '../components/AccountBadge';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
@@ -89,7 +89,57 @@ export default function Analytics() {
     ].filter(d => d.value > 0);
   }, [allClosed]);
 
-  const last8Months = monthlyPnL.slice(-8);
+  const last8Months = monthlyPnL.slice(-12);
+
+  // ── P&L Curve (cumulative) ───────────────────────────────────────────────
+  const pnlCurve = useMemo(() => {
+    const sorted = [...closed].sort((a, b) => (a.closeDate||'') < (b.closeDate||'') ? -1 : 1);
+    let cumPnL = 0;
+    return sorted.map((p, i) => {
+      cumPnL += p.realizedPnL || 0;
+      return {
+        trade: i + 1,
+        label: p.instrument + ' ' + (p.closeDate||'').slice(5),
+        pnl: p.realizedPnL || 0,
+        cumPnL: Math.round(cumPnL),
+      };
+    });
+  }, [closed]);
+
+  // ── Win/Loss Streak ───────────────────────────────────────────────────────
+  const streakData = useMemo(() => {
+    const sorted = [...closed].sort((a, b) => (a.closeDate||'') < (b.closeDate||'') ? -1 : 1);
+    let maxWin = 0, maxLoss = 0, curWin = 0, curLoss = 0;
+    const tiles = sorted.map(p => {
+      const win = (p.realizedPnL||0) > 0;
+      if (win) { curWin++; curLoss = 0; maxWin = Math.max(maxWin, curWin); }
+      else      { curLoss++; curWin = 0; maxLoss = Math.max(maxLoss, curLoss); }
+      return { win, pnl: p.realizedPnL||0, label: (p.instrument||'') + ' ' + (p.closeDate||'').slice(5), streak: win ? curWin : -curLoss };
+    });
+    const last = tiles[tiles.length - 1];
+    const currentStreak = last ? (last.win ? curWin : -curLoss) : 0;
+    return { tiles, maxWin, maxLoss, currentStreak };
+  }, [closed]);
+
+  // ── Margin Profitability ──────────────────────────────────────────────────
+  const marginData = useMemo(() => {
+    const trades = closed
+      .filter(p => p.margin && p.margin > 0)
+      .sort((a, b) => (a.closeDate||'') < (b.closeDate||'') ? -1 : 1)
+      .map((p, i) => ({
+        trade: i + 1,
+        label: (p.instrument||'') + ' ' + (p.closeDate||'').slice(5),
+        returnPct: parseFloat(((p.realizedPnL||0) / p.margin * 100).toFixed(2)),
+        pnl: p.realizedPnL||0,
+        margin: p.margin,
+      }));
+    const avgReturn = trades.length ? trades.reduce((s,t) => s + t.returnPct, 0) / trades.length : 0;
+    const best  = trades.reduce((b, t) => t.returnPct > b.returnPct ? t : b, { returnPct: -Infinity });
+    const worst = trades.reduce((b, t) => t.returnPct < b.returnPct ? t : b, { returnPct: Infinity });
+    return { trades, avgReturn, best, worst };
+  }, [closed]);
+
+
 
   return (
     <div>
@@ -121,23 +171,6 @@ export default function Analytics() {
           </div>
 
           <div className="grid-2" style={{ marginBottom: 24 }}>
-            {/* Monthly P&L */}
-            <div className="card">
-              <div className="section-title" style={{ marginBottom: 16 }}>Monthly P&amp;L</div>
-              {last8Months.length === 0 ? <div className="empty-state" style={{padding:'30px 0'}}><p>No monthly data</p></div> : (
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={last8Months} barSize={28}>
-                    <XAxis dataKey="label" tick={{ fill: 'var(--text-muted)', fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis hide />
-                    <Tooltip content={<TT />} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                    <Bar dataKey="pnl" radius={[4, 4, 0, 0]}>
-                      {last8Months.map((d, i) => <Cell key={i} fill={d.pnl >= 0 ? 'var(--profit)' : 'var(--loss)'} opacity={0.85} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-
             {/* Win/Loss Pie */}
             <div className="card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
               <div className="section-title" style={{ marginBottom: 16, alignSelf: 'flex-start' }}>Outcome Distribution</div>
@@ -152,6 +185,158 @@ export default function Analytics() {
               </ResponsiveContainer>
             </div>
           </div>
+
+
+          {/* ── P&L Curve ─────────────────────────────────────────────── */}
+          {pnlCurve.length > 1 && (
+            <div className="card" style={{ marginBottom: 24 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                <div className="section-title">Cumulative P&amp;L Curve</div>
+                <div style={{ display:'flex', gap:16, fontSize:12, color:'var(--text-muted)' }}>
+                  <span>Final: <span style={{ color: pnlCurve[pnlCurve.length-1]?.cumPnL >= 0 ? 'var(--profit)' : 'var(--loss)', fontWeight:700, fontFamily:"'JetBrains Mono',monospace" }}>{fmt(pnlCurve[pnlCurve.length-1]?.cumPnL)}</span></span>
+                  <span>{pnlCurve.length} trades</span>
+                </div>
+              </div>
+              <ResponsiveContainer width="100%" height={220}>
+                <AreaChart data={pnlCurve} margin={{ top:10, right:10, left:0, bottom:0 }}>
+                  <defs>
+                    <linearGradient id="profitGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="var(--profit)" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="var(--profit)" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="lossGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%"  stopColor="var(--loss)" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="var(--loss)" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="trade" tick={{ fill:'var(--text-muted)', fontSize:10 }} axisLine={false} tickLine={false} label={{ value:'Trade #', position:'insideBottomRight', fill:'var(--text-muted)', fontSize:10 }} />
+                  <YAxis tick={{ fill:'var(--text-muted)', fontSize:10 }} axisLine={false} tickLine={false} tickFormatter={v => v >= 1000 ? '₹'+(v/1000).toFixed(0)+'K' : '₹'+v} width={55} />
+                  <Tooltip content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0].payload;
+                    return (
+                      <div style={{ background:'#1a1f2e', border:'1px solid rgba(255,255,255,0.1)', borderRadius:8, padding:'10px 14px' }}>
+                        <div style={{ color:'var(--text-muted)', fontSize:11, marginBottom:3 }}>Trade #{d.trade} · {d.label}</div>
+                        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:2 }}>This trade: <span style={{ color:d.pnl>=0?'var(--profit)':'var(--loss)', fontWeight:700 }}>{fmt(d.pnl)}</span></div>
+                        <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:15, color:d.cumPnL>=0?'var(--profit)':'var(--loss)', fontWeight:700 }}>Cumulative: {fmt(d.cumPnL)}</div>
+                      </div>
+                    );
+                  }} />
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 4" />
+                  <Area type="monotone" dataKey="cumPnL" stroke="var(--profit)" strokeWidth={2.5} fill="url(#profitGrad)" dot={false} activeDot={{ r:5, fill:'var(--profit)' }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── Monthly P&L (full width, enhanced) ───────────────────────── */}
+          {last8Months.length > 0 && (
+            <div className="card" style={{ marginBottom: 24 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                <div className="section-title">Monthly P&amp;L</div>
+                <div style={{ display:'flex', gap:16, fontSize:12, color:'var(--text-muted)' }}>
+                  <span style={{ color:'var(--profit)' }}>● Profit months: {last8Months.filter(m=>m.pnl>0).length}</span>
+                  <span style={{ color:'var(--loss)' }}>● Loss months: {last8Months.filter(m=>m.pnl<0).length}</span>
+                </div>
+              </div>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={last8Months} barSize={36} margin={{ top:20, right:10, left:0, bottom:0 }}>
+                  <XAxis dataKey="label" tick={{ fill:'var(--text-muted)', fontSize:11 }} axisLine={false} tickLine={false} />
+                  <YAxis hide />
+                  <Tooltip content={<TT />} cursor={{ fill:'rgba(255,255,255,0.04)' }} />
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" />
+                  <Bar dataKey="pnl" radius={[6,6,0,0]} label={{ position:'top', formatter:v => v>=1000?'₹'+(v/1000).toFixed(1)+'K':v<=0&&v>-1000?'-₹'+Math.abs(v):'₹'+(v/1000).toFixed(1)+'K', fill:'var(--text-muted)', fontSize:10 }}>
+                    {last8Months.map((d,i) => <Cell key={i} fill={d.pnl>=0?'var(--profit)':'var(--loss)'} opacity={0.85} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+
+          {/* ── Win/Loss Streak Heatmap ───────────────────────────────────── */}
+          {streakData.tiles.length > 0 && (
+            <div className="card" style={{ marginBottom: 24 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:10 }}>
+                <div className="section-title">Win / Loss Streak</div>
+                <div style={{ display:'flex', gap:20, fontSize:12 }}>
+                  {[
+                    { label:'Current Streak', value: streakData.currentStreak > 0 ? `+${streakData.currentStreak}W` : `${Math.abs(streakData.currentStreak)}L`, color: streakData.currentStreak >= 0 ? 'var(--profit)' : 'var(--loss)' },
+                    { label:'Best Streak', value: streakData.maxWin + 'W', color: 'var(--profit)' },
+                    { label:'Worst Streak', value: streakData.maxLoss + 'L', color: 'var(--loss)' },
+                  ].map(s => (
+                    <div key={s.label} style={{ textAlign:'center' }}>
+                      <div style={{ color:'var(--text-muted)', fontSize:10, marginBottom:2 }}>{s.label}</div>
+                      <div style={{ color:s.color, fontWeight:800, fontFamily:"'JetBrains Mono',monospace", fontSize:16 }}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                {streakData.tiles.map((t, i) => (
+                  <div key={i} title={`Trade ${i+1}: ${t.label} · ${t.pnl>=0?'+':''}₹${Math.round(t.pnl).toLocaleString('en-IN')}`}
+                    style={{
+                      width:32, height:32, borderRadius:6,
+                      background: t.win ? 'var(--profit)' : 'var(--loss)',
+                      opacity: 0.3 + Math.min(0.7, Math.abs(t.pnl) / 5000),
+                      display:'flex', alignItems:'center', justifyContent:'center',
+                      fontSize:10, fontWeight:700, color:'white', cursor:'default',
+                      border: i === streakData.tiles.length-1 ? '2px solid white' : 'none',
+                    }}>
+                    {t.win ? 'W' : 'L'}
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop:10, fontSize:11, color:'var(--text-muted)' }}>
+                Each square = one position. Opacity = magnitude. Last trade outlined in white.
+              </div>
+            </div>
+          )}
+
+          {/* ── Margin Profitability ──────────────────────────────────────── */}
+          {marginData.trades.length > 0 && (
+            <div className="card" style={{ marginBottom: 24 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:10 }}>
+                <div className="section-title">Return on Margin</div>
+                <div style={{ display:'flex', gap:20, fontSize:12 }}>
+                  {[
+                    { label:'Avg Return', value: (marginData.avgReturn>=0?'+':'')+marginData.avgReturn.toFixed(2)+'%', color: marginData.avgReturn>=0?'var(--profit)':'var(--loss)' },
+                    { label:'Best Trade', value: '+'+marginData.best.returnPct?.toFixed(2)+'%', color:'var(--profit)' },
+                    { label:'Worst Trade', value: marginData.worst.returnPct?.toFixed(2)+'%', color:'var(--loss)' },
+                  ].map(s => (
+                    <div key={s.label} style={{ textAlign:'center' }}>
+                      <div style={{ color:'var(--text-muted)', fontSize:10, marginBottom:2 }}>{s.label}</div>
+                      <div style={{ color:s.color, fontWeight:800, fontFamily:"'JetBrains Mono',monospace", fontSize:15 }}>{s.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={marginData.trades} barSize={28} margin={{ top:20, right:10, left:0, bottom:0 }}>
+                  <XAxis dataKey="trade" tick={{ fill:'var(--text-muted)', fontSize:10 }} axisLine={false} tickLine={false} label={{ value:'Trade #', position:'insideBottomRight', fill:'var(--text-muted)', fontSize:10 }} />
+                  <YAxis tick={{ fill:'var(--text-muted)', fontSize:10 }} axisLine={false} tickLine={false} tickFormatter={v => v+'%'} width={42} />
+                  <Tooltip content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0].payload;
+                    return (
+                      <div style={{ background:'#1a1f2e', border:'1px solid rgba(255,255,255,0.1)', borderRadius:8, padding:'10px 14px' }}>
+                        <div style={{ color:'var(--text-muted)', fontSize:11, marginBottom:3 }}>{d.label}</div>
+                        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:2 }}>Margin: ₹{Math.round(d.margin).toLocaleString('en-IN')}</div>
+                        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:4 }}>P&L: <span style={{ color:d.pnl>=0?'var(--profit)':'var(--loss)', fontWeight:700 }}>{fmt(d.pnl)}</span></div>
+                        <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:16, color:d.returnPct>=0?'var(--profit)':'var(--loss)', fontWeight:800 }}>{d.returnPct>=0?'+':''}{d.returnPct}%</div>
+                      </div>
+                    );
+                  }} />
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 4" />
+                  <Bar dataKey="returnPct" radius={[4,4,0,0]} label={{ position:'top', formatter:v=>v>0?'+'+v+'%':v+'%', fill:'var(--text-muted)', fontSize:9 }}>
+                    {marginData.trades.map((d,i) => <Cell key={i} fill={d.returnPct>=0?'var(--profit)':'var(--loss)'} opacity={0.85} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div style={{ marginTop:8, fontSize:11, color:'var(--text-muted)' }}>
+                Only positions with margin recorded are shown. Add margin via the notes panel (📝) in Trade History.
+              </div>
+            </div>
+          )}
 
           <div className="grid-2" style={{ marginBottom: 24 }}>
             {/* Strategy breakdown */}
