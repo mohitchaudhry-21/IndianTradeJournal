@@ -295,6 +295,7 @@ export default function Calendar() {
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <span className={`badge ${(p.strategyName||'custom').toLowerCase().replace(/ /g,'_')}`} style={{ fontSize: 10 }}>{p.strategyName||'Custom'}</span>
                         <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 13 }}>{p.instrument}</span>
+                        <AccountTag accountId={p.accountId} />
                       </div>
                       <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, fontWeight: 700, color: (p.realizedPnL||0) >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
                         {fmtFull(p.realizedPnL)}
@@ -322,6 +323,7 @@ export default function Calendar() {
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <span className={`badge ${(p.strategyName||'custom').toLowerCase().replace(/ /g,'_')}`} style={{ fontSize: 10 }}>{p.strategyName||'Custom'}</span>
                         <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 13 }}>{p.instrument}</span>
+                        <AccountTag accountId={p.accountId} />
                       </div>
                       <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--profit)' }}>
                         +{fmtFull(p.netPremiumCollected)}
