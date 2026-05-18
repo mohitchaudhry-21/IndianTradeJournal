@@ -172,6 +172,7 @@ export default function BrokerConnect() {
 
       {/* Angel One */}
       <BrokerSection
+        existingOpenPositions={positions.filter(p => p.status === 'OPEN')}
         name="Angel One SmartAPI"
         broker="angelone"
         logo="🔶"
