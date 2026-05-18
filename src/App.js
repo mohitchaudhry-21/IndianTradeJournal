@@ -14,6 +14,32 @@ import ScreenshotImport from './pages/ScreenshotImport';
 import Calendar from './pages/Calendar';
 
 
+
+// Error boundary — catches crashes and shows error instead of blank page
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(e) { return { error: e }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, fontFamily: 'monospace', color: '#f87171', background: '#0a0f1e', minHeight: '100vh' }}>
+          <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 16 }}>⚠ OptionsDesk crashed</div>
+          <div style={{ fontSize: 13, color: '#94a3b8', marginBottom: 12 }}>Share this error so it can be fixed:</div>
+          <pre style={{ background: '#1e293b', padding: 16, borderRadius: 8, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+            {this.state.error?.message}
+            {'\n\n'}
+            {this.state.error?.stack?.slice(0, 600)}
+          </pre>
+          <button onClick={() => window.location.reload()} style={{ marginTop: 20, padding: '10px 24px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 14 }}>
+            Reload
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 const PAGE_TITLES = {
   '/':           'Dashboard',
   '/positions':  'Open Positions',
@@ -41,7 +67,8 @@ export default function App() {
   }
   return (
     <JournalProvider>
-      <HashRouter>
+      <ErrorBoundary>
+    <HashRouter>
         <TitleUpdater />
         <div className="app-layout" style={{ minHeight:'100vh', display:'flex' }}>
           <Sidebar />
@@ -60,6 +87,7 @@ export default function App() {
           </main>
         </div>
       </HashRouter>
+    </ErrorBoundary>
     </JournalProvider>
   );
 }
