@@ -354,7 +354,7 @@ export default function TradeHistory() {
         if (dateTo   && d > dateTo + 'T23:59:59') return false;
         return true;
       })
-      .sort((a, b) => (b.openDate || '').localeCompare(a.openDate || '')),
+      .sort((a, b) => { const da = b.openDate || ''; const db = a.openDate || ''; return da > db ? 1 : da < db ? -1 : 0; }),
     [positions, filterInstrument, filterStrategy, filterStatus, dateFrom, dateTo]
   );
 
