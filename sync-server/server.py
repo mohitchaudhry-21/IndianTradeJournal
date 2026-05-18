@@ -36,26 +36,59 @@ def get_lot_size(instrument: str) -> int:
 
 # ── Symbol parser ─────────────────────────────────────────────────────────────
 # Handles formats:  BANKNIFTY14MAY2548000CE  /  NIFTY25500CE25APR25
+MONTH_MAP = {'JAN':1,'FEB':2,'MAR':3,'APR':4,'MAY':5,'JUN':6,
+              'JUL':7,'AUG':8,'SEP':9,'OCT':10,'NOV':11,'DEC':12}
+
 def parse_symbol(symbol: str):
-    # Format 1: INSTRUMENT + DDMMMYY + STRIKE + CE/PE
+    if not symbol:
+        return None
+    symbol = symbol.upper().strip()
+
+    # Angel One Format 1: NIFTY19MAY26 → DDMMMYY
     m = re.match(r'^([A-Z&]+)(\d{2}[A-Z]{3}\d{2})(\d+)(CE|PE)$', symbol)
     if m:
         inst, exp_str, strike, opt = m.groups()
         try:
             expiry = datetime.strptime(exp_str, '%d%b%y').strftime('%Y-%m-%d')
+            return {'instrument': inst, 'expiry': expiry, 'strike': int(strike), 'optionType': opt}
         except ValueError:
-            expiry = None
+            pass
+
+    # Kotak Monthly: NIFTY26MAY22850PE → YYMMMSTRIKE
+    m = re.match(r'^([A-Z&]+)(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d+)(CE|PE)$', symbol)
+    if m:
+        inst, yr, mon, strike, opt = m.groups()
+        year = 2000 + int(yr)
+        month = MONTH_MAP[mon]
+        # Last Thursday of month
+        import calendar as cal
+        last_day = cal.monthrange(year, month)[1]
+        exp_day = last_day
+        for d in range(last_day, 0, -1):
+            if datetime(year, month, d).weekday() == 3:
+                exp_day = d
+                break
+        expiry = f'{year}-{str(month).zfill(2)}-{str(exp_day).zfill(2)}'
         return {'instrument': inst, 'expiry': expiry, 'strike': int(strike), 'optionType': opt}
 
-    # Format 2: INSTRUMENT + DDMMYY + STRIKE + CE/PE (weekly)
-    m = re.match(r'^([A-Z&]+)(\d{2}\d{2}\d{2})(\d+)(CE|PE)$', symbol)
+    # Kotak Weekly: NIFTY2651922850PE → YY + M(1digit) + DD + STRIKE + TYPE
+    m = re.match(r'^([A-Z&]+)(\d{2})(\d{1})(\d{2})(\d+)(CE|PE)$', symbol)
+    if m:
+        inst, yr, mon, day, strike, opt = m.groups()
+        year = 2000 + int(yr)
+        month = int(mon)
+        expiry = f'{year}-{str(month).zfill(2)}-{str(int(day)).zfill(2)}'
+        return {'instrument': inst, 'expiry': expiry, 'strike': int(strike), 'optionType': opt}
+
+    # Angel One Format 2: DDMMYY + STRIKE (weekly fallback)
+    m = re.match(r'^([A-Z&]+)(\d{6})(\d+)(CE|PE)$', symbol)
     if m:
         inst, exp_str, strike, opt = m.groups()
         try:
             expiry = datetime.strptime(exp_str, '%d%m%y').strftime('%Y-%m-%d')
+            return {'instrument': inst, 'expiry': expiry, 'strike': int(strike), 'optionType': opt}
         except ValueError:
-            expiry = None
-        return {'instrument': inst, 'expiry': expiry, 'strike': int(strike), 'optionType': opt}
+            pass
 
     return None
 
@@ -216,7 +249,11 @@ def map_kotak_position(p, account_id):
             return None
         lots = abs(qty) // lot_size if lot_size > 0 else abs(qty)
         tx_type = 'SELL' if qty < 0 else 'BUY'
-        price = float(p.get('avgBuyPrc', 0) or p.get('avgSellPrc', 0) or p.get('ltp', 0) or 0)
+        avg_sell = float(p.get('avgSellPrc', 0) or 0)
+        avg_buy  = float(p.get('avgBuyPrc',  0) or 0)
+        price = avg_sell if qty < 0 else (avg_buy if qty > 0 else float(p.get('ltp', 0) or 0))
+        if price == 0:
+            price = float(p.get('ltp', 0) or 0)
         return {
             'id': str(uuid4()),
             'brokerTradeId': p.get('tok', ''),
@@ -305,14 +342,14 @@ def sync_angelone():
     if not s:
         return jsonify({'success': False, 'error': 'Not connected. Connect first.'}), 401
     try:
-        trades_raw = angel_tradebook(s['apiKey'], s['jwtToken'])
         positions_raw = angel_positions(s['apiKey'], s['jwtToken'])
         account_id = s['accountId']
-        trades = [t for r in trades_raw if (t := map_angel_trade(r, account_id)) is not None]
-        open_pos = [t for r in positions_raw if (t := map_angel_position(r, account_id)) is not None]
-        open_pos = group_open_positions(open_pos)
-        all_trades = trades + open_pos
-        return jsonify({'success': True, 'count': len(all_trades), 'trades': all_trades})
+
+        # Only use positions API (gives aggregated net positions, not raw order executions)
+        # Tradebook gives individual legs which creates duplicate/split entries
+        all_pos = [t for r in positions_raw if (t := map_angel_position(r, account_id)) is not None]
+        all_pos = group_open_positions(all_pos)
+        return jsonify({'success': True, 'count': len(all_pos), 'trades': all_pos})
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
@@ -371,13 +408,29 @@ def sync_kotak():
         return jsonify({'success': False, 'error': 'Not connected. Connect first.'}), 401
     try:
         account_id = sessions['kotak']['accountId']
-        pos_resp   = kotak_client_obj.positions()
-        positions  = pos_resp.get('data', []) if isinstance(pos_resp, dict) else []
-        trades     = [t for p in positions if (t := map_kotak_position(p, account_id)) is not None]
-        trades     = group_open_positions(trades)
-        return jsonify({'success': True, 'count': len(trades), 'trades': trades})
+        pos_resp = kotak_client_obj.positions()
+
+        # Handle various response formats from Kotak SDK
+        if isinstance(pos_resp, list):
+            positions = pos_resp
+        elif isinstance(pos_resp, dict):
+            positions = (pos_resp.get('data') or pos_resp.get('Data') or
+                        pos_resp.get('positions') or [])
+            if isinstance(positions, dict):
+                positions = positions.get('positions', [])
+        else:
+            positions = []
+
+        # Filter out zero-quantity positions
+        active = [p for p in positions if p.get('netQty') and p['netQty'] not in ('0', 0, '')]
+
+        trades = [t for p in active if (t := map_kotak_position(p, account_id)) is not None]
+        trades = group_open_positions(trades)
+        return jsonify({'success': True, 'count': len(trades), 'trades': trades,
+                       'debug_raw_count': len(positions), 'debug_active': len(active)})
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()[:500]}), 500
 
 if __name__ == '__main__':
     print('=' * 55)
