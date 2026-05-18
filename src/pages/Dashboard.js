@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
-import AccountTag from '../components/AccountTag';
 
 function fmt(n) {
   if (n === null || n === undefined) return '—';
@@ -34,6 +33,26 @@ const CustomTooltip = ({ active, payload, label }) => {
   );
 };
 
+
+// Inline account tag — shows coloured pill only when viewing All Accounts
+function AccountTag({ accountId }) {
+  const { accounts, activeAccountId } = useJournal();
+  if (activeAccountId || !accountId) return null;
+  const acc = accounts.find(a => a.id === accountId);
+  if (!acc) return null;
+  return (
+    <span style={{
+      display:'inline-flex', alignItems:'center', gap:3,
+      fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:10,
+      background:(acc.color||'#3B82F6')+'22', color:acc.color||'#3B82F6',
+      border:`1px solid ${acc.color||'#3B82F6'}44`, whiteSpace:'nowrap',
+    }}>
+      <span style={{width:5,height:5,borderRadius:'50%',background:acc.color||'#3B82F6'}}/>
+      {acc.name}
+    </span>
+  );
+}
+
 export default function Dashboard() {
   const { stats, monthlyPnL, positions, accounts, activeAccountId } = useJournal();
   const navigate = useNavigate();
@@ -41,7 +60,7 @@ export default function Dashboard() {
   const recentClosed = useMemo(() =>
     [...positions]
       .filter(p => p.status !== 'OPEN')
-      .sort((a, b) => (b.closeDate || b.openDate).localeCompare(a.closeDate || a.openDate))
+      .sort((a, b) => { const da = b.closeDate || b.openDate || ''; const db = a.closeDate || a.openDate || ''; return da > db ? 1 : da < db ? -1 : 0; })
       .slice(0, 6),
     [positions]
   );
