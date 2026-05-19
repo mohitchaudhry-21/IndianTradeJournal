@@ -43,6 +43,13 @@ function AccountCredentials({ account, credentials, onSave }) {
     <div onClick={e => e.stopPropagation()}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 12, marginBottom: 14 }}>
         <div className="form-group" style={{ marginBottom: 0 }}>
+          <label className="form-label">Sync Start Date</label>
+          <input className="form-input" type="date"
+            value={creds['_syncFromDate'] || ''}
+            onChange={e => set('_syncFromDate', e.target.value)} />
+          <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3 }}>Only import trades on/after this date</div>
+        </div>
+        <div className="form-group" style={{ marginBottom: 0 }}>
           <label className="form-label">Brokerage Per Lot (₹)</label>
           <input className="form-input" type="number"
             placeholder={`Default: ₹${settings.brokeragePerLot || 40}`}
