@@ -35,21 +35,35 @@ function detectStrategy(legs) {
 
 // ─── Gemini API ───────────────────────────────────────────────────────────────
 const GEMINI_PROMPT = `Extract all option positions from this broker app screenshot.
-Return ONLY a raw JSON array (no markdown, no backticks, no explanation):
-[{"instrument":"NIFTY","expiry":"2026-05-19","strike":22850,"optionType":"PE","transactionType":"BUY","lots":3,"avgPrice":54.89,"lotSize":65}]
+Return ONLY a raw JSON array (no markdown, no backticks, no explanation).
+
+Example output showing both open and closed positions:
+[
+  {"instrument":"NIFTY","expiry":"2026-05-26","strike":23000,"optionType":"PE","transactionType":"SELL","lots":2,"avgPrice":107.35,"lotSize":65,"status":"OPEN"},
+  {"instrument":"NIFTY","expiry":"2026-05-19","strike":23150,"optionType":"PE","transactionType":"SELL","lots":3,"avgPrice":105.73,"exitPremium":12.05,"lotSize":65,"status":"CLOSED"},
+  {"instrument":"NIFTY","expiry":"2026-05-19","strike":22850,"optionType":"PE","transactionType":"BUY","lots":3,"avgPrice":54.89,"exitPremium":5.30,"lotSize":65,"status":"CLOSED"}
+]
 
 Rules:
-- expiry: YYYY-MM-DD format
-- optionType: CE or PE only
-- transactionType: BUY or SELL (negative lots = SELL)
-- avgPrice: the Avg/entry price shown, NOT the LTP/current price
-- lotSize: read from "(1 Lot = X)" if visible, else use 65 for NIFTY, 15 for BANKNIFTY, 25 for FINNIFTY, 75 for MIDCPNIFTY
-- For Angel One CLOSED positions: The positions screen shows closed trades with BOTH "Buy ₹X.XX" and "Sell ₹Y.YY" (lowercase b/s, with ₹ symbol and price right after). These are FULLY CLOSED positions — NOT open. Example: "Buy ₹54.89  Sell ₹5.30" means the position was closed. If Sell price > Buy price → original was SELL (entry=sell, exit=buy). If Buy > Sell → original was BUY (entry=buy, exit=sell). Set status=CLOSED and exitPremium to the exit price.
-- Distinguish from OPEN positions: open positions show "BUY" or "SELL" in caps WITHOUT a price right after (e.g. "BUY CF" or "SELL CF"). Closed positions have lowercase "Buy ₹XX" and "Sell ₹XX" with actual prices.
-- For Angel One CLOSED positions: The positions screen shows closed trades with BOTH "Buy ₹X.XX" and "Sell ₹Y.YY" (lowercase, with ₹ and price right after). These are CLOSED — mark status=CLOSED. If Sell > Buy: original was SELL (entry=sellPrice, exitPremium=buyPrice). If Buy > Sell: original was BUY (entry=buyPrice, exitPremium=sellPrice).
-- For Kotak Neo screenshots: format is "{qty}LOTs NRML" then "{INSTRUMENT} {strike} PUT/CALL {DD MMM}" then "AVG {price} LTP {price}". PUT = PE, CALL = CE. Positions shown without BUY/SELL label are typically SELL (short options).
-- For Angel One screenshots: format shows instrument name, strike, expiry, qty, avg price on separate lines with ₹ symbols.
-- Return [] if no option positions found`;
+- expiry: YYYY-MM-DD
+- optionType: CE or PE
+- transactionType: BUY or SELL
+- avgPrice: entry price
+- exitPremium: exit/closing price (CLOSED only)
+- status: OPEN or CLOSED
+- lotSize: from "(1 Lot = X)" or default NIFTY=65 BANKNIFTY=15 FINNIFTY=25 MIDCPNIFTY=75
+
+CRITICAL - Angel One CLOSED positions detection:
+- CLOSED = shows BOTH "Buy Rs X.XX" AND "Sell Rs Y.YY" with actual prices (lowercase b/s)
+- OPEN = shows "BUY CF" or "SELL CF" uppercase with NO price right after
+- CLOSED rule: Sell > Buy → transactionType=SELL, avgPrice=sellPrice, exitPremium=buyPrice
+- CLOSED rule: Buy > Sell → transactionType=BUY, avgPrice=buyPrice, exitPremium=sellPrice
+
+Angel One OPEN: "NIFTY 26 May 2026 23000 PE" + "-2 Lots Avg Rs107.35" + "SELL CF"
+Angel One CLOSED: "NIFTY 19 May 2026 22850 PE" + "3 Lots CF" + "Buy Rs54.89  Sell Rs5.30"
+
+Kotak Neo: "{qty}LOTs NRML" + "{INSTRUMENT} {strike} PUT/CALL {DD MMM}" + "AVG {price}"
+Return [] if no positions found.`;
 
 async function extractWithGemini(imageFile, apiKey) {
   // Convert image to base64
@@ -174,7 +188,7 @@ function parseOCRText(text) {
     // ── BUY / SELL label (Angel One shows as separate badge) ──────────────
     // Only treat as transaction type if it's a standalone label, not "Buy ₹X Sell ₹Y"
     if (cur && !cur.transactionType) {
-      const hasBothPrices = /\bBuy[^a-zA-Z]*\d/.test(line) && /\bSell[^a-zA-Z]*\d/.test(line);
+      const hasBothPrices = /\bBuy[^a-zA-Z]*?\d+\.\d/.test(line) || /\bSell[^a-zA-Z]*?\d+\.\d/.test(line);
       if (!hasBothPrices) {
         if (/\bSELL\b/i.test(line)) cur.transactionType = 'SELL';
         else if (/\bBUY\b/i.test(line))  cur.transactionType = 'BUY';
@@ -186,13 +200,12 @@ function parseOCRText(text) {
       const avgM = line.match(/[Aa][Vv][Gg][^\d]*([\d]+\.?[\d]*)/);
       if (avgM && !cur.avgPrice) cur.avgPrice = parseFloat(fixRupee(avgM[1]));
 
-      // ── Closed position: "Buy ₹54.89" / "Sell ₹5.30" (with ₹ symbol) ───
-      // Angel One shows closed positions with lowercase Buy/Sell + price
-      // Unlike open positions "BUY CF" which have no price after them
-      const cBuyM  = line.match(/\bBuy[\s₹¥%]+([\d]+\.?[\d]*)/);
-      const cSellM = line.match(/\bSell[\s₹¥%]+([\d]+\.?[\d]*)/);
-      if (cBuyM)  { const p = parseFloat(fixRupee(cBuyM[1]));  if (p > 0) cur._pb = p; }
-      if (cSellM) { const p = parseFloat(fixRupee(cSellM[1])); if (p > 0) cur._ps = p; }
+      // ── Closed position: "Buy ₹54.89" / "Sell ₹5.30" ──────────────────
+      // Use decimal-number pattern (X.XX) to avoid matching ₹ OCR'd as "3"
+      const cBuyM  = line.match(/\bBuy[^a-zA-Z]*?(\d+\.\d{1,2})/);
+      const cSellM = line.match(/\bSell[^a-zA-Z]*?(\d+\.\d{1,2})/);
+      if (cBuyM)  { const p = parseFloat(cBuyM[1]);  if (p > 0) cur._pb = p; }
+      if (cSellM) { const p = parseFloat(cSellM[1]); if (p > 0) cur._ps = p; }
 
       // Once we have both prices → closed position
       if (cur._pb && cur._ps && !cur.isClosed) {
@@ -267,7 +280,13 @@ export default function ScreenshotImport() {
 
       if (useMethod === 'gemini') {
         setMethod('gemini');
-        trades = await extractWithGemini(image.file, settings.geminiKey);
+        const raw = await extractWithGemini(image.file, settings.geminiKey);
+        trades = raw.map(t => ({
+          ...t,
+          status: t.status || 'OPEN',
+          exitPremium: t.exitPremium || t.exitPrice || undefined,
+          exitDate: t.status === 'CLOSED' ? (t.exitDate || new Date().toISOString().slice(0,10)) : undefined,
+        }));
       } else {
         setMethod('ocr');
         const result = await Tesseract.recognize(image.file, 'eng', {
