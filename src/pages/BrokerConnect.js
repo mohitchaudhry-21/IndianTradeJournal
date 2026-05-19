@@ -139,7 +139,7 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, savedAccount
 }
 
 export default function BrokerConnect() {
-  const { addTrades, accounts, addAccount, deleteAccount, settings } = useJournal();
+  const { addTrades, accounts, positions, addAccount, deleteAccount, settings, closePosition, updatePositionMeta } = useJournal();
   const handleSync = (broker) => (trades) => {
     const mapped = trades.map(t => ({
       ...t,
