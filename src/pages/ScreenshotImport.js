@@ -44,6 +44,7 @@ Rules:
 - transactionType: BUY or SELL (negative lots = SELL)
 - avgPrice: the Avg/entry price shown, NOT the LTP/current price
 - lotSize: read from "(1 Lot = X)" if visible, else use 65 for NIFTY, 15 for BANKNIFTY, 25 for FINNIFTY, 75 for MIDCPNIFTY
+- For Angel One CLOSED positions: format shows both "Buy ₹X.XX" and "Sell ₹Y.YY" on the same line. These are CLOSED positions. If Sell > Buy, original transaction was SELL (entry=sell price, exit=buy price). If Buy > Sell, original was BUY (entry=buy price, exit=sell price). Mark status as CLOSED and include exitPremium.
 - For Kotak Neo screenshots: format is "{qty}LOTs NRML" then "{INSTRUMENT} {strike} PUT/CALL {DD MMM}" then "AVG {price} LTP {price}". PUT = PE, CALL = CE. Positions shown without BUY/SELL label are typically SELL (short options).
 - For Angel One screenshots: format shows instrument name, strike, expiry, qty, avg price on separate lines with ₹ symbols.
 - Return [] if no option positions found`;
@@ -194,6 +195,9 @@ function parseOCRText(text) {
       lots: t.lots || 1,
       transactionType: t.transactionType || null,
       lotSize: t.lotSize || getLotSize(t.instrument),
+      status: t.isClosed ? 'CLOSED' : 'OPEN',
+      exitPremium: t.exitPrice || undefined,
+      exitDate: t.isClosed ? new Date().toISOString().slice(0,10) : undefined,
     }));
 }
 
