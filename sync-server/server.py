@@ -399,9 +399,11 @@ def sync_angelone():
         return jsonify({'success': False, 'error': 'Not connected'}), 401
     s = sessions['angelone']
     try:
-        data = request.json or {}
-        account_id = s['accountId']
+        data = request.get_json(force=True, silent=True) or {}
+        account_id   = s['accountId']
         existing_open = data.get('existingPositions', [])
+        sync_from    = data.get('syncFromDate', '')  # 'YYYY-MM-DD' or ''
+        today        = datetime.now().strftime('%Y-%m-%d')
 
         # Get all positions from Angel One (includes both open and closed)
         positions_raw = angel_positions(s['apiKey'], s['jwtToken'])
@@ -410,6 +412,10 @@ def sync_angelone():
         broker_closed_raw = []  # netqty == 0 → squared off today
 
         for p in positions_raw:
+            # Skip if position date is before syncFromDate
+            pos_date = (p.get('orderplacetime') or p.get('updatetime') or today)[:10]
+            if sync_from and pos_date < sync_from:
+                continue
             net_qty   = int(p.get('netqty', 0) or 0)
             buy_qty   = int(p.get('buyqty', 0) or 0)
             sell_qty  = int(p.get('sellqty', 0) or 0)
@@ -426,9 +432,12 @@ def sync_angelone():
         open_legs = [t for p in broker_open_raw if (t := map_angel_position(p, account_id)) is not None]
         open_positions = group_open_positions(open_legs)
 
-        # For closed positions, match against existing OPEN journal entries
+        # For closed positions: match existing OR create new CLOSED entry
         to_close = []
+        new_closed_legs = []
         closed_pos_ids_seen = set()
+        today = datetime.now().strftime('%Y-%m-%d')
+        lot_size_map = get_lot_size
 
         for p in broker_closed_raw:
             sym = parse_symbol(p.get('tradingsymbol', ''))
@@ -437,21 +446,36 @@ def sync_angelone():
 
             buy_avg  = float(p.get('buyavgprice', 0) or p.get('cfbuyavgprice', 0) or 0)
             sell_avg = float(p.get('sellavgprice', 0) or p.get('cfsellavgprice', 0) or 0)
-            # Exit price = the closing side (opposite of original)
-            exit_price = buy_avg if sell_avg >= buy_avg else sell_avg
-            today = datetime.now().strftime('%Y-%m-%d')
+            buy_qty  = int(p.get('buyqty', 0) or 0)
+            sell_qty = int(p.get('sellqty', 0) or 0)
+            api_ls   = int(p.get('lotsize', 0) or 0)
+            lot_size = api_ls if api_ls > 0 else get_lot_size(sym['instrument'])
+            qty      = max(buy_qty, sell_qty)
+            lots     = qty // lot_size if lot_size > 0 else qty or 1
 
-            # Find matching open position in journal
+            # Determine original tx type and prices
+            if sell_avg >= buy_avg:
+                tx_type    = 'SELL'
+                entry_price = sell_avg
+                exit_price  = buy_avg
+            else:
+                tx_type    = 'BUY'
+                entry_price = buy_avg
+                exit_price  = sell_avg
+
+            realized_pnl = float(p.get('realised', 0) or p.get('pnl', 0) or 0)
+
+            # Try to match existing OPEN journal position
+            matched = False
             for ep in existing_open:
                 if ep.get('positionId') in closed_pos_ids_seen:
                     continue
                 legs = ep.get('legs', [])
                 for leg in legs:
                     if (str(leg.get('instrument','')) == str(sym['instrument']) and
-                        str(leg.get('expiry',''))[:10] == str(sym['expiry'] or '')[:10] and
+                        str(leg.get('expiry',''))[:10] == str(sym.get('expiry') or '')[:10] and
                         str(leg.get('strike','')) == str(sym['strike']) and
                         str(leg.get('optionType','')) == str(sym['optionType'])):
-                        # Found matching leg — mark entire position for closing
                         pos_id = ep.get('positionId')
                         if pos_id:
                             closed_pos_ids_seen.add(pos_id)
@@ -460,17 +484,49 @@ def sync_angelone():
                                 'exitDate': today,
                                 'exitLegs': [{'legId': leg.get('id'), 'exitPrice': exit_price}]
                             })
+                        matched = True
                         break
+                if matched:
+                    break
+
+            # No existing match — create new CLOSED leg to import
+            if not matched:
+                new_closed_legs.append({
+                    'id': str(uuid4()),
+                    'brokerTradeId': p.get('symboltoken', ''),
+                    'accountId': account_id,
+                    'source': 'angelone',
+                    'instrument': sym['instrument'],
+                    'expiry': sym['expiry'],
+                    'strike': sym['strike'],
+                    'optionType': sym['optionType'],
+                    'transactionType': tx_type,
+                    'quantity': lots if lots > 0 else 1,
+                    'lotSize': lot_size,
+                    'premium': entry_price,
+                    'exitPremium': exit_price,
+                    'exitDate': today,
+                    'date': today,
+                    'status': 'CLOSED',
+                    'realizedPnL': realized_pnl,
+                    'strategyName': 'Custom',
+                })
+
+        # Group newly imported closed legs into positions
+        new_closed_positions = group_open_positions(new_closed_legs) if new_closed_legs else []
+
+        all_new_trades = open_positions + new_closed_positions
 
         return jsonify({
             'success': True,
-            'count': len(open_positions),
-            'trades': open_positions,
+            'count': len(all_new_trades),
+            'trades': all_new_trades,
             'closePositions': to_close,
             'debug': {
                 'total_from_broker': len(positions_raw),
                 'open_count': len(open_positions),
-                'closed_count': len(to_close),
+                'matched_closed': len(to_close),
+                'new_closed_imported': len(new_closed_positions),
                 'squared_off': len(broker_closed_raw),
             }
         })
