@@ -44,7 +44,9 @@ Rules:
 - transactionType: BUY or SELL (negative lots = SELL)
 - avgPrice: the Avg/entry price shown, NOT the LTP/current price
 - lotSize: read from "(1 Lot = X)" if visible, else use 65 for NIFTY, 15 for BANKNIFTY, 25 for FINNIFTY, 75 for MIDCPNIFTY
-- For Angel One CLOSED positions: format shows both "Buy ₹X.XX" and "Sell ₹Y.YY" on the same line. These are CLOSED positions. If Sell > Buy, original transaction was SELL (entry=sell price, exit=buy price). If Buy > Sell, original was BUY (entry=buy price, exit=sell price). Mark status as CLOSED and include exitPremium.
+- For Angel One CLOSED positions: The positions screen shows closed trades with BOTH "Buy ₹X.XX" and "Sell ₹Y.YY" (lowercase b/s, with ₹ symbol and price right after). These are FULLY CLOSED positions — NOT open. Example: "Buy ₹54.89  Sell ₹5.30" means the position was closed. If Sell price > Buy price → original was SELL (entry=sell, exit=buy). If Buy > Sell → original was BUY (entry=buy, exit=sell). Set status=CLOSED and exitPremium to the exit price.
+- Distinguish from OPEN positions: open positions show "BUY" or "SELL" in caps WITHOUT a price right after (e.g. "BUY CF" or "SELL CF"). Closed positions have lowercase "Buy ₹XX" and "Sell ₹XX" with actual prices.
+- For Angel One CLOSED positions: The positions screen shows closed trades with BOTH "Buy ₹X.XX" and "Sell ₹Y.YY" (lowercase, with ₹ and price right after). These are CLOSED — mark status=CLOSED. If Sell > Buy: original was SELL (entry=sellPrice, exitPremium=buyPrice). If Buy > Sell: original was BUY (entry=buyPrice, exitPremium=sellPrice).
 - For Kotak Neo screenshots: format is "{qty}LOTs NRML" then "{INSTRUMENT} {strike} PUT/CALL {DD MMM}" then "AVG {price} LTP {price}". PUT = PE, CALL = CE. Positions shown without BUY/SELL label are typically SELL (short options).
 - For Angel One screenshots: format shows instrument name, strike, expiry, qty, avg price on separate lines with ₹ symbols.
 - Return [] if no option positions found`;
@@ -170,15 +172,43 @@ function parseOCRText(text) {
     }
 
     // ── BUY / SELL label (Angel One shows as separate badge) ──────────────
+    // Only treat as transaction type if it's a standalone label, not "Buy ₹X Sell ₹Y"
     if (cur && !cur.transactionType) {
-      if (/\bSELL\b/i.test(line)) cur.transactionType = 'SELL';
-      else if (/\bBUY\b/i.test(line))  cur.transactionType = 'BUY';
+      const hasBothPrices = /\bBuy[^a-zA-Z]*\d/.test(line) && /\bSell[^a-zA-Z]*\d/.test(line);
+      if (!hasBothPrices) {
+        if (/\bSELL\b/i.test(line)) cur.transactionType = 'SELL';
+        else if (/\bBUY\b/i.test(line))  cur.transactionType = 'BUY';
+      }
     }
 
-    // ── Avg price: handle any OCR rupee artifact (¥, %, ₹, 3, space) ──────
+    // ── Avg price ──────────────────────────────────────────────────────────
     if (cur) {
       const avgM = line.match(/[Aa][Vv][Gg][^\d]*([\d]+\.?[\d]*)/);
       if (avgM && !cur.avgPrice) cur.avgPrice = parseFloat(fixRupee(avgM[1]));
+
+      // ── Closed position: "Buy ₹54.89" / "Sell ₹5.30" (with ₹ symbol) ───
+      // Angel One shows closed positions with lowercase Buy/Sell + price
+      // Unlike open positions "BUY CF" which have no price after them
+      const cBuyM  = line.match(/\bBuy[\s₹¥%]+([\d]+\.?[\d]*)/);
+      const cSellM = line.match(/\bSell[\s₹¥%]+([\d]+\.?[\d]*)/);
+      if (cBuyM)  { const p = parseFloat(fixRupee(cBuyM[1]));  if (p > 0) cur._pb = p; }
+      if (cSellM) { const p = parseFloat(fixRupee(cSellM[1])); if (p > 0) cur._ps = p; }
+
+      // Once we have both prices → closed position
+      if (cur._pb && cur._ps && !cur.isClosed) {
+        cur.isClosed = true;
+        if (cur._ps >= cur._pb) {
+          // Sell > Buy → originally SOLD (options seller), closed by buying
+          cur.transactionType = cur.transactionType === 'BUY' ? 'BUY' : 'SELL';
+          if (!cur.avgPrice) cur.avgPrice = cur._ps;
+          cur.exitPrice = cur._pb;
+        } else {
+          // Buy > Sell → originally BOUGHT (hedge), closed by selling
+          cur.transactionType = cur.transactionType === 'SELL' ? 'SELL' : 'BUY';
+          if (!cur.avgPrice) cur.avgPrice = cur._pb;
+          cur.exitPrice = cur._ps;
+        }
+      }
 
       // Lot size hint: "(1 Lot = 65)"
       const lsM = line.match(/1\s*[Ll]ot\s*[=:]\s*(\d+)/);
