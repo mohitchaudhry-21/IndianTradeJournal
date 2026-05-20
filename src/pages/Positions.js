@@ -99,8 +99,8 @@ function PositionCard({ position, onClose, onDelete }) {
   return (
     <div className="card" style={{ marginBottom: 14 }}>
       {/* Card header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: expanded ? 16 : 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: expanded ? 16 : 0, cursor: 'pointer' }} onClick={() => setExpanded(e => !e)}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }} onClick={e => e.stopPropagation()}>
           <span className={`badge ${position.strategyName?.toLowerCase().replace(/ /g, '_') || 'custom'}`}>
             {position.strategyName || 'Custom'}
           </span>
@@ -117,7 +117,7 @@ function PositionCard({ position, onClose, onDelete }) {
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }} onClick={e => e.stopPropagation()}>
           <div style={{ textAlign: 'right', marginRight: 8 }}>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>NET PREMIUM</div>
             <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, fontWeight: 600, color: 'var(--profit)' }}>
@@ -125,7 +125,7 @@ function PositionCard({ position, onClose, onDelete }) {
             </div>
           </div>
           <button className="btn btn-primary btn-sm" onClick={() => onClose(position)}>Close</button>
-          <button className="btn btn-ghost btn-sm" onClick={() => setExpanded(e => !e)}>{expanded ? '▲' : '▼'}</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setExpanded(e => !e)} style={{ minWidth: 36, fontSize: 16 }}>{expanded ? '▲' : '▼'}</button>
           <button className="btn btn-danger btn-sm" onClick={() => {
             if (window.confirm('Delete this entire position?')) onDelete(position.positionId);
           }}>✕</button>
