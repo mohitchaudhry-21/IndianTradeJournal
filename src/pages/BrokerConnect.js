@@ -54,8 +54,9 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, savedAccount
       const data = await res.json();
       if (data.success) {
         setLastSync(new Date().toLocaleTimeString());
-        setMessage(`Synced ${data.count || 0} trades`);
-        if (data.trades) onSync(data.trades);
+        const total = (data.openCount || 0) + (data.closedCount || 0);
+        setMessage(`Synced ${total} position${total !== 1 ? 's' : ''} (${data.openCount || 0} open, ${data.closedCount || 0} closed)`);
+        if (data.positions) onSync(data.positions);
       } else {
         setMessage(data.error || 'Sync failed');
       }
@@ -144,7 +145,7 @@ export default function BrokerConnect() {
     const mapped = trades.map(t => ({
       ...t,
       source: broker,
-      status: t.status || 'CLOSED',
+      status: t.status || 'OPEN',
     }));
     addTrades(mapped);
   };
