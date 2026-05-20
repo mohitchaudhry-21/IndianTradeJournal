@@ -73,6 +73,23 @@ export default function Calendar() {
     return map;
   }, [positions]);
 
+  // Week P&L rows
+  const weekRows = useMemo(() => {
+    const rows = [];
+    for (let week = 0; week < Math.ceil(totalCells / 7); week++) {
+      let weekPnl = 0, hasTrades = false;
+      for (let d = 0; d < 7; d++) {
+        const dayNum = week * 7 + d - firstMon + 1;
+        if (dayNum < 1 || dayNum > daysInMonth) continue;
+        const key = ds(year, month, dayNum);
+        const data = dayMap[key];
+        if (data?.closed.length > 0) { weekPnl += data.pnl; hasTrades = true; }
+      }
+      rows.push({ weekPnl, hasTrades });
+    }
+    return rows;
+  }, [dayMap, totalCells, firstMon, daysInMonth, year, month]);
+
   // Month stats
   const monthStats = useMemo(() => {
     let pnl = 0, wins = 0, losses = 0, tradingDays = 0;
@@ -134,14 +151,15 @@ export default function Calendar() {
         {/* Calendar grid */}
         <div style={{ background:'var(--bg-card)', borderRadius:14, overflow:'hidden', border:'1px solid var(--border)' }}>
           {/* Day headers */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', background:'var(--bg-card2)' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr) 72px', background:'var(--bg-card2)' }}>
             {DAYS.map(d => (
               <div key={d} style={{ padding:'12px 0', textAlign:'center', fontSize:11, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.1em' }}>{d}</div>
             ))}
+            <div style={{ padding:'12px 0', textAlign:'center', fontSize:11, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.1em' }}>WEEK</div>
           </div>
 
           {/* Cells */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr) 72px' }}>
             {Array.from({ length: totalCells }, (_, i) => {
               const dayNum = i - firstMon + 1;
               const inMonth = dayNum >= 1 && dayNum <= daysInMonth;
@@ -229,6 +247,25 @@ export default function Calendar() {
                 </div>
               );
             })}
+            {/* Week P&L column cells */}
+            {weekRows.map((w, wi) => (
+              <div key={'week-'+wi} style={{
+                gridColumn: 8, gridRow: wi + 2,
+                borderTop: '1px solid var(--border)',
+                borderLeft: '1px solid var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                padding: '4px 6px', background: w.hasTrades ? (w.weekPnl >= 0 ? 'rgba(16,217,160,0.05)' : 'rgba(240,86,110,0.05)') : 'var(--bg-card)',
+                minHeight: 'clamp(80px,8vh,140px)',
+              }}>
+                {w.hasTrades && (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 700, color: w.weekPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                      {fmtPnl(w.weekPnl)}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         </div>
 
