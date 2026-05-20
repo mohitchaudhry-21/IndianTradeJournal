@@ -141,6 +141,34 @@ export default function Analytics() {
 
 
 
+  // ── DTE at Entry vs P&L ───────────────────────────────────────────────────
+  const dteVsPnl = useMemo(() => {
+    return closed
+      .filter(p => p.openDate && p.expiry && p.realizedPnL !== null)
+      .map(p => {
+        const dte = Math.round((new Date(p.expiry) - new Date(p.openDate)) / 86400000);
+        return { dte, pnl: p.realizedPnL || 0, label: (p.instrument||'') + ' ' + (p.closeDate||'').slice(5) };
+      })
+      .filter(d => d.dte >= 0 && d.dte <= 90)
+      .sort((a, b) => a.dte - b.dte);
+  }, [closed]);
+
+  // ── Day of Week breakdown ─────────────────────────────────────────────────
+  const dayOfWeek = useMemo(() => {
+    const days = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+    const map = {};
+    days.forEach(d => { map[d] = { name: d, pnl: 0, count: 0, wins: 0 }; });
+    closed.forEach(p => {
+      if (!p.closeDate) return;
+      const dow = days[new Date(p.closeDate).getDay()];
+      map[dow].pnl += p.realizedPnL || 0;
+      map[dow].count++;
+      if ((p.realizedPnL || 0) > 0) map[dow].wins++;
+    });
+    // Return Mon–Fri only (trading days)
+    return ['Mon','Tue','Wed','Thu','Fri'].map(d => map[d]);
+  }, [closed]);
+
   // ── Risk Metrics ──────────────────────────────────────────────────────────
   const riskMetrics = useMemo(() => {
     // Max Drawdown
@@ -215,7 +243,13 @@ export default function Analytics() {
             <StatBlock label="Avg Win" value={fmt(stats.avgWin)} color="var(--profit)" sub="Per winning position" />
             <StatBlock label="Avg Loss" value={'−' + fmt(stats.avgLoss)} color="var(--loss)" sub="Per losing position" />
             <StatBlock label="Return on Margin" value={marginData.trades.length > 0 ? (marginData.avgReturn >= 0 ? '+' : '') + marginData.avgReturn.toFixed(2) + '%' : '—'} color={marginData.avgReturn >= 0 ? 'var(--profit)' : 'var(--loss)'} sub={marginData.trades.length > 0 ? 'Avg across ' + marginData.trades.length + ' trades' : 'Add margin in notes'} />
-            <StatBlock label="Annualized Return" value={(() => { if (!marginData.trades.length || !closed.length) return '—'; const days = Math.max(1, (new Date(closed.reduce((a,b) => (a.closeDate||'') > (b.closeDate||'') ? a : b).closeDate||Date.now()) - new Date(closed.reduce((a,b) => (a.closeDate||'') < (b.closeDate||'') ? a : b).closeDate||Date.now())) / 86400000); const ann = marginData.avgReturn * (365 / days); return (ann >= 0 ? '+' : '') + ann.toFixed(1) + '%'; })()} color="var(--profit)" sub="Projected yearly rate" />
+            <StatBlock label="Annualized Return" value={(() => {
+              if (!marginData.trades.length || closed.length < 2) return '—';
+              const days = Math.max(1, (new Date(closed.reduce((a,b) => (a.closeDate||'') > (b.closeDate||'') ? a : b).closeDate||Date.now()) - new Date(closed.reduce((a,b) => (a.closeDate||'') < (b.closeDate||'') ? a : b).closeDate||Date.now())) / 86400000);
+              if (days < 14) return 'Need more data';
+              const ann = marginData.avgReturn * (365 / days);
+              return (ann >= 0 ? '+' : '') + ann.toFixed(1) + '%';
+            })()} color="var(--profit)" sub={closed.length < 2 ? 'Need 2+ closed trades' : 'Projected yearly rate'} />
             <StatBlock label="Total P&L" value={fmt(stats.totalPnL)} color={stats.totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)'} sub="All time realized" />
             <StatBlock label="This Month" value={fmt(stats.thisMonthPnL)} color={stats.thisMonthPnL >= 0 ? 'var(--profit)' : 'var(--loss)'} sub={new Date().toLocaleString('default', { month: 'long' })} />
           </div>
@@ -317,6 +351,76 @@ export default function Analytics() {
                 <span>(Avg Loss <span style={{ color: 'var(--loss)', fontFamily: "'JetBrains Mono',monospace", fontWeight: 600 }}>{fmt(Math.round(stats.avgLoss))}</span> × Loss% <span style={{ color: 'var(--loss)', fontWeight: 600 }}>{(100 - stats.winRate).toFixed(0)}%</span>)</span>
                 <span style={{ color: 'var(--border-hover)' }}>=</span>
                 <span style={{ color: expectancy.val >= 0 ? 'var(--profit)' : 'var(--loss)', fontFamily: "'JetBrains Mono',monospace", fontWeight: 700 }}>{expectancy.val >= 0 ? '+' : ''}{fmt(Math.round(expectancy.val))}</span>
+              </div>
+            </div>
+          )}
+
+          {/* ── DTE at Entry vs P&L ──────────────────────────────────── */}
+          {dteVsPnl.length > 2 && (
+            <div className="card" style={{ marginBottom: 24 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                <div className="section-title">DTE at Entry vs P&L</div>
+                <div style={{ fontSize:12, color:'var(--text-muted)' }}>Does entering earlier or later work better for you?</div>
+              </div>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={dteVsPnl} margin={{ top:10, right:10, left:0, bottom:0 }}>
+                  <XAxis dataKey="dte" tick={{ fill:'var(--text-muted)', fontSize:10 }} axisLine={false} tickLine={false} label={{ value:'DTE at entry', position:'insideBottomRight', fill:'var(--text-muted)', fontSize:10 }} />
+                  <YAxis tick={{ fill:'var(--text-muted)', fontSize:10 }} axisLine={false} tickLine={false} tickFormatter={v => v>=1000?'₹'+(v/1000).toFixed(0)+'K':'₹'+v} width={50} />
+                  <Tooltip content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0].payload;
+                    return (
+                      <div style={{ background:'#1a1f2e', border:'1px solid rgba(255,255,255,0.1)', borderRadius:8, padding:'10px 14px' }}>
+                        <div style={{ color:'var(--text-muted)', fontSize:11, marginBottom:3 }}>{d.label}</div>
+                        <div style={{ fontSize:12, color:'var(--text-muted)' }}>DTE at entry: <span style={{ color:'var(--text-primary)', fontWeight:600 }}>{d.dte}d</span></div>
+                        <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:15, color:d.pnl>=0?'var(--profit)':'var(--loss)', fontWeight:700 }}>{fmt(d.pnl)}</div>
+                      </div>
+                    );
+                  }} />
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 4" />
+                  <Bar dataKey="pnl" radius={[4,4,0,0]}>
+                    {dteVsPnl.map((d, i) => <Cell key={i} fill={d.pnl >= 0 ? 'var(--profit)' : 'var(--loss)'} opacity={0.85} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div style={{ marginTop:8, fontSize:11, color:'var(--text-muted)' }}>Each bar = one closed trade. X-axis = days to expiry when you entered.</div>
+            </div>
+          )}
+
+          {/* ── Day of Week P&L ───────────────────────────────────────────── */}
+          {closed.length > 0 && (
+            <div className="card" style={{ marginBottom: 24 }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                <div className="section-title">P&amp;L by Day of Week (Exit Day)</div>
+                <div style={{ fontSize:12, color:'var(--text-muted)' }}>Which day do you close your best trades on?</div>
+              </div>
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={dayOfWeek} barSize={40} margin={{ top:20, right:10, left:0, bottom:0 }}>
+                  <XAxis dataKey="name" tick={{ fill:'var(--text-muted)', fontSize:12 }} axisLine={false} tickLine={false} />
+                  <YAxis hide />
+                  <Tooltip content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0].payload;
+                    return (
+                      <div style={{ background:'#1a1f2e', border:'1px solid rgba(255,255,255,0.1)', borderRadius:8, padding:'10px 14px' }}>
+                        <div style={{ color:'var(--text-muted)', fontSize:11, marginBottom:3 }}>{d.name}</div>
+                        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:3 }}>{d.count} trades · {d.count > 0 ? ((d.wins/d.count)*100).toFixed(0) : 0}% win rate</div>
+                        <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:15, color:d.pnl>=0?'var(--profit)':'var(--loss)', fontWeight:700 }}>{fmt(Math.round(d.pnl))}</div>
+                      </div>
+                    );
+                  }} />
+                  <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" />
+                  <Bar dataKey="pnl" radius={[6,6,0,0]} label={{ position:'top', formatter:v=>v>=1000?'₹'+(v/1000).toFixed(1)+'K':v<=0&&v>-1000?'':v===0?'':'₹'+(v/1000).toFixed(1)+'K', fill:'var(--text-muted)', fontSize:10 }}>
+                    {dayOfWeek.map((d, i) => <Cell key={i} fill={d.count === 0 ? 'var(--border)' : d.pnl >= 0 ? 'var(--profit)' : 'var(--loss)'} opacity={d.count === 0 ? 0.3 : 0.85} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+              <div style={{ display:'flex', gap:16, marginTop:10, flexWrap:'wrap' }}>
+                {dayOfWeek.filter(d => d.count > 0).map(d => (
+                  <div key={d.name} style={{ fontSize:11, color:'var(--text-muted)' }}>
+                    <span style={{ fontWeight:600, color:'var(--text-secondary)' }}>{d.name}</span>: {d.count} trades · {((d.wins/d.count)*100).toFixed(0)}% win
+                  </div>
+                ))}
               </div>
             </div>
           )}
