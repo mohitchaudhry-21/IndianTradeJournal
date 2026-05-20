@@ -273,7 +273,6 @@ export default function Calendar() {
             })}
           </div>
         </div>
-        </div>
 
         {/* Day detail panel */}
         {selected && (
