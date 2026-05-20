@@ -59,10 +59,10 @@ function LegsInline({ legs }) {
               {leg.strike?.toLocaleString('en-IN')}
             </span>
             <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{leg.quantity}L</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
-              <span style={{ color: 'var(--text-secondary)' }}>₹{entry?.toFixed(2) ?? '—'}</span>
-              <span style={{ color: 'var(--text-muted)', fontSize: 9 }}>→</span>
-              <span style={{ color: hasExit ? 'var(--text-secondary)' : 'var(--text-muted)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, fontFamily: "'JetBrains Mono', monospace", fontSize: 11 }}>
+              <span style={{ color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '1px 5px', borderRadius: 3 }}>₹{entry?.toFixed(2) ?? '—'}</span>
+              <span style={{ color: 'var(--border-hover)', fontSize: 10 }}>→</span>
+              <span style={{ color: hasExit ? (leg.transactionType === 'SELL' ? 'var(--profit)' : 'var(--text-secondary)') : 'var(--text-muted)', background: hasExit ? 'rgba(16,217,160,0.07)' : 'transparent', padding: hasExit ? '1px 5px' : '0', borderRadius: 3 }}>
                 {hasExit ? '₹' + exit.toFixed(2) : '—'}
               </span>
             </div>
@@ -150,6 +150,45 @@ function ChargesCell({ value, onSave }) {
       {value
         ? <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, color:'var(--loss)' }}>-{fmt(value)}</span>
         : <span style={{ fontSize:11, color:'var(--text-muted)', borderBottom:'1px dashed var(--text-muted)' }}>+ add</span>}
+    </div>
+  );
+}
+
+// Exit date edit popup
+function EditExitDatePopup({ position, onClose, onSave }) {
+  const [exitDate, setExitDate] = useState(
+    position.closeDate ? position.closeDate.slice(0, 10) : ''
+  );
+  const expiry = position.expiry ? position.expiry.slice(0, 10) : null;
+  const isExpired = exitDate && expiry && exitDate === expiry;
+
+  const handleSave = () => {
+    onSave(exitDate || null);
+    onClose();
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 24, width: 320, boxShadow: '0 16px 48px rgba(0,0,0,0.5)' }}>
+        <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)', marginBottom: 4 }}>Edit exit date</div>
+        <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
+          {position.strategyName || 'Position'} · {position.instrument} · Expiry {position.expiry ? new Date(position.expiry + 'T12:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}
+        </div>
+        <div className="form-group" style={{ marginBottom: 10 }}>
+          <label className="form-label">Exit Date</label>
+          <input className="form-input" type="date" value={exitDate} onChange={e => setExitDate(e.target.value)} />
+        </div>
+        {exitDate && expiry && (
+          <div style={{ fontSize: 11, color: isExpired ? 'var(--accent)' : 'var(--profit)', background: isExpired ? 'rgba(245,158,11,0.08)' : 'rgba(16,217,160,0.08)', border: `1px solid ${isExpired ? 'rgba(245,158,11,0.2)' : 'rgba(16,217,160,0.2)'}`, borderRadius: 6, padding: '6px 10px', marginBottom: 14 }}>
+            {isExpired ? '⏱ Counts as expired (closed on expiry day)' : '⚡ Counts as early exit (before expiry)'}
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+          <button className="btn btn-outline" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" style={{ flex: 2 }} onClick={handleSave}>Confirm</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -342,6 +381,7 @@ export default function TradeHistory() {
   const [dateFrom,         setDateFrom]         = useState('');
   const [dateTo,           setDateTo]           = useState('');
   const [notesPos,         setNotesPos]         = useState(null);
+  const [editExitPos,      setEditExitPos]      = useState(null);
 
   const all = useMemo(() =>
     [...positions]
@@ -483,6 +523,18 @@ export default function TradeHistory() {
       {notesPos && (
         <div onClick={() => setNotesPos(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 199, backdropFilter: 'blur(2px)' }} />
+      )}
+
+      {/* Edit exit date popup */}
+      {editExitPos && (
+        <EditExitDatePopup
+          position={editExitPos}
+          onClose={() => setEditExitPos(null)}
+          onSave={dateVal => {
+            updatePositionMeta(editExitPos.positionId, { positionCloseDate: dateVal });
+            setEditExitPos(null);
+          }}
+        />
       )}
 
       <div className="page-header">
@@ -650,10 +702,27 @@ export default function TradeHistory() {
                     {td(<span className={`badge ${p.status.toLowerCase()}`}>{p.status}</span>)}
 
                     {td(
-                      isOpen
-                        ? <span style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 600 }}>● Active</span>
-                        : fmtDate(p.closeDate),
-                      { fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' }
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
+                        {isOpen
+                          ? <span style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 600 }}>● Active</span>
+                          : <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(p.closeDate)}</span>
+                        }
+                        {!isOpen && p.closeDate && p.expiry && (
+                          <span style={{
+                            fontSize: 9, padding: '1px 5px', borderRadius: 3, fontWeight: 600,
+                            background: p.closeDate.slice(0,10) === p.expiry.slice(0,10) ? 'rgba(245,158,11,0.12)' : 'rgba(16,217,160,0.1)',
+                            color: p.closeDate.slice(0,10) === p.expiry.slice(0,10) ? 'var(--accent)' : 'var(--profit)',
+                          }}>
+                            {p.closeDate.slice(0,10) === p.expiry.slice(0,10) ? 'EXPIRED' : 'EARLY'}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => setEditExitPos(p)}
+                          title="Edit exit date"
+                          style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 12, padding: '1px 3px', opacity: 0.55, lineHeight: 1 }}
+                        >✏</button>
+                      </div>,
+                      { whiteSpace: 'nowrap' }
                     )}
 
                     {/* Notes button */}
