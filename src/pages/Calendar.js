@@ -151,15 +151,16 @@ export default function Calendar() {
         {/* Calendar grid */}
         <div style={{ background:'var(--bg-card)', borderRadius:14, overflow:'hidden', border:'1px solid var(--border)' }}>
           {/* Day headers */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr) 72px', background:'var(--bg-card2)' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr) 60px', background:'var(--bg-card2)' }}>
             {DAYS.map(d => (
               <div key={d} style={{ padding:'12px 0', textAlign:'center', fontSize:11, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.1em' }}>{d}</div>
             ))}
-            <div style={{ padding:'12px 0', textAlign:'center', fontSize:11, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.1em' }}>WEEK</div>
+            <div style={{ padding:'12px 0', textAlign:'center', fontSize:10, fontWeight:700, color:'var(--text-muted)', letterSpacing:'0.06em', borderLeft:'1px solid var(--border)' }}>WK</div>
           </div>
 
-          {/* Cells */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr) 72px' }}>
+
+          {/* Cells — 7 day cols + 1 week summary col, interleaved */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr) 60px' }}>
             {Array.from({ length: totalCells }, (_, i) => {
               const dayNum = i - firstMon + 1;
               const inMonth = dayNum >= 1 && dayNum <= daysInMonth;
@@ -172,6 +173,9 @@ export default function Calendar() {
               const profit = hasPnl && data.pnl > 0;
               const loss   = hasPnl && data.pnl < 0;
               const isWeekend = (i % 7) >= 5;
+              const isLastOfWeek = (i % 7) === 6;
+              const weekIdx = Math.floor(i / 7);
+              const w = weekRows[weekIdx];
 
               let bg = 'transparent';
               if (!inMonth) bg = 'var(--bg-primary)';
@@ -181,92 +185,94 @@ export default function Calendar() {
               else if (hasOpened) bg = 'rgba(245,158,11,0.06)';
 
               return (
-                <div
-                  key={i}
-                  onClick={() => inMonth && setSelected(isSelected ? null : key)}
-                  style={{
-                    minHeight: 'clamp(80px, 8vh, 140px)',
-                    padding: '10px 12px',
-                    background: bg,
-                    borderTop: '1px solid var(--border)',
-                    borderRight: (i % 7) < 6 ? '1px solid var(--border)' : 'none',
-                    cursor: inMonth ? 'pointer' : 'default',
-                    position: 'relative',
-                    transition: 'background 0.15s',
-                    outline: isSelected ? '2px solid var(--accent)' : isToday ? '2px solid rgba(59,130,246,0.4)' : 'none',
-                    outlineOffset: '-2px',
-                  }}
-                  onMouseEnter={e => { if (inMonth && !isSelected) e.currentTarget.style.background = profit ? 'rgba(16,217,160,0.12)' : loss ? 'rgba(240,86,110,0.12)' : 'var(--bg-hover)'; }}
-                  onMouseLeave={e => { e.currentTarget.style.background = bg; }}
-                >
-                  {inMonth && (
-                    <>
-                      {/* Day number */}
-                      <div style={{
-                        fontSize: 13, fontWeight: isToday ? 800 : 600,
-                        color: isToday ? 'var(--accent)' : inMonth ? 'var(--text-secondary)' : 'var(--text-muted)',
-                        marginBottom: 6,
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      }}>
-                        <span>{dayNum}</span>
-                        {hasOpened && !hasPnl && (
-                          <span style={{ fontSize:9, background:'rgba(245,158,11,0.2)', color:'#F59E0B', padding:'1px 5px', borderRadius:4, fontWeight:600 }}>
-                            {data.opened.length} new
-                          </span>
-                        )}
-                      </div>
-
-                      {/* P&L */}
-                      {hasPnl && (
+                <React.Fragment key={i}>
+                  <div
+                    onClick={() => inMonth && setSelected(isSelected ? null : key)}
+                    style={{
+                      minHeight: 'clamp(80px, 8vh, 140px)',
+                      padding: '10px 12px',
+                      background: bg,
+                      borderTop: '1px solid var(--border)',
+                      borderRight: '1px solid var(--border)',
+                      cursor: inMonth ? 'pointer' : 'default',
+                      position: 'relative',
+                      transition: 'background 0.15s',
+                      outline: isSelected ? '2px solid var(--accent)' : isToday ? '2px solid rgba(59,130,246,0.4)' : 'none',
+                      outlineOffset: '-2px',
+                    }}
+                    onMouseEnter={e => { if (inMonth && !isSelected) e.currentTarget.style.background = profit ? 'rgba(16,217,160,0.12)' : loss ? 'rgba(240,86,110,0.12)' : 'var(--bg-hover)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.background = bg; }}
+                  >
+                    {inMonth && (
+                      <>
+                        {/* Day number */}
                         <div style={{
-                          fontFamily:"'JetBrains Mono',monospace",
-                          fontSize: 15, fontWeight: 800,
-                          color: profit ? 'var(--profit)' : 'var(--loss)',
-                          lineHeight: 1.2, marginBottom: 4,
+                          fontSize: 13, fontWeight: isToday ? 800 : 600,
+                          color: isToday ? 'var(--accent)' : inMonth ? 'var(--text-secondary)' : 'var(--text-muted)',
+                          marginBottom: 6,
+                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                         }}>
-                          {fmtPnl(data.pnl)}
+                          <span>{dayNum}</span>
+                          {hasOpened && !hasPnl && (
+                            <span style={{ fontSize:9, background:'rgba(245,158,11,0.2)', color:'#F59E0B', padding:'1px 5px', borderRadius:4, fontWeight:600 }}>
+                              {data.opened.length} new
+                            </span>
+                          )}
+                        </div>
+
+                        {/* P&L */}
+                        {hasPnl && (
+                          <div style={{
+                            fontFamily:"'JetBrains Mono',monospace",
+                            fontSize: 15, fontWeight: 800,
+                            color: profit ? 'var(--profit)' : 'var(--loss)',
+                            lineHeight: 1.2, marginBottom: 4,
+                          }}>
+                            {fmtPnl(data.pnl)}
+                          </div>
+                        )}
+
+                        {/* Position count */}
+                        {(hasPnl || hasOpened) && (
+                          <div style={{ fontSize:10, color:'var(--text-muted)', display:'flex', gap:4, flexWrap:'wrap' }}>
+                            {hasPnl   && <span>{data.closed.length} closed</span>}
+                            {hasOpened && hasPnl && <span>·</span>}
+                            {hasOpened && <span>{data.opened.length} opened</span>}
+                          </div>
+                        )}
+
+                        {/* Dot indicators */}
+                        <div style={{ position:'absolute', bottom:6, right:8, display:'flex', gap:3 }}>
+                          {hasPnl && <div style={{ width:5, height:5, borderRadius:'50%', background: profit ? 'var(--profit)' : 'var(--loss)' }} />}
+                          {hasOpened && <div style={{ width:5, height:5, borderRadius:'50%', background:'#F59E0B' }} />}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  {/* Week summary after last day of each week row */}
+                  {isLastOfWeek && (
+                    <div style={{
+                      borderTop: '1px solid var(--border)',
+                      borderLeft: '2px solid var(--border)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      padding: '4px 6px',
+                      background: w?.hasTrades ? (w.weekPnl >= 0 ? 'rgba(16,217,160,0.05)' : 'rgba(240,86,110,0.05)') : 'var(--bg-card)',
+                      minHeight: 'clamp(80px,8vh,140px)',
+                    }}>
+                      {w?.hasTrades && (
+                        <div style={{ textAlign: 'center' }}>
+                          <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 700, color: w.weekPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                            {fmtPnl(w.weekPnl)}
+                          </div>
                         </div>
                       )}
-
-                      {/* Position count */}
-                      {(hasPnl || hasOpened) && (
-                        <div style={{ fontSize:10, color:'var(--text-muted)', display:'flex', gap:4, flexWrap:'wrap' }}>
-                          {hasPnl   && <span>{data.closed.length} closed</span>}
-                          {hasOpened && hasPnl && <span>·</span>}
-                          {hasOpened && <span>{data.opened.length} opened</span>}
-                        </div>
-                      )}
-
-                      {/* Dot indicators */}
-                      <div style={{ position:'absolute', bottom:6, right:8, display:'flex', gap:3 }}>
-                        {hasPnl && <div style={{ width:5, height:5, borderRadius:'50%', background: profit ? 'var(--profit)' : 'var(--loss)' }} />}
-                        {hasOpened && <div style={{ width:5, height:5, borderRadius:'50%', background:'#F59E0B' }} />}
-                      </div>
-                    </>
+                    </div>
                   )}
-                </div>
+                </React.Fragment>
               );
             })}
-            {/* Week P&L column cells */}
-            {weekRows.map((w, wi) => (
-              <div key={'week-'+wi} style={{
-                gridColumn: 8, gridRow: wi + 2,
-                borderTop: '1px solid var(--border)',
-                borderLeft: '1px solid var(--border)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                padding: '4px 6px', background: w.hasTrades ? (w.weekPnl >= 0 ? 'rgba(16,217,160,0.05)' : 'rgba(240,86,110,0.05)') : 'var(--bg-card)',
-                minHeight: 'clamp(80px,8vh,140px)',
-              }}>
-                {w.hasTrades && (
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 700, color: w.weekPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
-                      {fmtPnl(w.weekPnl)}
-                    </div>
-                  </div>
-                )}
-              </div>
-            ))}
           </div>
+        </div>
         </div>
 
         {/* Day detail panel */}
