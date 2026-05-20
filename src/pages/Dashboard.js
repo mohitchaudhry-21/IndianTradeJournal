@@ -190,12 +190,21 @@ export default function Dashboard() {
                   <th>Expiry</th>
                   <th>DTE</th>
                   <th>Legs</th>
-                  <th>Premium Collected</th>
+                  <th>Capital at Risk</th>
                 </tr>
               </thead>
               <tbody>
                 {openPositions.slice(0, 5).map(p => (
-                  <tr key={p.positionId} style={{ cursor: 'pointer' }} onClick={() => navigate('/positions')}>
+                  <tr key={p.positionId}
+                    style={{
+                      cursor: 'pointer',
+                      background: (p.daysToExpiry !== null && p.daysToExpiry <= 1) ? 'rgba(240,86,110,0.06)' :
+                                  (p.daysToExpiry !== null && p.daysToExpiry <= 3) ? 'rgba(245,158,11,0.05)' : 'transparent'
+                    }}
+                    onClick={() => navigate('/positions')}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                    onMouseLeave={e => e.currentTarget.style.background = (p.daysToExpiry !== null && p.daysToExpiry <= 1) ? 'rgba(240,86,110,0.06)' : (p.daysToExpiry !== null && p.daysToExpiry <= 3) ? 'rgba(245,158,11,0.05)' : 'transparent'}
+                  >
                     <td><span className={`badge ${p.strategyName?.toLowerCase().replace(' ', '_') || 'custom'}`}>{p.strategyName || 'Custom'}</span></td>
                     <td className="text-primary"><div style={{ display:'flex', alignItems:'center', gap:6 }}>{p.instrument}<AccountTag accountId={p.accountId} /></div></td>
                     <td className="mono">{p.expiry ? new Date(p.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}</td>
@@ -205,7 +214,20 @@ export default function Dashboard() {
                       </span>
                     </td>
                     <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>{p.legs.length} leg{p.legs.length > 1 ? 's' : ''}</td>
-                    <td className="profit">{fmt(p.netPremiumCollected)}</td>
+                    <td style={{ fontFamily: "'JetBrains Mono',monospace", color: 'var(--loss)', fontWeight: 500 }}>
+                      {p.legs && p.legs.length >= 2 ? (() => {
+                        const sells = p.legs.filter(l => l.transactionType === 'SELL');
+                        const buys = p.legs.filter(l => l.transactionType === 'BUY');
+                        const pe_sell = sells.find(l => l.optionType === 'PE');
+                        const pe_buy = buys.find(l => l.optionType === 'PE');
+                        const ref = sells[0] || buys[0];
+                        const lotSize = ref?.lotSize || 1;
+                        const lots = ref?.quantity || 1;
+                        let gross = pe_sell && pe_buy ? Math.abs(pe_sell.strike - pe_buy.strike) * lotSize * lots : 0;
+                        const risk = gross ? gross - Math.abs(p.netPremiumCollected) : null;
+                        return risk ? fmt(-Math.abs(risk)) : fmt(p.netPremiumCollected);
+                      })() : fmt(p.netPremiumCollected)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -235,23 +257,28 @@ export default function Dashboard() {
                   <th>Strategy</th>
                   <th>Instrument</th>
                   <th>Expiry</th>
-                  <th>Premium Collected</th>
                   <th>P&amp;L</th>
-                  <th>Return %</th>
+                  <th>Return % (margin)</th>
                   <th>Close Date</th>
                 </tr>
               </thead>
               <tbody>
                 {recentClosed.map(p => {
-                  const ret = p.netPremiumCollected > 0 ? ((p.realizedPnL || 0) / Math.abs(p.netPremiumCollected)) * 100 : 0;
+                  const ret = p.margin
+                    ? ((p.realizedPnL || 0) / p.margin) * 100
+                    : p.netPremiumCollected > 0 ? ((p.realizedPnL || 0) / Math.abs(p.netPremiumCollected)) * 100 : 0;
                   return (
                     <tr key={p.positionId}>
                       <td><span className={`badge ${p.strategyName?.toLowerCase().replace(' ', '_') || 'custom'}`}>{p.strategyName || 'Custom'}</span></td>
                       <td className="text-primary"><div style={{ display:'flex', alignItems:'center', gap:6 }}>{p.instrument}<AccountTag accountId={p.accountId} /></div></td>
                       <td className="mono">{p.expiry ? new Date(p.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}</td>
-                      <td className="mono">{fmt(p.netPremiumCollected)}</td>
                       <td className={pnlClass(p.realizedPnL)}>{fmt(p.realizedPnL)}</td>
-                      <td className={pnlClass(ret)}>{ret >= 0 ? '+' : ''}{ret.toFixed(1)}%</td>
+                      <td className={pnlClass(ret)} style={{ fontFamily: "'JetBrains Mono',monospace" }}>
+                        {ret !== 0 ? (ret >= 0 ? '+' : '') + ret.toFixed(1) + '%' : '—'}
+                        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>
+                          {p.margin ? 'on margin' : 'on premium'}
+                        </div>
+                      </td>
                       <td style={{ color: 'var(--text-muted)', fontSize: 12 }}>
                         {p.closeDate ? new Date(p.closeDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : '—'}
                       </td>
