@@ -281,6 +281,8 @@ export default function ScreenshotImport() {
       if (useMethod === 'gemini') {
         setMethod('gemini');
         const raw = await extractWithGemini(image.file, settings.geminiKey);
+        setRawText('GEMINI RAW OUTPUT:\n' + JSON.stringify(raw, null, 2));
+        setShowRaw(true);
         trades = raw.map(t => ({
           ...t,
           status: t.status || 'OPEN',
@@ -294,6 +296,7 @@ export default function ScreenshotImport() {
         });
         const text = result.data.text;
         setRawText(text);
+        setDebugRaw('OCR TEXT:\n' + text);
         trades = parseOCRText(text);
       }
 
