@@ -335,8 +335,46 @@ export default function Analytics() {
                 </PieChart>
               </ResponsiveContainer>
             </div>
-          </div>
 
+            {/* Win/Loss Streak — side by side with pie */}
+            {streakData.tiles.length > 0 && (
+              <div className="card">
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:10 }}>
+                  <div className="section-title">Win / Loss Streak</div>
+                  <div style={{ display:'flex', gap:20, fontSize:12 }}>
+                    {[
+                      { label:'Current Streak', value: streakData.currentStreak > 0 ? `+${streakData.currentStreak}W` : `${Math.abs(streakData.currentStreak)}L`, color: streakData.currentStreak >= 0 ? 'var(--profit)' : 'var(--loss)' },
+                      { label:'Best Streak', value: streakData.maxWin + 'W', color: 'var(--profit)' },
+                      { label:'Worst Streak', value: streakData.maxLoss + 'L', color: 'var(--loss)' },
+                    ].map(s => (
+                      <div key={s.label} style={{ textAlign:'center' }}>
+                        <div style={{ color:'var(--text-muted)', fontSize:10, marginBottom:2 }}>{s.label}</div>
+                        <div style={{ color:s.color, fontWeight:800, fontFamily:"'JetBrains Mono',monospace", fontSize:16 }}>{s.value}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
+                  {streakData.tiles.map((t, i) => (
+                    <div key={i} title={`Trade ${i+1}: ${t.label} · ${t.pnl>=0?'+':''}₹${Math.round(t.pnl).toLocaleString('en-IN')}`}
+                      style={{
+                        width:32, height:32, borderRadius:6,
+                        background: t.win ? 'var(--profit)' : 'var(--loss)',
+                        opacity: 0.3 + Math.min(0.7, Math.abs(t.pnl) / 5000),
+                        display:'flex', alignItems:'center', justifyContent:'center',
+                        fontSize:10, fontWeight:700, color:'white', cursor:'default',
+                        border: i === streakData.tiles.length-1 ? '2px solid white' : 'none',
+                      }}>
+                      {t.win ? 'W' : 'L'}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ marginTop:10, fontSize:11, color:'var(--text-muted)' }}>
+                  Each square = one position. Opacity = magnitude. Last trade outlined in white.
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* ── P&L Curve ─────────────────────────────────────────────── */}
           {pnlCurve.length > 1 && (
@@ -401,45 +439,6 @@ export default function Analytics() {
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-            </div>
-          )}
-
-          {/* ── Win/Loss Streak Heatmap ───────────────────────────────────── */}
-          {streakData.tiles.length > 0 && (
-            <div className="card" style={{ marginBottom: 24 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16, flexWrap:'wrap', gap:10 }}>
-                <div className="section-title">Win / Loss Streak</div>
-                <div style={{ display:'flex', gap:20, fontSize:12 }}>
-                  {[
-                    { label:'Current Streak', value: streakData.currentStreak > 0 ? `+${streakData.currentStreak}W` : `${Math.abs(streakData.currentStreak)}L`, color: streakData.currentStreak >= 0 ? 'var(--profit)' : 'var(--loss)' },
-                    { label:'Best Streak', value: streakData.maxWin + 'W', color: 'var(--profit)' },
-                    { label:'Worst Streak', value: streakData.maxLoss + 'L', color: 'var(--loss)' },
-                  ].map(s => (
-                    <div key={s.label} style={{ textAlign:'center' }}>
-                      <div style={{ color:'var(--text-muted)', fontSize:10, marginBottom:2 }}>{s.label}</div>
-                      <div style={{ color:s.color, fontWeight:800, fontFamily:"'JetBrains Mono',monospace", fontSize:16 }}>{s.value}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div style={{ display:'flex', flexWrap:'wrap', gap:4 }}>
-                {streakData.tiles.map((t, i) => (
-                  <div key={i} title={`Trade ${i+1}: ${t.label} · ${t.pnl>=0?'+':''}₹${Math.round(t.pnl).toLocaleString('en-IN')}`}
-                    style={{
-                      width:32, height:32, borderRadius:6,
-                      background: t.win ? 'var(--profit)' : 'var(--loss)',
-                      opacity: 0.3 + Math.min(0.7, Math.abs(t.pnl) / 5000),
-                      display:'flex', alignItems:'center', justifyContent:'center',
-                      fontSize:10, fontWeight:700, color:'white', cursor:'default',
-                      border: i === streakData.tiles.length-1 ? '2px solid white' : 'none',
-                    }}>
-                    {t.win ? 'W' : 'L'}
-                  </div>
-                ))}
-              </div>
-              <div style={{ marginTop:10, fontSize:11, color:'var(--text-muted)' }}>
-                Each square = one position. Opacity = magnitude. Last trade outlined in white.
-              </div>
             </div>
           )}
 
