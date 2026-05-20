@@ -141,6 +141,56 @@ export default function Analytics() {
 
 
 
+  // ── Risk Metrics ──────────────────────────────────────────────────────────
+  const riskMetrics = useMemo(() => {
+    // Max Drawdown
+    const sorted = [...closed].sort((a, b) => (a.closeDate||'') < (b.closeDate||'') ? -1 : 1);
+    let peak = 0, cum = 0, maxDD = 0;
+    sorted.forEach(p => {
+      cum += p.realizedPnL || 0;
+      if (cum > peak) peak = cum;
+      const dd = peak - cum;
+      if (dd > maxDD) maxDD = dd;
+    });
+
+    // Avg days in trade
+    const withDates = closed.filter(p => p.openDate && p.closeDate);
+    const avgDays = withDates.length
+      ? withDates.reduce((s, p) => s + Math.round((new Date(p.closeDate) - new Date(p.openDate)) / 86400000), 0) / withDates.length
+      : null;
+
+    // Risk/Reward
+    const rr = stats.avgLoss > 0 ? stats.avgWin / stats.avgLoss : null;
+
+    return { maxDD, avgDays, rr };
+  }, [closed, stats]);
+
+  // ── Trade Quality ─────────────────────────────────────────────────────────
+  const tradeQuality = useMemo(() => {
+    const withMaxProfit = closed.filter(p => p.netPremiumCollected > 0 && p.realizedPnL !== null);
+    const avgCapture = withMaxProfit.length
+      ? withMaxProfit.reduce((s, p) => s + (p.realizedPnL / p.netPremiumCollected) * 100, 0) / withMaxProfit.length
+      : null;
+
+    // Early exit vs expired: if closeDate === expiry date => expired, else early exit
+    const withBothDates = closed.filter(p => p.closeDate && p.expiry);
+    const expiredCount = withBothDates.filter(p => p.closeDate.slice(0,10) === p.expiry.slice(0,10)).length;
+    const earlyCount = withBothDates.length - expiredCount;
+    const earlyPct = withBothDates.length > 0 ? (earlyCount / withBothDates.length) * 100 : null;
+    const expiredPct = withBothDates.length > 0 ? (expiredCount / withBothDates.length) * 100 : null;
+
+    return { avgCapture, earlyPct, expiredPct, earlyCount, expiredCount, total: withBothDates.length };
+  }, [closed]);
+
+  // ── Expectancy ────────────────────────────────────────────────────────────
+  const expectancy = useMemo(() => {
+    const winRate = stats.winRate / 100;
+    const lossRate = 1 - winRate;
+    const val = (stats.avgWin * winRate) - (stats.avgLoss * lossRate);
+    const avgPnl = closed.length > 0 ? stats.totalPnL / closed.length : 0;
+    return { val, avgPnl };
+  }, [stats, closed]);
+
   return (
     <div>
       <div className="page-header">
@@ -164,11 +214,112 @@ export default function Analytics() {
             <StatBlock label="Profit Factor" value={isFinite(stats.profitFactor) ? stats.profitFactor.toFixed(2) : '∞'} color={stats.profitFactor >= 1.5 ? 'var(--profit)' : stats.profitFactor >= 1 ? 'var(--accent)' : 'var(--loss)'} sub="Gross profit ÷ Gross loss" />
             <StatBlock label="Avg Win" value={fmt(stats.avgWin)} color="var(--profit)" sub="Per winning position" />
             <StatBlock label="Avg Loss" value={'−' + fmt(stats.avgLoss)} color="var(--loss)" sub="Per losing position" />
-            <StatBlock label="Premium Collected" value={fmt(premiumStats.totalPremium)} color="var(--accent)" sub="Gross premium all time" />
-            <StatBlock label="Theta Efficiency" value={premiumStats.efficiency.toFixed(1) + '%'} color={premiumStats.efficiency > 50 ? 'var(--profit)' : 'var(--accent)'} sub="P&L as % of premium" />
+            <StatBlock label="Return on Margin" value={marginData.trades.length > 0 ? (marginData.avgReturn >= 0 ? '+' : '') + marginData.avgReturn.toFixed(2) + '%' : '—'} color={marginData.avgReturn >= 0 ? 'var(--profit)' : 'var(--loss)'} sub={marginData.trades.length > 0 ? 'Avg across ' + marginData.trades.length + ' trades' : 'Add margin in notes'} />
+            <StatBlock label="Annualized Return" value={(() => { if (!marginData.trades.length || !closed.length) return '—'; const days = Math.max(1, (new Date(closed.reduce((a,b) => (a.closeDate||'') > (b.closeDate||'') ? a : b).closeDate||Date.now()) - new Date(closed.reduce((a,b) => (a.closeDate||'') < (b.closeDate||'') ? a : b).closeDate||Date.now())) / 86400000); const ann = marginData.avgReturn * (365 / days); return (ann >= 0 ? '+' : '') + ann.toFixed(1) + '%'; })()} color="var(--profit)" sub="Projected yearly rate" />
             <StatBlock label="Total P&L" value={fmt(stats.totalPnL)} color={stats.totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)'} sub="All time realized" />
             <StatBlock label="This Month" value={fmt(stats.thisMonthPnL)} color={stats.thisMonthPnL >= 0 ? 'var(--profit)' : 'var(--loss)'} sub={new Date().toLocaleString('default', { month: 'long' })} />
           </div>
+
+          {/* ── Risk Metrics ─────────────────────────────────────────────── */}
+          <div style={{ marginBottom: 12, marginTop: 8 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Risk Metrics</div>
+            <div className="stat-grid">
+              <div className="stat-card">
+                <div className="label">Max Drawdown</div>
+                <div className="value mono" style={{ color: riskMetrics.maxDD > 0 ? 'var(--loss)' : 'var(--profit)', fontSize: 22 }}>
+                  {riskMetrics.maxDD > 0 ? '-' + fmt(riskMetrics.maxDD) : '₹0'}
+                </div>
+                <div className="subval">{riskMetrics.maxDD > 0 ? 'Peak to valley drop' : 'No drawdown yet'}</div>
+              </div>
+              <div className="stat-card">
+                <div className="label">Risk / Reward</div>
+                <div className="value mono" style={{ color: riskMetrics.rr >= 1 ? 'var(--profit)' : 'var(--loss)', fontSize: 22 }}>
+                  {riskMetrics.rr !== null ? riskMetrics.rr.toFixed(2) : '∞'}
+                </div>
+                <div className="subval">Avg win ÷ Avg loss</div>
+              </div>
+              <div className="stat-card">
+                <div className="label">Avg Days in Trade</div>
+                <div className="value mono" style={{ color: 'var(--text-primary)', fontSize: 22 }}>
+                  {riskMetrics.avgDays !== null ? Math.round(riskMetrics.avgDays) : '—'}
+                </div>
+                <div className="subval">Entry to exit</div>
+              </div>
+              <div className="stat-card">
+                <div className="label">Avg P&L / Trade</div>
+                <div className="value mono" style={{ color: expectancy.avgPnl >= 0 ? 'var(--profit)' : 'var(--loss)', fontSize: 22 }}>
+                  {fmt(Math.round(expectancy.avgPnl))}
+                </div>
+                <div className="subval">Total P&L ÷ closed trades</div>
+              </div>
+            </div>
+          </div>
+
+          {/* ── Trade Quality ─────────────────────────────────────────────── */}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Trade Quality</div>
+            <div className="grid-2">
+              {/* P&L vs Max Profit */}
+              <div className="stat-card">
+                <div className="label">P&L vs Max Profit</div>
+                <div className="value mono" style={{ color: 'var(--profit)', fontSize: 22 }}>
+                  {tradeQuality.avgCapture !== null ? (tradeQuality.avgCapture >= 0 ? '+' : '') + tradeQuality.avgCapture.toFixed(1) + '%' : '—'}
+                </div>
+                <div className="subval">Avg % of max profit captured</div>
+                {tradeQuality.avgCapture !== null && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: Math.min(100, Math.max(0, tradeQuality.avgCapture)) + '%', background: 'var(--profit)', borderRadius: 3, transition: 'width 0.4s' }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+              {/* Exit Type */}
+              <div className="stat-card">
+                <div className="label">Exit Type</div>
+                {tradeQuality.total > 0 ? (
+                  <div style={{ display: 'flex', gap: 24, marginTop: 6 }}>
+                    <div>
+                      <div className="value mono" style={{ color: 'var(--profit)', fontSize: 20 }}>{tradeQuality.earlyPct !== null ? tradeQuality.earlyPct.toFixed(0) + '%' : '—'}</div>
+                      <div className="subval">Early exits ({tradeQuality.earlyCount})</div>
+                      <div style={{ marginTop: 6, height: 5, width: 80, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: (tradeQuality.earlyPct || 0) + '%', background: 'var(--profit)', borderRadius: 3 }} />
+                      </div>
+                    </div>
+                    <div style={{ width: '0.5px', background: 'var(--border)' }} />
+                    <div>
+                      <div className="value mono" style={{ color: 'var(--accent)', fontSize: 20 }}>{tradeQuality.expiredPct !== null ? tradeQuality.expiredPct.toFixed(0) + '%' : '—'}</div>
+                      <div className="subval">Held to expiry ({tradeQuality.expiredCount})</div>
+                      <div style={{ marginTop: 6, height: 5, width: 80, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: (tradeQuality.expiredPct || 0) + '%', background: 'var(--accent)', borderRadius: 3 }} />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="subval" style={{ marginTop: 8 }}>Need expiry dates on trades</div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* ── Expectancy ────────────────────────────────────────────────── */}
+          {closed.length > 0 && (
+            <div className="card" style={{ marginBottom: 24 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                <div className="section-title">Expectancy</div>
+                <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 18, fontWeight: 700, color: expectancy.val >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                  {expectancy.val >= 0 ? '+' : ''}{fmt(Math.round(expectancy.val))} / trade
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', fontSize: 13, color: 'var(--text-muted)' }}>
+                <span>(Avg Win <span style={{ color: 'var(--profit)', fontFamily: "'JetBrains Mono',monospace", fontWeight: 600 }}>{fmt(Math.round(stats.avgWin))}</span> × Win% <span style={{ color: 'var(--profit)', fontWeight: 600 }}>{stats.winRate.toFixed(0)}%</span>)</span>
+                <span style={{ color: 'var(--border-hover)' }}>−</span>
+                <span>(Avg Loss <span style={{ color: 'var(--loss)', fontFamily: "'JetBrains Mono',monospace", fontWeight: 600 }}>{fmt(Math.round(stats.avgLoss))}</span> × Loss% <span style={{ color: 'var(--loss)', fontWeight: 600 }}>{(100 - stats.winRate).toFixed(0)}%</span>)</span>
+                <span style={{ color: 'var(--border-hover)' }}>=</span>
+                <span style={{ color: expectancy.val >= 0 ? 'var(--profit)' : 'var(--loss)', fontFamily: "'JetBrains Mono',monospace", fontWeight: 700 }}>{expectancy.val >= 0 ? '+' : ''}{fmt(Math.round(expectancy.val))}</span>
+              </div>
+            </div>
+          )}
 
           <div className="grid-2" style={{ marginBottom: 24 }}>
             {/* Win/Loss Pie */}
