@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useJournal } from '../context/JournalContext';
 import { isAuthEnabled, logout } from './LoginScreen';
@@ -7,24 +7,24 @@ const SECTIONS = [
   {
     label: 'TRADING',
     items: [
-      { to: '/',           label: 'Dashboard',        icon: '▦' },
-      { to: '/positions',  label: 'Open Positions',   icon: '◉' },
-      { to: '/calendar',   label: 'Calendar',         icon: '◫' },
+      { to: '/',           label: 'Dashboard',        icon: '⊞' },
+      { to: '/positions',  label: 'Open Positions',   icon: '◎' },
+      { to: '/calendar',   label: 'Calendar',         icon: '▦' },
     ],
   },
   {
     label: 'ANALYSIS',
     items: [
-      { to: '/history',    label: 'Trade History',    icon: '≡' },
-      { to: '/analytics',  label: 'Analytics',        icon: '↗' },
+      { to: '/history',    label: 'Trade History',    icon: '☰' },
+      { to: '/analytics',  label: 'Analytics',        icon: '⟋' },
     ],
   },
   {
     label: 'TOOLS',
     items: [
-      { to: '/entry',      label: 'Add Trade',        icon: '+' },
-      { to: '/screenshot', label: 'Screenshot Import',icon: '⊞' },
-      { to: '/broker',     label: 'Broker Connect',   icon: '⇄' },
+      { to: '/entry',      label: 'Add Trade',        icon: '＋' },
+      { to: '/screenshot', label: 'Screenshot Import',icon: '⊡' },
+      { to: '/broker',     label: 'Broker Connect',   icon: '⇌' },
     ],
   },
   {
@@ -35,9 +35,28 @@ const SECTIONS = [
   },
 ];
 
+function useTheme() {
+  const [theme, setTheme] = useState(() => localStorage.getItem('od_theme') || 'dark');
+  useEffect(() => {
+    document.body.classList.toggle('light', theme === 'light');
+    localStorage.setItem('od_theme', theme);
+  }, [theme]);
+  const toggle = () => setTheme(t => t === 'dark' ? 'light' : 'dark');
+  return [theme, toggle];
+}
+
+function fmtSidebar(n) {
+  if (!n) return '₹0';
+  const abs = Math.abs(n);
+  if (abs >= 100000) return (n<0?'-':'') + '₹' + (abs/100000).toFixed(1) + 'L';
+  if (abs >= 1000) return (n<0?'-':'') + '₹' + (abs/1000).toFixed(1) + 'K';
+  return (n<0?'-':'') + '₹' + Math.round(abs);
+}
+
 export default function Sidebar() {
   const { stats, accounts, activeAccountId, setActiveAccountId, dateFilter, setDateFilter, syncStatus, lastSynced } = useJournal();
   const navigate = useNavigate();
+  const [theme, toggleTheme] = useTheme();
 
   return (
     <div style={s.sidebar}>
@@ -53,22 +72,35 @@ export default function Sidebar() {
       </NavLink>
 
       {/* Quick stats */}
-      <div style={s.statsRow}>
-        <div style={s.stat}>
-          <div style={s.statLabel}>Open</div>
-          <div style={s.statVal}>{stats.openPositions}</div>
-        </div>
-        <div style={s.statDiv} />
-        <div style={s.stat}>
-          <div style={s.statLabel}>Win %</div>
-          <div style={{ ...s.statVal, color: 'var(--profit)' }}>{stats.winRate.toFixed(0)}%</div>
-        </div>
-        <div style={s.statDiv} />
-        <div style={s.stat}>
-          <div style={s.statLabel}>Expiring</div>
-          <div style={{ ...s.statVal, color: stats.expiringThisWeek > 0 ? 'var(--accent)' : 'var(--text-secondary)' }}>
-            {stats.expiringThisWeek}
+      <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>This Month</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, color: stats.thisMonthPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+              {stats.thisMonthPnL >= 0 ? '+' : ''}{fmtSidebar(stats.thisMonthPnL)}
+            </div>
           </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>Total P&L</div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, color: stats.totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+              {stats.totalPnL >= 0 ? '+' : ''}{fmtSidebar(stats.totalPnL)}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 0 }}>
+          {[
+            { label: 'Open', val: stats.openPositions, color: 'var(--text-primary)' },
+            { label: 'Win %', val: stats.winRate.toFixed(0) + '%', color: 'var(--profit)' },
+            { label: 'Expiring', val: stats.expiringThisWeek, color: stats.expiringThisWeek > 0 ? 'var(--accent)' : 'var(--text-secondary)' },
+          ].map((st, i) => (
+            <React.Fragment key={st.label}>
+              {i > 0 && <div style={{ width: 1, background: 'var(--border)', margin: '0 8px' }} />}
+              <div style={{ flex: 1, textAlign: 'center' }}>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>{st.label}</div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 13, fontWeight: 500, color: st.color }}>{st.val}</div>
+              </div>
+            </React.Fragment>
+          ))}
         </div>
       </div>
 
@@ -161,6 +193,19 @@ export default function Sidebar() {
              'Local only'}
           </span>
         </div>
+      </div>
+
+      {/* Theme toggle */}
+      <div style={{ padding: '0 8px 6px' }}>
+        <button
+          onClick={toggleTheme}
+          style={{ ...s.lockBtn, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+        >
+          <span>{theme === 'dark' ? '☀ Light Mode' : '☾ Dark Mode'}</span>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-primary)', padding: '2px 6px', borderRadius: 4 }}>
+            {theme === 'dark' ? 'DARK' : 'LIGHT'}
+          </span>
+        </button>
       </div>
 
       {/* Lock button */}
