@@ -93,7 +93,9 @@ function LegInput({ leg, onChange, onRemove, label, showRemove, settings, instru
       </div>
       {instrument && (
         <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text-muted)' }}>
-          Lot size: {lotSize} · Total qty: {(leg.quantity || 0) * lotSize} shares
+          <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Lot size: {lotSize}</span>
+          {' · '}Total qty: <span style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{(leg.quantity || 0) * lotSize}</span> shares
+          {leg.premium && <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>· ₹{((parseFloat(leg.premium)||0) * (leg.quantity||0) * lotSize).toLocaleString('en-IN')} total</span>}
         </div>
       )}
     </div>
@@ -257,6 +259,24 @@ export default function ManualEntry() {
                 Net: {netPremium >= 0 ? '+' : ''}₹{Math.round(netPremium).toLocaleString('en-IN')}
               </span>
             )}
+            {netPremium !== 0 && (() => {
+              const sells = activeLogs.filter(l => l.transactionType === 'SELL' && l.strike && l.premium);
+              const buys = activeLogs.filter(l => l.transactionType === 'BUY' && l.strike && l.premium);
+              const pe_sell = sells.find(l => l.optionType === 'PE');
+              const pe_buy = buys.find(l => l.optionType === 'PE');
+              const lotSz = settings.lotSizes[actualInstrument] || 1;
+              const lots = activeLogs[0]?.quantity || 1;
+              let maxLoss = null;
+              if (pe_sell && pe_buy) {
+                const gross = Math.abs(parseFloat(pe_sell.strike) - parseFloat(pe_buy.strike)) * lotSz * parseInt(lots);
+                maxLoss = gross - Math.abs(netPremium);
+              }
+              return maxLoss !== null ? (
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--loss)', marginLeft: 8 }}>
+                  Max Loss: -₹{Math.round(maxLoss).toLocaleString('en-IN')}
+                </span>
+              ) : null;
+            })()}
             {strategyName === 'Custom' && (
               <button className="btn btn-outline btn-sm" onClick={addCustomLeg}>+ Add Leg</button>
             )}
