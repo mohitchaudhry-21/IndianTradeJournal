@@ -214,7 +214,7 @@ export default function Dashboard() {
                       <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>{p.instrument}</span>
                       <AccountTag accountId={p.accountId} />
                       <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                        Exp: {p.expiry ? new Date(p.expiry).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'2-digit' }) : '—'}
+                        Exp: {p.expiry ? new Date(p.expiry).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'}
                       </span>
                       {p.daysToExpiry !== null && (
                         <span style={{
@@ -293,10 +293,10 @@ export default function Dashboard() {
                       <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)' }}>{p.instrument}</span>
                       <AccountTag accountId={p.accountId} />
                       <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
-                        Exp: {p.expiry ? new Date(p.expiry).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'2-digit' }) : '—'}
+                        Exp: {p.expiry ? new Date(p.expiry).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'}
                       </span>
                       <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                        Closed: {p.closeDate ? new Date(p.closeDate).toLocaleDateString('en-IN', { day:'2-digit', month:'short' }) : '—'}
+                        Closed: {p.closeDate ? new Date(p.closeDate).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—'}
                       </span>
                     </div>
                     <div style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
