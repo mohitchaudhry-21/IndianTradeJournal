@@ -109,7 +109,7 @@ function PositionCard({ position, onClose, onDelete }) {
             {position.instrument}
           </span>
           <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 13, color: 'var(--text-muted)' }}>
-            {position.expiry ? new Date(position.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : ''}
+            {position.expiry ? new Date(position.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
           </span>
           {position.daysToExpiry !== null && (
             <span className="info-tag" style={{ color: dteColor, borderColor: dteColor + '40' }}>
