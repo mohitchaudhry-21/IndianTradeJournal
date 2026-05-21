@@ -209,12 +209,14 @@ export function JournalProvider({ children }) {
         if ((t.positionId || t.id) !== positionId) return t;
         const leg = exitData[t.id];
         if (!leg) return t;
-        const updated = {
-          ...t,
-          exitPremium: parseFloat(leg.exitPremium),
-          exitDate: leg.exitDate || new Date().toISOString(),
-          status: 'CLOSED',
-        };
+        const updated = { ...t, status: 'CLOSED' };
+        // Always update exit price and date if provided
+        if (leg.exitPremium !== null && leg.exitPremium !== undefined) {
+          updated.exitPremium = parseFloat(leg.exitPremium);
+        }
+        if (leg.exitDate) {
+          updated.exitDate = leg.exitDate;
+        }
         // Update entry price if broker provides a corrected one
         if (leg.entryPrice !== null && leg.entryPrice !== undefined && leg.entryPrice > 0) {
           updated.premium = parseFloat(leg.entryPrice);
