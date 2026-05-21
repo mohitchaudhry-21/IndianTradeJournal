@@ -8,12 +8,12 @@ const STORAGE_KEY = 'optionsdesk_data';
 
 const DEFAULT_SETTINGS = {
   lotSizes: {
-    NIFTY: 65,
-    BANKNIFTY: 15,
+    NIFTY: 75,
+    BANKNIFTY: 30,
     FINNIFTY: 65,
-    MIDCPNIFTY: 75,
-    SENSEX: 10,
-    BANKEX: 15,
+    MIDCPNIFTY: 120,
+    SENSEX: 20,
+    BANKEX: 30,
   },
   brokeragePerLot: 40,
   capital: 1000000,
