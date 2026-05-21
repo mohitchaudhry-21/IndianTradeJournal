@@ -92,7 +92,7 @@ function StrategyCell({ positionId, value, onChange }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       <span className={`badge ${(value || 'custom').toLowerCase().replace(/ /g, '_')}`} style={{ fontSize: 11 }}>{value || 'Custom'}</span>
-      <button onClick={() => { setDraft(value); setEditing(true); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 11, padding: '1px 3px', opacity: 0.55 }}>✏</button>
+      <button onClick={() => { setDraft(value); setEditing(true); }} title="Edit strategy" style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 4, color: 'var(--text-muted)', cursor: 'pointer', padding: '3px 4px', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="ti ti-pencil" style={{ fontSize: 13 }} aria-hidden="true" /></button>
     </div>
   );
 }
@@ -733,7 +733,11 @@ export default function TradeHistory() {
                             {p.closeDate.slice(0,10) === p.expiry.slice(0,10) ? 'EXPIRED' : 'EARLY'}
                           </span>
                         )}
-
+                        <button
+                          onClick={() => setEditExitPos(p)}
+                          title="Edit entry & exit dates"
+                          style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 4, color: 'var(--text-muted)', cursor: 'pointer', padding: '3px 4px', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        ><i className="ti ti-pencil" style={{ fontSize: 13 }} aria-hidden="true" /></button>
                       </div>,
                       { whiteSpace: 'nowrap' }
                     )}
