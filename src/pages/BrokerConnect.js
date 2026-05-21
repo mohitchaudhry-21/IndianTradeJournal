@@ -157,18 +157,22 @@ export default function BrokerConnect() {
         if (!positionId) return;
         const exitData = {};
         (exitLegs || []).forEach(({ legId, exitPrice }) => {
-          if (legId) exitData[legId] = { exitPremium: exitPrice, exitDate };
+          if (legId && exitPrice !== undefined) {
+            exitData[legId] = { exitPremium: exitPrice, exitDate };
+          }
         });
-        // If exitLegs not specified, close all legs of this position
-        if (!exitLegs || exitLegs.length === 0) {
+        // If no exitLegs matched, fall back to closing all legs at their entry price
+        if (Object.keys(exitData).length === 0) {
           const pos = positions.find(p => p.positionId === positionId);
           if (pos) {
             pos.legs.forEach(leg => {
-              exitData[leg.id] = { exitPremium: leg.premium, exitDate };
+              exitData[leg.id] = { exitPremium: 0, exitDate };
             });
           }
         }
-        closePosition(positionId, exitData);
+        if (Object.keys(exitData).length > 0) {
+          closePosition(positionId, exitData);
+        }
       });
     }
 
