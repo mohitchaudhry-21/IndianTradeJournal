@@ -40,7 +40,14 @@ function saveData(accounts, trades, settings) {
 export function JournalProvider({ children }) {
   const saved = loadData();
 
-  const [activeAccountId, setActiveAccountId] = useState(''); // '' = All Accounts
+  const [activeAccountId, setActiveAccountId_raw] = useState(
+    () => localStorage.getItem('od_active_account') || ''
+  );
+  const setActiveAccountId = (id) => {
+    if (id) localStorage.setItem('od_active_account', id);
+    else localStorage.removeItem('od_active_account');
+    setActiveAccountId_raw(id);
+  };
   const [dateFilter, setDateFilter] = useState({ from: null, to: null });
   const [syncStatus, setSyncStatus] = useState('idle'); // idle | syncing | synced | error
   const [lastSynced, setLastSynced] = useState(null);
