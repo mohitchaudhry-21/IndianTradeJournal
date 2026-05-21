@@ -4,7 +4,7 @@ import { useJournal } from '../context/JournalContext';
 
 const SERVER_URL = 'http://localhost:5001';
 
-function BrokerSection({ name, broker, logo, color, fields, onSync, savedAccounts, savedCredentials }) {
+function BrokerSection({ name, broker, logo, color, fields, onSync, existingPositions, savedAccounts, savedCredentials }) {
   const firstAcc = savedAccounts[0];
   const [selectedAccId, setSelectedAccId] = useState(firstAcc?.id || '');
   const [creds, setCreds] = useState(
@@ -51,13 +51,21 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, savedAccount
     setSyncing(true);
     setMessage('');
     try {
-      const res = await fetch(`${SERVER_URL}/sync/${broker}`, { method: 'POST' });
+      const res = await fetch(`${SERVER_URL}/sync/${broker}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ existingPositions: existingPositions || [] }),
+      });
       const data = await res.json();
       if (data.success) {
         setLastSync(new Date().toLocaleTimeString());
-        const total = (data.openCount || 0) + (data.closedCount || 0);
-        setMessage(`Synced ${total} position${total !== 1 ? 's' : ''} (${data.openCount || 0} open, ${data.closedCount || 0} closed)`);
-        if (data.positions) onSync(data.positions);
+        const newTrades = data.trades || data.positions || [];
+        const closedUpdates = data.closePositions || [];
+        const openCount = newTrades.filter(t => t.status === 'OPEN').length;
+        const closedCount = newTrades.filter(t => t.status === 'CLOSED').length + closedUpdates.length;
+        setMessage(`Synced: ${openCount} open, ${closedUpdates.length} closed with exit prices, ${closedCount - closedUpdates.length} new closed`);
+        if (newTrades.length > 0) onSync(newTrades, closedUpdates);
+        else if (closedUpdates.length > 0) onSync([], closedUpdates);
       } else {
         setMessage(data.error || 'Sync failed');
       }
@@ -142,20 +150,43 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, savedAccount
 
 export default function BrokerConnect() {
   const { addTrades, accounts, positions, addAccount, deleteAccount, settings, closePosition, updatePositionMeta } = useJournal();
-  const handleSync = (broker) => (trades) => {
-    // Group hedged legs: same instrument + expiry + quantity → shared positionId
-    const groupKeys = {};
-    trades.forEach(t => {
-      const key = `${t.instrument}_${t.expiry}_${t.quantity}`;
-      if (!groupKeys[key]) groupKeys[key] = uuidv4();
-    });
-    const mapped = trades.map(t => ({
-      ...t,
-      positionId: t.positionId || groupKeys[`${t.instrument}_${t.expiry}_${t.quantity}`],
-      source: broker,
-      status: t.status || 'OPEN',
-    }));
-    addTrades(mapped);
+  const handleSync = (broker) => (trades, closePositions) => {
+    // Apply exit prices to existing positions that the broker says are now closed
+    if (closePositions && closePositions.length > 0) {
+      closePositions.forEach(({ positionId, exitDate, exitLegs }) => {
+        if (!positionId) return;
+        const exitData = {};
+        (exitLegs || []).forEach(({ legId, exitPrice }) => {
+          if (legId) exitData[legId] = { exitPremium: exitPrice, exitDate };
+        });
+        // If exitLegs not specified, close all legs of this position
+        if (!exitLegs || exitLegs.length === 0) {
+          const pos = positions.find(p => p.positionId === positionId);
+          if (pos) {
+            pos.legs.forEach(leg => {
+              exitData[leg.id] = { exitPremium: leg.premium, exitDate };
+            });
+          }
+        }
+        closePosition(positionId, exitData);
+      });
+    }
+
+    // Import new trades from broker
+    if (trades && trades.length > 0) {
+      const groupKeys = {};
+      trades.forEach(t => {
+        const key = `${t.instrument}_${t.expiry}_${t.quantity}`;
+        if (!groupKeys[key]) groupKeys[key] = uuidv4();
+      });
+      const mapped = trades.map(t => ({
+        ...t,
+        positionId: t.positionId || groupKeys[`${t.instrument}_${t.expiry}_${t.quantity}`],
+        source: broker,
+        status: t.status || 'OPEN',
+      }));
+      addTrades(mapped);
+    }
   };
 
   const handleAddAccount = () => {
@@ -186,6 +217,7 @@ export default function BrokerConnect() {
         broker="angelone"
         logo="🔶"
         color="#F59E0B"
+        existingPositions={positions}
         onSync={handleSync('angelone')}
         savedAccounts={accounts.filter(a => a.broker === 'angelone')}
         savedCredentials={settings.brokerCredentials || {}}
@@ -203,6 +235,7 @@ export default function BrokerConnect() {
         broker="kotak"
         logo="🔴"
         color="#EF4444"
+        existingPositions={positions}
         onSync={handleSync('kotak')}
         savedAccounts={accounts.filter(a => a.broker === 'kotak')}
         savedCredentials={settings.brokerCredentials || {}}
