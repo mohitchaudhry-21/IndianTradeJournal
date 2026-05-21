@@ -203,18 +203,23 @@ export function JournalProvider({ children }) {
   }, [accounts, settings, persist]);
 
   const closePosition = useCallback((positionId, exitData) => {
-    // exitData: { [legId]: { exitPremium, exitDate } }
+    // exitData: { [legId]: { exitPremium, exitDate, entryPrice? } }
     setTrades(prev => {
       const next = prev.map(t => {
         if ((t.positionId || t.id) !== positionId) return t;
         const leg = exitData[t.id];
         if (!leg) return t;
-        return {
+        const updated = {
           ...t,
           exitPremium: parseFloat(leg.exitPremium),
           exitDate: leg.exitDate || new Date().toISOString(),
           status: 'CLOSED',
         };
+        // Update entry price if broker provides a corrected one
+        if (leg.entryPrice !== null && leg.entryPrice !== undefined && leg.entryPrice > 0) {
+          updated.premium = parseFloat(leg.entryPrice);
+        }
+        return updated;
       });
       persist(accounts, next, settings);
       return next;
