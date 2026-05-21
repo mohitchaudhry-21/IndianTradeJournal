@@ -14,7 +14,7 @@ function fmtMoney(n) {
 
 function fmtDate(d) {
   if (!d) return '—';
-  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' });
+  return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 function calcMaxLoss(position) {
@@ -176,7 +176,7 @@ function EditDatesPopup({ position, onClose, onSave }) {
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 24, width: 340, boxShadow: '0 16px 48px rgba(0,0,0,0.5)' }}>
         <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--text-primary)', marginBottom: 4 }}>Edit dates</div>
         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
-          {position.strategyName || 'Position'} · {position.instrument} · Expiry {position.expiry ? new Date(position.expiry + 'T12:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: '2-digit' }) : '—'}
+          {position.strategyName || 'Position'} · {position.instrument} · Expiry {position.expiry ? new Date(position.expiry + 'T12:00:00').toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}
         </div>
         <div className="form-group" style={{ marginBottom: 12 }}>
           <label className="form-label">Entry Date</label>
