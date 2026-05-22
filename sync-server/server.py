@@ -24,8 +24,9 @@ sessions = {}   # broker -> session data
 
 # ── Lot sizes (NSE as of 2025 – update if NSE revises) ───────────────────────
 LOT_SIZES = {
-    'NIFTY': 25, 'BANKNIFTY': 15, 'FINNIFTY': 25,
-    'MIDCPNIFTY': 75, 'SENSEX': 10, 'BANKEX': 15,
+    'NIFTY': 75, 'BANKNIFTY': 30, 'FINNIFTY': 65,
+    'MIDCPNIFTY': 120, 'SENSEX': 20, 'BANKEX': 30,
+    'NIFTYNXT50': 25, 'BANKNIFTY': 30,
 }
 
 def get_lot_size(instrument: str) -> int:
@@ -33,6 +34,28 @@ def get_lot_size(instrument: str) -> int:
         if instrument.startswith(k):
             return v
     return 1  # unknown stock options
+
+def normalise_expiry(expiry_str: str) -> str:
+    """Normalise any expiry format to YYYY-MM-DD for comparison."""
+    if not expiry_str:
+        return ''
+    s = str(expiry_str).strip()
+    # Already YYYY-MM-DD
+    if len(s) >= 10 and s[4] == '-':
+        return s[:10]
+    # Format: 26MAY2026 or 26MAY26
+    import re
+    MONTH_MAP2 = {'JAN':'01','FEB':'02','MAR':'03','APR':'04','MAY':'05','JUN':'06',
+                  'JUL':'07','AUG':'08','SEP':'09','OCT':'10','NOV':'11','DEC':'12'}
+    m = re.match(r'^(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2,4})$', s.upper())
+    if m:
+        day, mon, yr = m.groups()
+        year = yr if len(yr) == 4 else '20' + yr
+        return f'{year}-{MONTH_MAP2[mon]}-{day}'
+    # Format: 2026-05-26T... (ISO with time)
+    if 'T' in s:
+        return s[:10]
+    return s[:10]
 
 # ── Symbol parser ─────────────────────────────────────────────────────────────
 # Handles formats:  BANKNIFTY14MAY2548000CE  /  NIFTY25500CE25APR25
@@ -401,12 +424,36 @@ def sync_angelone():
     try:
         data = request.get_json(force=True, silent=True) or {}
         account_id   = s['accountId']
-        existing_open = data.get('existingPositions', [])
+        all_existing = data.get('existingPositions', [])
+        # Match against ALL positions (open and closed) so we can update exit prices
+        # even on positions already imported as closed without exit prices
+        existing_open = all_existing
+        print(f"  Existing positions sent from journal: {len(all_existing)} (open+closed)")
         sync_from    = data.get('syncFromDate', '')  # 'YYYY-MM-DD' or ''
         today        = datetime.now().strftime('%Y-%m-%d')
 
         # Get all positions from Angel One (includes both open and closed)
         positions_raw = angel_positions(s['apiKey'], s['jwtToken'])
+
+        print(f"=== SYNC DEBUG === Total positions from broker: {len(positions_raw)}")
+        if not positions_raw:
+            print("  WARNING: Angel One returned 0 positions. Possible causes:")
+            print("  1. JWT token expired — try Reconnect then Sync")
+            print("  2. No positions in account today")
+            print("  3. API returned error (check raw response below)")
+            # Try to get raw response for debugging
+            try:
+                url_dbg = f'{ANGEL_BASE}/rest/secure/angelbroking/order/v1/getPosition'
+                r_dbg = requests.get(url_dbg, headers=angel_headers(s['apiKey'], s['jwtToken']), timeout=10)
+                print(f"  Raw status: {r_dbg.status_code}")
+                raw_json = r_dbg.json()
+                print(f"  Raw response: {str(raw_json)[:500]}")
+            except Exception as dbg_e:
+                print(f"  Debug fetch failed: {dbg_e}")
+        else:
+            for p in positions_raw[:3]:
+                sym = p.get('tradingsymbol','?')
+                print(f"  Sample: {sym} netqty={p.get('netqty')} buyavg={p.get('buyavgprice')} sellavg={p.get('sellavgprice')} cfbuyavg={p.get('cfbuyavgprice')} cfsellavg={p.get('cfsellavgprice')} realised={p.get('realised')}")
 
         broker_open_raw   = []  # netqty != 0 → truly open
         broker_closed_raw = []  # netqty == 0 → squared off today
@@ -422,75 +469,108 @@ def sync_angelone():
             buy_avg   = float(p.get('buyavgprice', 0) or p.get('cfbuyavgprice', 0) or 0)
             sell_avg  = float(p.get('sellavgprice', 0) or p.get('cfsellavgprice', 0) or 0)
 
+            cf_buy_avg  = float(p.get('cfbuyavgprice',  0) or 0)
+            cf_sell_avg = float(p.get('cfsellavgprice', 0) or 0)
+            has_prices  = buy_avg > 0 or sell_avg > 0 or cf_buy_avg > 0 or cf_sell_avg > 0
             if net_qty != 0:
                 broker_open_raw.append(p)
-            elif buy_qty > 0 and sell_qty > 0 and (buy_avg > 0 or sell_avg > 0):
-                # Fully squared off — both sides filled
+            elif has_prices:
+                # Fully squared off — use cf prices if today prices are zero
                 broker_closed_raw.append(p)
+
+        print(f"  After filter: {len(broker_open_raw)} open, {len(broker_closed_raw)} closed/squared-off")
+        if broker_closed_raw:
+            for p in broker_closed_raw:
+                buy_a = float(p.get('buyavgprice',0) or 0) or float(p.get('cfbuyavgprice',0) or 0)
+                sell_a = float(p.get('sellavgprice',0) or 0) or float(p.get('cfsellavgprice',0) or 0)
+                print(f"  Closed: {p.get('tradingsymbol')} entry={'sell@'+str(sell_a) if sell_a>=buy_a else 'buy@'+str(buy_a)} exit={'buy@'+str(buy_a) if sell_a>=buy_a else 'sell@'+str(sell_a)} pnl={p.get('realised',0)}")
 
         # Map and group open positions
         open_legs = [t for p in broker_open_raw if (t := map_angel_position(p, account_id)) is not None]
         open_positions = group_open_positions(open_legs)
 
         # For closed positions: match existing OR create new CLOSED entry
-        to_close = []
+        # Build a map: positionId -> { exitLegs: [...], exitDate }
+        # so all legs of a multi-leg position get exit prices in one go
+        pos_exit_map = {}   # positionId -> {'exitDate': ..., 'exitLegs': [...]}
         new_closed_legs = []
-        closed_pos_ids_seen = set()
         today = datetime.now().strftime('%Y-%m-%d')
-        lot_size_map = get_lot_size
 
         for p in broker_closed_raw:
             sym = parse_symbol(p.get('tradingsymbol', ''))
             if not sym:
                 continue
 
-            buy_avg  = float(p.get('buyavgprice', 0) or p.get('cfbuyavgprice', 0) or 0)
-            sell_avg = float(p.get('sellavgprice', 0) or p.get('cfsellavgprice', 0) or 0)
-            buy_qty  = int(p.get('buyqty', 0) or 0)
-            sell_qty = int(p.get('sellqty', 0) or 0)
+            buy_avg  = float(p.get('buyavgprice',  0) or 0) or float(p.get('cfbuyavgprice',  0) or 0)
+            sell_avg = float(p.get('sellavgprice', 0) or 0) or float(p.get('cfsellavgprice', 0) or 0)
+            buy_qty  = int(p.get('buyqty',  0) or 0) or int(p.get('cfbuyqty',  0) or 0)
+            sell_qty = int(p.get('sellqty', 0) or 0) or int(p.get('cfsellqty', 0) or 0)
             api_ls   = int(p.get('lotsize', 0) or 0)
             lot_size = api_ls if api_ls > 0 else get_lot_size(sym['instrument'])
             qty      = max(buy_qty, sell_qty)
             lots     = qty // lot_size if lot_size > 0 else qty or 1
 
-            # Determine original tx type and prices
-            if sell_avg >= buy_avg:
-                tx_type    = 'SELL'
-                entry_price = sell_avg
-                exit_price  = buy_avg
-            else:
-                tx_type    = 'BUY'
-                entry_price = buy_avg
-                exit_price  = sell_avg
-
+            # Determine original tx type and prices per leg
+            # BUY leg: entry=buy_avg, exit=sell_avg
+            # SELL leg: entry=sell_avg, exit=buy_avg
             realized_pnl = float(p.get('realised', 0) or p.get('pnl', 0) or 0)
 
-            # Try to match existing OPEN journal position
+            # Try to match this specific leg in existing journal positions
+            print(f"  Trying to match: {sym['instrument']} {sym['strike']} {sym['optionType']} lots={lots} syncing_account={account_id}")
             matched = False
             for ep in existing_open:
-                if ep.get('positionId') in closed_pos_ids_seen:
+                pos_id = ep.get('positionId')
+                if not pos_id:
                     continue
                 legs = ep.get('legs', [])
                 for leg in legs:
-                    if (str(leg.get('instrument','')) == str(sym['instrument']) and
-                        str(leg.get('expiry',''))[:10] == str(sym.get('expiry') or '')[:10] and
+                    leg_tx_check = str(leg.get('transactionType','')).upper()
+                    # Determine what tx type this broker entry represents for this leg
+                    # BUY fills (cfbuyavg > 0) → matches BUY legs (or SELL legs being closed)
+                    # Strict account match — only update positions belonging to the syncing account
+                    ep_account = ep.get('accountId','') or (ep.get('legs') or [{}])[0].get('accountId','')
+                    leg_account = leg.get('accountId','') or ep_account
+                    leg_tx_journal = str(leg.get('transactionType','')).upper()
+                    # If both sides have account IDs, they must match exactly
+                    account_match = (not leg_account or not account_id or leg_account == account_id)
+                    basic_match = (account_match and
+                        str(leg.get('instrument','')) == str(sym['instrument']) and
+                        normalise_expiry(str(leg.get('expiry',''))) == normalise_expiry(str(sym.get('expiry') or '')) and
                         str(leg.get('strike','')) == str(sym['strike']) and
-                        str(leg.get('optionType','')) == str(sym['optionType'])):
-                        pos_id = ep.get('positionId')
-                        if pos_id:
-                            closed_pos_ids_seen.add(pos_id)
-                            to_close.append({
-                                'positionId': pos_id,
-                                'exitDate': today,
-                                'exitLegs': [{'legId': leg.get('id'), 'exitPrice': exit_price}]
-                            })
+                        str(leg.get('optionType','')) == str(sym['optionType']))
+                    if not account_match and str(leg.get('strike','')) == str(sym['strike']):
+                        print(f"    Skipping {sym['strike']}: account mismatch leg={leg_account} broker={account_id}")
+                    if basic_match:
+                        leg_id = leg.get('id')
+                        leg_tx = leg_tx_journal  # use the journal leg's tx type
+                        # Angel One cf prices:
+                        #   cfbuyavgprice  = avg price of BUY fills (entry for BUY legs, exit for SELL legs)
+                        #   cfsellavgprice = avg price of SELL fills (entry for SELL legs, exit for BUY legs)
+                        if leg_tx == 'SELL':
+                            leg_entry_price = sell_avg
+                            leg_exit_price  = buy_avg
+                        else:
+                            leg_entry_price = buy_avg
+                            leg_exit_price  = sell_avg
+                        print(f"    Leg match: {leg_tx} {sym['strike']} in pos {pos_id[:8]} leg_account={leg_account} entry={leg_entry_price} exit={leg_exit_price}")
+                        if pos_id not in pos_exit_map:
+                            pos_exit_map[pos_id] = {'exitDate': today, 'exitLegs': []}
+                        pos_exit_map[pos_id]['exitLegs'].append({
+                            'legId': leg_id,
+                            'exitPrice': leg_exit_price,
+                            'entryPrice': leg_entry_price,
+                        })
                         matched = True
-                        break
-                if matched:
-                    break
+                        break  # found this leg in this position, check next position too
+                # Don't break outer loop — same broker symbol can match legs in multiple positions
 
             # No existing match — create new CLOSED leg to import
             if not matched:
+                print(f"    No match found for {sym['instrument']} {sym['strike']} {sym['optionType']} lots={lots} — will import as new")
+                # For unmatched legs: determine tx type from which side has more fills
+                nc_tx = 'SELL' if sell_avg >= buy_avg else 'BUY'
+                nc_entry = sell_avg if nc_tx == 'SELL' else buy_avg
+                nc_exit  = buy_avg  if nc_tx == 'SELL' else sell_avg
                 new_closed_legs.append({
                     'id': str(uuid4()),
                     'brokerTradeId': p.get('symboltoken', ''),
@@ -500,11 +580,11 @@ def sync_angelone():
                     'expiry': sym['expiry'],
                     'strike': sym['strike'],
                     'optionType': sym['optionType'],
-                    'transactionType': tx_type,
+                    'transactionType': nc_tx,
                     'quantity': lots if lots > 0 else 1,
                     'lotSize': lot_size,
-                    'premium': entry_price,
-                    'exitPremium': exit_price,
+                    'premium': nc_entry,
+                    'exitPremium': nc_exit,
                     'exitDate': today,
                     'date': today,
                     'status': 'CLOSED',
@@ -512,10 +592,21 @@ def sync_angelone():
                     'strategyName': 'Custom',
                 })
 
+        # Convert pos_exit_map to to_close list
+        to_close = [
+            {'positionId': pos_id, 'exitDate': data['exitDate'], 'exitLegs': data['exitLegs']}
+            for pos_id, data in pos_exit_map.items()
+        ]
+
         # Group newly imported closed legs into positions
         new_closed_positions = group_open_positions(new_closed_legs) if new_closed_legs else []
 
         all_new_trades = open_positions + new_closed_positions
+
+        # Debug summary
+        print(f"  Matched {len(to_close)} positions with exit prices, {len(new_closed_positions)} new closed imported")
+        for tc in to_close:
+            print(f"    Closing positionId={tc['positionId'][:8]}... legs={[l['exitPrice'] for l in tc['exitLegs']]}")
 
         return jsonify({
             'success': True,
@@ -533,6 +624,58 @@ def sync_angelone():
     except Exception as e:
         import traceback
         return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()[:500]}), 500
+
+@app.route('/connect/kotak', methods=['POST'])
+def connect_kotak():
+    global kotak_client_obj
+    if not NEO_SDK_AVAILABLE:
+        return jsonify({'success': False, 'error': 'neo-api-client not installed. Run: pip install --force-reinstall "git+https://github.com/Kotak-Neo/Kotak-neo-api-v2.git@v2.0.1#egg=neo_api_client"'}), 400
+    data = request.json or {}
+    consumer_key = data.get('consumerKey', '') or data.get('accessToken', '')
+    ucc          = data.get('ucc', '')
+    mobile       = data.get('mobile', '')
+    mpin         = data.get('password', '') or data.get('mpin', '')
+    totp         = data.get('totp', '')
+    account_id   = data.get('accountId', 'kotak_default')
+
+    if not all([consumer_key, mpin, totp]):
+        return jsonify({'success': False, 'error': 'Missing required fields: Access Token, MPIN, TOTP'}), 400
+
+    mob = mobile if mobile.startswith('+91') else ('+91' + mobile.lstrip('0') if mobile else '')
+
+    try:
+        # Try v2 SDK first (totp_login + totp_validate)
+        client = KotakNeoAPI(
+            environment='prod',
+            access_token=None,
+            neo_fin_key=None,
+            consumer_key=consumer_key,
+        )
+        if hasattr(client, 'totp_login'):
+            # v2 SDK
+            print("Using Kotak Neo API v2 (totp_login)")
+            client.totp_login(mobile_number=mob, ucc=ucc, totp=totp)
+            client.totp_validate(mpin=mpin)
+        elif hasattr(client, 'login'):
+            # v1 SDK
+            print("Using Kotak Neo API v1 (login)")
+            client.login(mobilenumber=mob, password=mpin)
+            client.session_2fa(OTP=totp)
+        else:
+            return jsonify({'success': False, 'error': 'Incompatible neo-api-client version. Please reinstall.'}), 400
+
+        kotak_client_obj = client
+        sessions['kotak'] = {
+            'accountId': account_id,
+            'ucc': ucc,
+            'consumerKey': consumer_key,
+        }
+        print(f"✅ Kotak connected for {ucc} / account {account_id}")
+        return jsonify({'success': True, 'message': f'Connected as {ucc or account_id}'})
+    except Exception as e:
+        print(f"Kotak connect error: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 400
+
 
 @app.route('/sync/kotak', methods=['POST'])
 def sync_kotak():
