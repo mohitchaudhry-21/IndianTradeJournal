@@ -380,7 +380,7 @@ function AccountTag({ accountId }) {
 }
 
 export default function TradeHistory() {
-  const { positions, deletePosition, updatePositionStrategy, updatePositionMeta } = useJournal();
+  const { positions, deletePosition, updatePositionStrategy, updatePositionMeta, reopenPosition } = useJournal();
 
   const [filterInstrument, setFilterInstrument] = useState('');
   const [filterStrategy,   setFilterStrategy]   = useState('');
@@ -389,6 +389,7 @@ export default function TradeHistory() {
   const [dateTo,           setDateTo]           = useState('');
   const [notesPos,         setNotesPos]         = useState(null);
   const [editExitPos,      setEditExitPos]      = useState(null);
+  const [reopenPos,        setReopenPos]        = useState(null);
 
   const all = useMemo(() =>
     [...positions]
@@ -533,6 +534,28 @@ export default function TradeHistory() {
       )}
 
       {/* Edit exit date popup */}
+      {reopenPos && (
+        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center' }}
+          onClick={e => { if (e.target===e.currentTarget) setReopenPos(null); }}>
+          <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:24, width:340, boxShadow:'0 16px 48px rgba(0,0,0,0.5)' }}>
+            <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)', marginBottom:4 }}>Reopen position?</div>
+            <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:16 }}>
+              {reopenPos.strategyName || 'Position'} · {reopenPos.instrument} · Expiry {reopenPos.expiry ? new Date(reopenPos.expiry+'T12:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'}) : '—'}
+            </div>
+            <div style={{ fontSize:12, color:'var(--accent)', background:'rgba(59,130,246,0.08)', border:'1px solid rgba(59,130,246,0.2)', borderRadius:6, padding:'8px 10px', marginBottom:16 }}>
+              This will clear all exit prices and exit dates, and set the position back to Open.
+            </div>
+            <div style={{ display:'flex', gap:10 }}>
+              <button className="btn btn-outline" style={{ flex:1 }} onClick={() => setReopenPos(null)}>Cancel</button>
+              <button className="btn btn-primary" style={{ flex:2 }} onClick={() => {
+                reopenPosition(reopenPos.positionId);
+                setReopenPos(null);
+              }}>Confirm Reopen</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {editExitPos && (
         <EditDatesPopup
           position={editExitPos}
@@ -716,7 +739,18 @@ export default function TradeHistory() {
                       { fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }
                     )}
 
-                    {td(<span className={`badge ${p.status.toLowerCase()}`}>{p.status}</span>)}
+                    {td(
+                      <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                        <span className={`badge ${p.status.toLowerCase()}`}>{p.status}</span>
+                        {!isOpen && (
+                          <button
+                            onClick={() => setReopenPos(p)}
+                            title="Reopen this position"
+                            style={{ background:'rgba(255,255,255,0.06)', border:'none', borderRadius:4, color:'var(--text-muted)', cursor:'pointer', fontSize:10, padding:'2px 6px', whiteSpace:'nowrap' }}
+                          >↺ Reopen</button>
+                        )}
+                      </div>
+                    )}
 
                     {td(
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
