@@ -8,7 +8,7 @@ function fmtMoney(n) {
   const abs = Math.abs(n);
   const sign = n < 0 ? '-' : '+';
   if (abs >= 100000) return sign + '₹' + (abs / 100000).toFixed(2) + 'L';
-  if (abs >= 1000)   return sign + '₹' + (abs / 1000).toFixed(1) + 'K';
+  if (abs >= 1000)   return sign + '₹' + Math.round(abs).toLocaleString('en-IN');
   return sign + '₹' + Math.round(abs).toLocaleString('en-IN');
 }
 
@@ -121,7 +121,7 @@ function MarginCell({ value, onSave }) {
       title="Click to set margin used">
       {value
         ? <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-secondary)' }}>
-            {value >= 100000 ? '₹' + (value / 100000).toFixed(1) + 'L' : value >= 1000 ? '₹' + (value / 1000).toFixed(0) + 'K' : '₹' + value}
+            {value >= 100000 ? '₹' + (value / 100000).toFixed(1) + 'L' : value >= 1000 ? '₹' + Math.round(value).toLocaleString('en-IN') : '₹' + value}
           </span>
         : <span style={{ fontSize: 11, color: 'var(--text-muted)', borderBottom: '1px dashed var(--text-muted)' }}>+ add</span>}
     </div>
@@ -134,7 +134,7 @@ function ChargesCell({ value, onSave }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ? String(value) : '');
   const save = () => { const v = parseFloat(draft); onSave(isNaN(v) ? null : v); setEditing(false); };
-  const fmt = n => n >= 100000 ? '₹'+(n/100000).toFixed(1)+'L' : n >= 1000 ? '₹'+(n/1000).toFixed(0)+'K' : '₹'+n;
+  const fmt = n => n >= 100000 ? '₹'+(n/100000).toFixed(1)+'L' : n >= 1000 ? '₹'+Math.round(n).toLocaleString('en-IN') : '₹'+n;
   if (editing) return (
     <div style={{ display:'flex', alignItems:'center', gap:3, minWidth:100 }}>
       <span style={{ fontSize:11, color:'var(--text-muted)' }}>₹</span>
