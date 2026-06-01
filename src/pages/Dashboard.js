@@ -8,7 +8,7 @@ function fmt(n) {
   if (n === null || n === undefined) return '—';
   const abs = Math.abs(n);
   if (abs >= 100000) return (n < 0 ? '-' : '+') + '₹' + (abs / 100000).toFixed(2) + 'L';
-  if (abs >= 1000) return (n < 0 ? '-' : '+') + '₹' + (abs / 1000).toFixed(1) + 'K';
+  if (abs >= 1000) return (n < 0 ? '-' : '+') + '₹' + (n < 0 ? '-' : '+') + Math.round(abs).toLocaleString('en-IN');
   return (n < 0 ? '-' : '+') + '₹' + Math.abs(n).toFixed(0);
 }
 
@@ -16,7 +16,7 @@ function fmtSimple(n) {
   if (!n) return '₹0';
   const abs = Math.abs(n);
   if (abs >= 100000) return (n < 0 ? '-' : '') + '₹' + (abs / 100000).toFixed(2) + 'L';
-  if (abs >= 1000) return (n < 0 ? '-' : '') + '₹' + (abs / 1000).toFixed(1) + 'K';
+  if (abs >= 1000) return (n < 0 ? '-' : '') + '₹' + Math.round(abs).toLocaleString('en-IN');
   return (n < 0 ? '-' : '') + '₹' + abs.toFixed(0);
 }
 
@@ -239,7 +239,7 @@ export default function Dashboard() {
                         <div style={{ textAlign: 'right' }}>
                           <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Margin</div>
                           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 14, color: 'var(--text-secondary)' }}>
-                            {p.margin >= 100000 ? '₹'+(p.margin/100000).toFixed(1)+'L' : '₹'+(p.margin/1000).toFixed(0)+'K'}
+                            {p.margin >= 100000 ? '₹'+(p.margin/100000).toFixed(1)+'L' : '₹'+Math.round(p.margin).toLocaleString('en-IN')}
                           </div>
                         </div>
                       )}
@@ -318,7 +318,7 @@ export default function Dashboard() {
                         <div style={{ textAlign: 'right' }}>
                           <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 2 }}>Margin</div>
                           <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 13, color: 'var(--text-secondary)' }}>
-                            {p.margin >= 100000 ? '₹'+(p.margin/100000).toFixed(1)+'L' : '₹'+(p.margin/1000).toFixed(0)+'K'}
+                            {p.margin >= 100000 ? '₹'+(p.margin/100000).toFixed(1)+'L' : '₹'+Math.round(p.margin).toLocaleString('en-IN')}
                           </div>
                         </div>
                       )}
