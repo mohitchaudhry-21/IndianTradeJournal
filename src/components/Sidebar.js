@@ -49,7 +49,7 @@ function fmtSidebar(n) {
   if (!n) return '₹0';
   const abs = Math.abs(n);
   if (abs >= 100000) return (n<0?'-':'') + '₹' + (abs/100000).toFixed(1) + 'L';
-  if (abs >= 1000) return (n<0?'-':'') + '₹' + (abs/1000).toFixed(1) + 'K';
+  if (abs >= 1000) return (n<0?'-':'') + '₹' + Math.round(abs).toLocaleString('en-IN');
   return (n<0?'-':'') + '₹' + Math.round(abs);
 }
 
