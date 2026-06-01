@@ -10,7 +10,7 @@ function fmt(n) {
   const abs = Math.abs(n);
   const sign = n < 0 ? '-' : '+';
   if (abs >= 100000) return sign + '₹' + (abs / 100000).toFixed(2) + 'L';
-  if (abs >= 1000) return sign + '₹' + (abs / 1000).toFixed(1) + 'K';
+  if (abs >= 1000) return sign + '₹' + Math.round(abs).toLocaleString('en-IN');
   return sign + '₹' + abs.toFixed(0);
 }
 
