@@ -8,7 +8,7 @@ function fmt(n) {
   if (!n) return '₹0';
   const abs = Math.abs(n);
   if (abs >= 100000) return (n<0?'-':'') + '₹' + (abs/100000).toFixed(2) + 'L';
-  if (abs >= 1000) return (n<0?'-':'') + '₹' + (abs/1000).toFixed(1) + 'K';
+  if (abs >= 1000) return (n<0?'-':'') + '₹' + Math.round(abs).toLocaleString('en-IN');
   return (n<0?'-':'') + '₹' + abs.toFixed(0);
 }
 
@@ -365,7 +365,7 @@ export default function Analytics() {
               <ResponsiveContainer width="100%" height={200}>
                 <BarChart data={dteVsPnl} margin={{ top:10, right:10, left:0, bottom:0 }}>
                   <XAxis dataKey="dte" tick={{ fill:'var(--text-muted)', fontSize:10 }} axisLine={false} tickLine={false} label={{ value:'DTE at entry', position:'insideBottomRight', fill:'var(--text-muted)', fontSize:10 }} />
-                  <YAxis tick={{ fill:'var(--text-muted)', fontSize:10 }} axisLine={false} tickLine={false} tickFormatter={v => v>=1000?'₹'+(v/1000).toFixed(0)+'K':'₹'+v} width={50} />
+                  <YAxis tick={{ fill:'var(--text-muted)', fontSize:10 }} axisLine={false} tickLine={false} tickFormatter={v => '₹'+Math.round(v).toLocaleString('en-IN')} width={60} />
                   <Tooltip content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
                     const d = payload[0].payload;
@@ -410,7 +410,7 @@ export default function Analytics() {
                     );
                   }} />
                   <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" />
-                  <Bar dataKey="pnl" radius={[6,6,0,0]} label={{ position:'top', formatter:v=>v>=1000?'₹'+(v/1000).toFixed(1)+'K':v<=0&&v>-1000?'':v===0?'':'₹'+(v/1000).toFixed(1)+'K', fill:'var(--text-muted)', fontSize:10 }}>
+                  <Bar dataKey="pnl" radius={[6,6,0,0]} label={{ position:'top', formatter:v=>v!==0?'₹'+Math.round(v).toLocaleString('en-IN'):'', fill:'var(--text-muted)', fontSize:10 }}>
                     {dayOfWeek.map((d, i) => <Cell key={i} fill={d.count === 0 ? 'var(--border)' : d.pnl >= 0 ? 'var(--profit)' : 'var(--loss)'} opacity={d.count === 0 ? 0.3 : 0.85} />)}
                   </Bar>
                 </BarChart>
@@ -503,7 +503,7 @@ export default function Analytics() {
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="trade" tick={{ fill:'var(--text-muted)', fontSize:10 }} axisLine={false} tickLine={false} label={{ value:'Trade #', position:'insideBottomRight', fill:'var(--text-muted)', fontSize:10 }} />
-                  <YAxis tick={{ fill:'var(--text-muted)', fontSize:10 }} axisLine={false} tickLine={false} tickFormatter={v => v >= 1000 ? '₹'+(v/1000).toFixed(0)+'K' : '₹'+v} width={55} />
+                  <YAxis tick={{ fill:'var(--text-muted)', fontSize:10 }} axisLine={false} tickLine={false} tickFormatter={v => '₹'+Math.round(v).toLocaleString('en-IN')} width={60} />
                   <Tooltip content={({ active, payload }) => {
                     if (!active || !payload?.length) return null;
                     const d = payload[0].payload;
@@ -538,7 +538,7 @@ export default function Analytics() {
                   <YAxis hide />
                   <Tooltip content={<TT />} cursor={{ fill:'rgba(255,255,255,0.04)' }} />
                   <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" />
-                  <Bar dataKey="pnl" radius={[6,6,0,0]} label={{ position:'top', formatter:v => v>=1000?'₹'+(v/1000).toFixed(1)+'K':v<=0&&v>-1000?'-₹'+Math.abs(v):'₹'+(v/1000).toFixed(1)+'K', fill:'var(--text-muted)', fontSize:10 }}>
+                  <Bar dataKey="pnl" radius={[6,6,0,0]} label={{ position:'top', formatter:v => v!==0?'₹'+Math.round(v).toLocaleString('en-IN'):'', fill:'var(--text-muted)', fontSize:10 }}>
                     {last8Months.map((d,i) => <Cell key={i} fill={d.pnl>=0?'var(--profit)':'var(--loss)'} opacity={0.85} />)}
                   </Bar>
                 </BarChart>
