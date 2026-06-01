@@ -460,14 +460,14 @@ def sync_angelone():
 
         for p in positions_raw:
             # Skip if position date is before syncFromDate
-            pos_date = (p.get('orderplacetime') or p.get('updatetime') or today)[:10]
-            if sync_from and pos_date < sync_from:
+            pos_date = (p.get('orderplacetime') or p.get('updatetime') or '')[:10]
+            if sync_from and pos_date and pos_date < sync_from:
                 continue
             net_qty   = int(p.get('netqty', 0) or 0)
             buy_qty   = int(p.get('buyqty', 0) or 0)
             sell_qty  = int(p.get('sellqty', 0) or 0)
-            buy_avg   = float(p.get('buyavgprice', 0) or p.get('cfbuyavgprice', 0) or 0)
-            sell_avg  = float(p.get('sellavgprice', 0) or p.get('cfsellavgprice', 0) or 0)
+            buy_avg   = float(p.get('buyavgprice', 0) or 0) or float(p.get('cfbuyavgprice', 0) or 0)
+            sell_avg  = float(p.get('sellavgprice', 0) or 0) or float(p.get('cfsellavgprice', 0) or 0)
 
             cf_buy_avg  = float(p.get('cfbuyavgprice',  0) or 0)
             cf_sell_avg = float(p.get('cfsellavgprice', 0) or 0)
