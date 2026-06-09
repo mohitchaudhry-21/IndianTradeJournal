@@ -43,11 +43,19 @@ function calcMaxLoss(position) {
   if (ce_sells.length === 1 && ce_buys.length === 1)
     grossWidth = Math.max(grossWidth, Math.abs(ce_sells[0].strike - ce_buys[0].strike) * lotSize * lots);
 
-  // Condor: 2 sells of same type — use inner spread width (between the two sell strikes)
-  if (pe_sells.length >= 2)
-    grossWidth = Math.max(grossWidth, Math.abs(pe_sells[pe_sells.length-1].strike - pe_sells[0].strike) * lotSize * lots);
-  if (ce_sells.length >= 2)
-    grossWidth = Math.max(grossWidth, Math.abs(ce_sells[ce_sells.length-1].strike - ce_sells[0].strike) * lotSize * lots);
+  // Condor: 2 sells + 2 buys — max loss is the WING width (buy-to-nearest-sell)
+  // NOT the gap between the two sells
+  if (pe_sells.length >= 2 && pe_buys.length >= 2) {
+    // Wing width = lower sell - lower buy (or upper buy - upper sell)
+    const lowerWing = Math.abs(pe_sells[0].strike - pe_buys[0].strike) * lotSize * lots;
+    const upperWing = Math.abs(pe_buys[pe_buys.length-1].strike - pe_sells[pe_sells.length-1].strike) * lotSize * lots;
+    grossWidth = Math.max(grossWidth, Math.max(lowerWing, upperWing));
+  }
+  if (ce_sells.length >= 2 && ce_buys.length >= 2) {
+    const lowerWing = Math.abs(ce_sells[0].strike - ce_buys[0].strike) * lotSize * lots;
+    const upperWing = Math.abs(ce_buys[ce_buys.length-1].strike - ce_sells[ce_sells.length-1].strike) * lotSize * lots;
+    grossWidth = Math.max(grossWidth, Math.max(lowerWing, upperWing));
+  }
 
   // Mixed: PE buys + PE sells (Bull Put Spread style inside condor)
   if (pe_sells.length >= 1 && pe_buys.length >= 1 && pe_buys.length !== pe_sells.length)
@@ -60,8 +68,10 @@ function calcMaxLoss(position) {
   // Net credit: max loss = spread width - premium received
   // Net debit: max loss = net debit paid
   if (net >= 0) {
+    // Net credit: max loss = wing width - premium received
     return grossWidth - net;
   } else {
+    // Net debit: max loss = net debit paid (wing width - debit = max profit)
     return Math.abs(net);
   }
 }
@@ -69,25 +79,27 @@ function calcMaxLoss(position) {
 // Max profit helper — handles both credit and debit strategies
 function calcMaxProfit(position) {
   const net = position.netPremiumCollected;
-  if (net >= 0) return net; // credit: max profit = premium collected
-  // Debit strategy: max profit = spread width - debit paid
+  if (net >= 0) return net; // net credit: max profit = premium collected
+
+  // Net debit strategy: max profit = wing width - net debit paid
   const { legs } = position;
-  if (!legs || legs.length < 2) return net;
+  if (!legs || legs.length < 2) return Math.abs(net);
   const sells = legs.filter(l => l.transactionType === 'SELL');
   const buys  = legs.filter(l => l.transactionType === 'BUY');
   const ref = sells[0] || buys[0];
   const lotSize = ref?.lotSize || 1;
   const lots = ref?.quantity || 1;
-  const pe_sells = sells.filter(l => l.optionType === 'PE').sort((a,b) => a.strike - b.strike);
-  const pe_buys  = buys.filter(l => l.optionType === 'PE').sort((a,b) => a.strike - b.strike);
   const ce_sells = sells.filter(l => l.optionType === 'CE').sort((a,b) => a.strike - b.strike);
   const ce_buys  = buys.filter(l => l.optionType === 'CE').sort((a,b) => a.strike - b.strike);
-  let grossWidth = 0;
-  if (pe_sells.length >= 1 && pe_buys.length >= 1)
-    grossWidth = Math.max(grossWidth, Math.abs(pe_sells[0].strike - pe_buys[0].strike) * lotSize * lots);
+  const pe_sells = sells.filter(l => l.optionType === 'PE').sort((a,b) => a.strike - b.strike);
+  const pe_buys  = buys.filter(l => l.optionType === 'PE').sort((a,b) => a.strike - b.strike);
+  let wingWidth = 0;
+  // Wing = lower sell - lower buy (the narrower spread)
   if (ce_sells.length >= 1 && ce_buys.length >= 1)
-    grossWidth = Math.max(grossWidth, Math.abs(ce_sells[0].strike - ce_buys[0].strike) * lotSize * lots);
-  return grossWidth > 0 ? grossWidth - Math.abs(net) : net;
+    wingWidth = Math.max(wingWidth, Math.abs(ce_sells[0].strike - ce_buys[0].strike) * lotSize * lots);
+  if (pe_sells.length >= 1 && pe_buys.length >= 1)
+    wingWidth = Math.max(wingWidth, Math.abs(pe_sells[0].strike - pe_buys[0].strike) * lotSize * lots);
+  return wingWidth > 0 ? wingWidth - Math.abs(net) : Math.abs(net);
 }
 
 function LegsInline({ legs }) {
