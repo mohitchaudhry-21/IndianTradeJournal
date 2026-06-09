@@ -288,7 +288,7 @@ function NotesPanel({ position, onClose, onSave }) {
   };
 
   const pnl       = position.realizedPnL;
-  const maxProfit = position.netPremiumCollected;
+  const maxProfit = calcMaxProfit(position);
   const marginVal = margin ? parseFloat(margin) : null;
   const chargesVal = charges ? parseFloat(charges) : null;
   const retOnMargin = pnl !== null && marginVal ? (pnl / marginVal) * 100 : null;
@@ -491,7 +491,7 @@ export default function TradeHistory() {
     // Sheet 1: Positions summary
     const posRows = all.map(p => {
       const pnl       = p.realizedPnL;
-      const maxProfit = p.netPremiumCollected;
+      const maxProfit = calcMaxProfit(p);
       const maxLoss   = calcMaxLoss(p);
       const margin    = p.margin || null;
       const retMargin = pnl != null && margin ? ((pnl / margin) * 100) : null;
@@ -695,7 +695,7 @@ export default function TradeHistory() {
             <tbody>
               {all.map(p => {
                 const pnl       = p.realizedPnL;
-                const maxProfit = p.netPremiumCollected;
+                const maxProfit = calcMaxProfit(p);
                 const maxLoss   = calcMaxLoss(p);
                 const margin    = p.margin || null;
                 const charges   = p.charges || null;
