@@ -8,7 +8,7 @@ function fmtMoney(n) {
   const abs = Math.abs(n);
   const sign = n < 0 ? '-' : '+';
   if (abs >= 100000) return sign + '₹' + (abs / 100000).toFixed(2) + 'L';
-  if (abs >= 1000)   return sign + '₹' + Math.round(abs).toLocaleString('en-IN');
+  if (abs >= 1000)   return sign + '₹' + (abs / 1000).toFixed(1) + 'K';
   return sign + '₹' + Math.round(abs).toLocaleString('en-IN');
 }
 
@@ -23,18 +23,71 @@ function calcMaxLoss(position) {
   const sells = legs.filter(l => l.transactionType === 'SELL');
   const buys  = legs.filter(l => l.transactionType === 'BUY');
   if (!buys.length) return null;
-  const pe_sell = sells.find(l => l.optionType === 'PE');
-  const pe_buy  = buys.find(l => l.optionType === 'PE');
-  const ce_sell = sells.find(l => l.optionType === 'CE');
-  const ce_buy  = buys.find(l => l.optionType === 'CE');
+
   const ref = sells[0] || buys[0];
   const lotSize = ref.lotSize || 1;
   const lots    = ref.quantity || 1;
-  let gross = 0;
-  if (pe_sell && pe_buy) gross = Math.max(gross, Math.abs(pe_sell.strike - pe_buy.strike) * lotSize * lots);
-  if (ce_sell && ce_buy) gross = Math.max(gross, Math.abs(ce_sell.strike - ce_buy.strike) * lotSize * lots);
-  if (!gross) return null;
-  return gross - Math.abs(position.netPremiumCollected);
+  const net     = position.netPremiumCollected;
+
+  // Sort legs by strike
+  const pe_sells = sells.filter(l => l.optionType === 'PE').sort((a,b) => a.strike - b.strike);
+  const pe_buys  = buys.filter(l => l.optionType === 'PE').sort((a,b) => a.strike - b.strike);
+  const ce_sells = sells.filter(l => l.optionType === 'CE').sort((a,b) => a.strike - b.strike);
+  const ce_buys  = buys.filter(l => l.optionType === 'CE').sort((a,b) => a.strike - b.strike);
+
+  let grossWidth = 0;
+
+  // Standard spread: 1 sell + 1 buy
+  if (pe_sells.length === 1 && pe_buys.length === 1)
+    grossWidth = Math.max(grossWidth, Math.abs(pe_sells[0].strike - pe_buys[0].strike) * lotSize * lots);
+  if (ce_sells.length === 1 && ce_buys.length === 1)
+    grossWidth = Math.max(grossWidth, Math.abs(ce_sells[0].strike - ce_buys[0].strike) * lotSize * lots);
+
+  // Condor: 2 sells of same type — use inner spread width (between the two sell strikes)
+  if (pe_sells.length >= 2)
+    grossWidth = Math.max(grossWidth, Math.abs(pe_sells[pe_sells.length-1].strike - pe_sells[0].strike) * lotSize * lots);
+  if (ce_sells.length >= 2)
+    grossWidth = Math.max(grossWidth, Math.abs(ce_sells[ce_sells.length-1].strike - ce_sells[0].strike) * lotSize * lots);
+
+  // Mixed: PE buys + PE sells (Bull Put Spread style inside condor)
+  if (pe_sells.length >= 1 && pe_buys.length >= 1 && pe_buys.length !== pe_sells.length)
+    grossWidth = Math.max(grossWidth, Math.abs(pe_sells[pe_sells.length-1].strike - pe_buys[0].strike) * lotSize * lots);
+  if (ce_sells.length >= 1 && ce_buys.length >= 1 && ce_buys.length !== ce_sells.length)
+    grossWidth = Math.max(grossWidth, Math.abs(ce_sells[0].strike - ce_buys[ce_buys.length-1].strike) * lotSize * lots);
+
+  if (!grossWidth) return null;
+
+  // Net credit: max loss = spread width - premium received
+  // Net debit: max loss = net debit paid
+  if (net >= 0) {
+    return grossWidth - net;
+  } else {
+    return Math.abs(net);
+  }
+}
+
+// Max profit helper — handles both credit and debit strategies
+function calcMaxProfit(position) {
+  const net = position.netPremiumCollected;
+  if (net >= 0) return net; // credit: max profit = premium collected
+  // Debit strategy: max profit = spread width - debit paid
+  const { legs } = position;
+  if (!legs || legs.length < 2) return net;
+  const sells = legs.filter(l => l.transactionType === 'SELL');
+  const buys  = legs.filter(l => l.transactionType === 'BUY');
+  const ref = sells[0] || buys[0];
+  const lotSize = ref?.lotSize || 1;
+  const lots = ref?.quantity || 1;
+  const pe_sells = sells.filter(l => l.optionType === 'PE').sort((a,b) => a.strike - b.strike);
+  const pe_buys  = buys.filter(l => l.optionType === 'PE').sort((a,b) => a.strike - b.strike);
+  const ce_sells = sells.filter(l => l.optionType === 'CE').sort((a,b) => a.strike - b.strike);
+  const ce_buys  = buys.filter(l => l.optionType === 'CE').sort((a,b) => a.strike - b.strike);
+  let grossWidth = 0;
+  if (pe_sells.length >= 1 && pe_buys.length >= 1)
+    grossWidth = Math.max(grossWidth, Math.abs(pe_sells[0].strike - pe_buys[0].strike) * lotSize * lots);
+  if (ce_sells.length >= 1 && ce_buys.length >= 1)
+    grossWidth = Math.max(grossWidth, Math.abs(ce_sells[0].strike - ce_buys[0].strike) * lotSize * lots);
+  return grossWidth > 0 ? grossWidth - Math.abs(net) : net;
 }
 
 function LegsInline({ legs }) {
@@ -121,7 +174,7 @@ function MarginCell({ value, onSave }) {
       title="Click to set margin used">
       {value
         ? <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-secondary)' }}>
-            {value >= 100000 ? '₹' + (value / 100000).toFixed(1) + 'L' : value >= 1000 ? '₹' + Math.round(value).toLocaleString('en-IN') : '₹' + value}
+            {value >= 100000 ? '₹' + (value / 100000).toFixed(1) + 'L' : value >= 1000 ? '₹' + (value / 1000).toFixed(0) + 'K' : '₹' + value}
           </span>
         : <span style={{ fontSize: 11, color: 'var(--text-muted)', borderBottom: '1px dashed var(--text-muted)' }}>+ add</span>}
     </div>
@@ -134,7 +187,7 @@ function ChargesCell({ value, onSave }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ? String(value) : '');
   const save = () => { const v = parseFloat(draft); onSave(isNaN(v) ? null : v); setEditing(false); };
-  const fmt = n => n >= 100000 ? '₹'+(n/100000).toFixed(1)+'L' : n >= 1000 ? '₹'+Math.round(n).toLocaleString('en-IN') : '₹'+n;
+  const fmt = n => n >= 100000 ? '₹'+(n/100000).toFixed(1)+'L' : n >= 1000 ? '₹'+(n/1000).toFixed(0)+'K' : '₹'+n;
   if (editing) return (
     <div style={{ display:'flex', alignItems:'center', gap:3, minWidth:100 }}>
       <span style={{ fontSize:11, color:'var(--text-muted)' }}>₹</span>
