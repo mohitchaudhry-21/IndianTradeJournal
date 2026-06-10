@@ -485,8 +485,81 @@ def sync_angelone():
                 sell_a = float(p.get('sellavgprice',0) or 0) or float(p.get('cfsellavgprice',0) or 0)
                 print(f"  Closed: {p.get('tradingsymbol')} entry={'sell@'+str(sell_a) if sell_a>=buy_a else 'buy@'+str(buy_a)} exit={'buy@'+str(buy_a) if sell_a>=buy_a else 'sell@'+str(sell_a)} pnl={p.get('realised',0)}")
 
-        # Map and group open positions
-        open_legs = [t for p in broker_open_raw if (t := map_angel_position(p, account_id)) is not None]
+        # Map open positions + detect partial exits
+        # partialExits: list of { positionId, legId, quantity, exitPremium, exitDate }
+        open_legs = []
+        partial_exits = []
+        today = datetime.now().strftime('%Y-%m-%d')
+
+        for p in broker_open_raw:
+            mapped = map_angel_position(p, account_id)
+            if not mapped:
+                continue
+            sym_check = parse_symbol(p.get('tradingsymbol', ''))
+            if not sym_check:
+                open_legs.append(mapped)
+                continue
+
+            # Broker netqty for this symbol
+            broker_net_qty = abs(int(p.get('netqty', 0) or 0))
+            api_ls = int(p.get('lotsize', 0) or 0)
+            lot_size = api_ls if api_ls > 0 else get_lot_size(sym_check['instrument'])
+            broker_lots = broker_net_qty // lot_size if lot_size > 0 else broker_net_qty
+
+            # Get buy/sell avg prices from broker
+            b_buy_avg  = float(p.get('buyavgprice',  0) or 0) or float(p.get('cfbuyavgprice',  0) or 0)
+            b_sell_avg = float(p.get('sellavgprice', 0) or 0) or float(p.get('cfsellavgprice', 0) or 0)
+
+            # Try to match existing journal leg
+            matched_leg = None
+            matched_pos_id = None
+            for ep in existing_open:
+                ep_account = ep.get('accountId','') or (ep.get('legs') or [{}])[0].get('accountId','')
+                if ep_account and account_id and ep_account != account_id:
+                    continue
+                for leg in (ep.get('legs') or []):
+                    if (str(leg.get('instrument','')) == str(sym_check['instrument']) and
+                        normalise_expiry(str(leg.get('expiry',''))) == normalise_expiry(str(sym_check.get('expiry') or '')) and
+                        str(leg.get('strike','')) == str(sym_check['strike']) and
+                        str(leg.get('optionType','')) == str(sym_check['optionType'])):
+                        matched_leg = leg
+                        matched_pos_id = ep.get('positionId')
+                        break
+                if matched_leg:
+                    break
+
+            if not matched_leg:
+                # Genuinely new leg — add it
+                open_legs.append(mapped)
+                continue
+
+            # Leg already in journal — check for partial exit
+            journal_lots = int(matched_leg.get('quantity', 0) or 0)
+            already_exited = sum(e.get('quantity', 0) for e in (matched_leg.get('exits') or []))
+            remaining_lots = journal_lots - already_exited
+
+            if broker_lots < remaining_lots and broker_lots >= 0:
+                # Partial exit detected
+                exited_lots = remaining_lots - broker_lots
+                leg_tx = str(matched_leg.get('transactionType', '')).upper()
+                # Exit price: for SELL leg — was closed by buying back → exit = buy_avg
+                #             for BUY leg  — was closed by selling    → exit = sell_avg
+                exit_price = b_buy_avg if leg_tx == 'SELL' else b_sell_avg
+                if exit_price > 0 and exited_lots > 0:
+                    partial_exits.append({
+                        'positionId': matched_pos_id,
+                        'legId': matched_leg.get('id'),
+                        'quantity': exited_lots,
+                        'exitPremium': exit_price,
+                        'exitDate': today,
+                    })
+                    print(f"  Partial exit detected: {sym_check['instrument']} {sym_check['strike']} {leg_tx} — {exited_lots}L exited @ ₹{exit_price:.2f} ({remaining_lots}L → {broker_lots}L)")
+                else:
+                    print(f"  Partial exit: {sym_check['instrument']} {sym_check['strike']} — could not determine exit price")
+            elif broker_lots == remaining_lots:
+                print(f"  No change: {sym_check['instrument']} {sym_check['strike']} — {broker_lots}L matches journal")
+            # Either way, don't add to open_legs (journal already has it)
+
         open_positions = group_open_positions(open_legs)
 
         # For closed positions: match existing OR create new CLOSED entry
@@ -494,7 +567,7 @@ def sync_angelone():
         # so all legs of a multi-leg position get exit prices in one go
         pos_exit_map = {}   # positionId -> {'exitDate': ..., 'exitLegs': [...]}
         new_closed_legs = []
-        today = datetime.now().strftime('%Y-%m-%d')
+        # today already set above in open position handling
 
         for p in broker_closed_raw:
             sym = parse_symbol(p.get('tradingsymbol', ''))
@@ -613,6 +686,7 @@ def sync_angelone():
             'count': len(all_new_trades),
             'trades': all_new_trades,
             'closePositions': to_close,
+            'partialExits': partial_exits,
             'debug': {
                 'total_from_broker': len(positions_raw),
                 'open_count': len(open_positions),
