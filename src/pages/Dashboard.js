@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
+import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
 
 function fmt(n) {
   if (n === null || n === undefined) return '—';
@@ -185,15 +186,7 @@ export default function Dashboard() {
             {openPositions.slice(0, 5).map(p => {
               const dteUrgent = p.daysToExpiry !== null && p.daysToExpiry <= 1;
               const dteWarn   = p.daysToExpiry !== null && p.daysToExpiry <= 3;
-              const sells = p.legs?.filter(l => l.transactionType === 'SELL') || [];
-              const buys  = p.legs?.filter(l => l.transactionType === 'BUY')  || [];
-              const pe_sell = sells.find(l => l.optionType === 'PE');
-              const pe_buy  = buys.find(l => l.optionType === 'PE');
-              const ref = sells[0] || buys[0];
-              const lotSize = ref?.lotSize || 1;
-              const lots = ref?.quantity || 1;
-              const gross = pe_sell && pe_buy ? Math.abs(pe_sell.strike - pe_buy.strike) * lotSize * lots : 0;
-              const maxLoss = gross ? -(gross - Math.abs(p.netPremiumCollected)) : null;
+              const maxLoss = (() => { const ml = calcMaxLoss(p); return ml !== null ? -Math.abs(ml) : null; })();
               const strikesSummary = p.legs?.map(l =>
                 `${l.optionType} ${l.transactionType === 'SELL' ? 'S' : 'B'} ${l.strike?.toLocaleString('en-IN')}  @₹${l.premium}`
               ).join('   ·   ');
@@ -273,9 +266,10 @@ export default function Dashboard() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {recentClosed.map(p => {
+              const _mp = calcMaxProfit(p);
               const ret = p.margin
                 ? ((p.realizedPnL || 0) / p.margin) * 100
-                : p.netPremiumCollected > 0 ? ((p.realizedPnL || 0) / Math.abs(p.netPremiumCollected)) * 100 : 0;
+                : _mp > 0 ? ((p.realizedPnL || 0) / Math.abs(_mp)) * 100 : 0;
               const netPnl = p.realizedPnL !== null && p.charges ? p.realizedPnL - p.charges : p.realizedPnL;
               const strikesSummary = p.legs?.map(l =>
                 `${l.optionType} ${l.transactionType === 'SELL' ? 'S' : 'B'} ${l.strike?.toLocaleString('en-IN')}`
