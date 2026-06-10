@@ -159,9 +159,9 @@ export default function BrokerConnect() {
       closePositions.forEach(({ positionId, exitDate, exitLegs }) => {
         if (!positionId) return;
         const exitData = {};
-        (exitLegs || []).forEach(({ legId, exitPrice }) => {
+        (exitLegs || []).forEach(({ legId, exitPrice, remainingQty }) => {
           if (legId && exitPrice !== undefined) {
-            exitData[legId] = { exitPremium: exitPrice, exitDate };
+            exitData[legId] = { exitPremium: exitPrice, exitDate, remainingQty };
           }
         });
         if (Object.keys(exitData).length === 0) {
