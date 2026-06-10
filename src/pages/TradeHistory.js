@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import AccountBadge from '../components/AccountBadge';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
+import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
 
 function fmtMoney(n) {
   if (n === null || n === undefined) return '—';
@@ -17,90 +18,6 @@ function fmtDate(d) {
   return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function calcMaxLoss(position) {
-  const { legs } = position;
-  if (!legs || legs.length < 2) return null;
-  const sells = legs.filter(l => l.transactionType === 'SELL');
-  const buys  = legs.filter(l => l.transactionType === 'BUY');
-  if (!buys.length) return null;
-
-  const ref = sells[0] || buys[0];
-  const lotSize = ref.lotSize || 1;
-  const lots    = ref.quantity || 1;
-  const net     = position.netPremiumCollected;
-
-  // Sort legs by strike
-  const pe_sells = sells.filter(l => l.optionType === 'PE').sort((a,b) => a.strike - b.strike);
-  const pe_buys  = buys.filter(l => l.optionType === 'PE').sort((a,b) => a.strike - b.strike);
-  const ce_sells = sells.filter(l => l.optionType === 'CE').sort((a,b) => a.strike - b.strike);
-  const ce_buys  = buys.filter(l => l.optionType === 'CE').sort((a,b) => a.strike - b.strike);
-
-  let grossWidth = 0;
-
-  // Standard spread: 1 sell + 1 buy
-  if (pe_sells.length === 1 && pe_buys.length === 1)
-    grossWidth = Math.max(grossWidth, Math.abs(pe_sells[0].strike - pe_buys[0].strike) * lotSize * lots);
-  if (ce_sells.length === 1 && ce_buys.length === 1)
-    grossWidth = Math.max(grossWidth, Math.abs(ce_sells[0].strike - ce_buys[0].strike) * lotSize * lots);
-
-  // Condor: 2 sells + 2 buys — max loss is the WING width (buy-to-nearest-sell)
-  // NOT the gap between the two sells
-  if (pe_sells.length >= 2 && pe_buys.length >= 2) {
-    // Wing width = lower sell - lower buy (or upper buy - upper sell)
-    const lowerWing = Math.abs(pe_sells[0].strike - pe_buys[0].strike) * lotSize * lots;
-    const upperWing = Math.abs(pe_buys[pe_buys.length-1].strike - pe_sells[pe_sells.length-1].strike) * lotSize * lots;
-    grossWidth = Math.max(grossWidth, Math.max(lowerWing, upperWing));
-  }
-  if (ce_sells.length >= 2 && ce_buys.length >= 2) {
-    const lowerWing = Math.abs(ce_sells[0].strike - ce_buys[0].strike) * lotSize * lots;
-    const upperWing = Math.abs(ce_buys[ce_buys.length-1].strike - ce_sells[ce_sells.length-1].strike) * lotSize * lots;
-    grossWidth = Math.max(grossWidth, Math.max(lowerWing, upperWing));
-  }
-
-  // Mixed: PE buys + PE sells (Bull Put Spread style inside condor)
-  if (pe_sells.length >= 1 && pe_buys.length >= 1 && pe_buys.length !== pe_sells.length)
-    grossWidth = Math.max(grossWidth, Math.abs(pe_sells[pe_sells.length-1].strike - pe_buys[0].strike) * lotSize * lots);
-  if (ce_sells.length >= 1 && ce_buys.length >= 1 && ce_buys.length !== ce_sells.length)
-    grossWidth = Math.max(grossWidth, Math.abs(ce_sells[0].strike - ce_buys[ce_buys.length-1].strike) * lotSize * lots);
-
-  if (!grossWidth) return null;
-
-  // Net credit: max loss = spread width - premium received
-  // Net debit: max loss = net debit paid
-  if (net >= 0) {
-    // Net credit: max loss = wing width - premium received
-    return grossWidth - net;
-  } else {
-    // Net debit: max loss = net debit paid (wing width - debit = max profit)
-    return Math.abs(net);
-  }
-}
-
-// Max profit helper — handles both credit and debit strategies
-function calcMaxProfit(position) {
-  const net = position.netPremiumCollected;
-  if (net >= 0) return net; // net credit: max profit = premium collected
-
-  // Net debit strategy: max profit = wing width - net debit paid
-  const { legs } = position;
-  if (!legs || legs.length < 2) return Math.abs(net);
-  const sells = legs.filter(l => l.transactionType === 'SELL');
-  const buys  = legs.filter(l => l.transactionType === 'BUY');
-  const ref = sells[0] || buys[0];
-  const lotSize = ref?.lotSize || 1;
-  const lots = ref?.quantity || 1;
-  const ce_sells = sells.filter(l => l.optionType === 'CE').sort((a,b) => a.strike - b.strike);
-  const ce_buys  = buys.filter(l => l.optionType === 'CE').sort((a,b) => a.strike - b.strike);
-  const pe_sells = sells.filter(l => l.optionType === 'PE').sort((a,b) => a.strike - b.strike);
-  const pe_buys  = buys.filter(l => l.optionType === 'PE').sort((a,b) => a.strike - b.strike);
-  let wingWidth = 0;
-  // Wing = lower sell - lower buy (the narrower spread)
-  if (ce_sells.length >= 1 && ce_buys.length >= 1)
-    wingWidth = Math.max(wingWidth, Math.abs(ce_sells[0].strike - ce_buys[0].strike) * lotSize * lots);
-  if (pe_sells.length >= 1 && pe_buys.length >= 1)
-    wingWidth = Math.max(wingWidth, Math.abs(pe_sells[0].strike - pe_buys[0].strike) * lotSize * lots);
-  return wingWidth > 0 ? wingWidth - Math.abs(net) : Math.abs(net);
-}
 
 function PartialExitPopup({ leg, positionId, onClose, onSave }) {
   const [qty, setQty] = useState('');
@@ -158,7 +75,7 @@ function PartialExitPopup({ leg, positionId, onClose, onSave }) {
   );
 }
 
-function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen }) {
+function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditLeg }) {
   if (!legs?.length) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -210,6 +127,12 @@ function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen }) {
                   <button onClick={() => onAddExit(leg)} title="Add partial exit"
                     style={{ background:'rgba(255,255,255,0.06)', border:'none', borderRadius:4, color:'var(--text-muted)', cursor:'pointer', fontSize:10, padding:'2px 5px', whiteSpace:'nowrap' }}>
                     + exit
+                  </button>
+                )}
+                {onEditLeg && (
+                  <button onClick={() => onEditLeg(leg)} title="Edit leg prices/strike"
+                    style={{ background:'rgba(255,255,255,0.06)', border:'none', borderRadius:4, color:'var(--text-muted)', cursor:'pointer', padding:'3px 4px', lineHeight:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
+                    <i className="ti ti-pencil" style={{ fontSize:12 }} aria-hidden="true" />
                   </button>
                 )}
               </div>
@@ -359,6 +282,88 @@ function EditDatesPopup({ position, onClose, onSave }) {
   );
 }
 
+// Edit leg popup — allows correcting strike, premium, qty, type
+function EditLegPopup({ leg, onClose, onSave }) {
+  const [strike,      setStrike]      = useState(String(leg.strike || ''));
+  const [premium,     setPremium]     = useState(String(leg.premium || ''));
+  const [quantity,    setQuantity]    = useState(String(leg.quantity || ''));
+  const [optionType,  setOptionType]  = useState(leg.optionType || 'PE');
+  const [txType,      setTxType]      = useState(leg.transactionType || 'SELL');
+
+  const handleSave = () => {
+    const s = parseFloat(strike);
+    const p = parseFloat(premium);
+    const q = parseInt(quantity);
+    if (!s || !p || !q || isNaN(s) || isNaN(p) || isNaN(q)) {
+      alert('Please fill in all fields correctly.'); return;
+    }
+    onSave({
+      strike: s,
+      premium: p,
+      quantity: q,
+      optionType,
+      transactionType: txType,
+    });
+    onClose();
+  };
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center' }}
+      onClick={e => { if (e.target===e.currentTarget) onClose(); }}>
+      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:24, width:380, boxShadow:'0 16px 48px rgba(0,0,0,0.5)' }}>
+        <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)', marginBottom:4 }}>Edit Leg</div>
+        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:16 }}>
+          Correct any incorrect values. All fields required.
+        </div>
+
+        {/* Option type + direction row */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Option Type</label>
+            <select className="form-select" value={optionType} onChange={e => setOptionType(e.target.value)}>
+              <option value="PE">PE (Put)</option>
+              <option value="CE">CE (Call)</option>
+            </select>
+          </div>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Buy / Sell</label>
+            <select className="form-select" value={txType} onChange={e => setTxType(e.target.value)}>
+              <option value="SELL">SELL</option>
+              <option value="BUY">BUY</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Strike + Lots row */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Strike Price</label>
+            <input className="form-input" type="number" value={strike}
+              onChange={e => setStrike(e.target.value)} placeholder="e.g. 23000" />
+          </div>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Lots</label>
+            <input className="form-input" type="number" min="1" value={quantity}
+              onChange={e => setQuantity(e.target.value)} placeholder="e.g. 3" />
+          </div>
+        </div>
+
+        {/* Entry premium */}
+        <div className="form-group" style={{ marginBottom:16 }}>
+          <label className="form-label">Entry Premium (₹)</label>
+          <input className="form-input" type="number" step="0.05" value={premium}
+            onChange={e => setPremium(e.target.value)} placeholder="e.g. 105.50" />
+        </div>
+
+        <div style={{ display:'flex', gap:10 }}>
+          <button className="btn btn-outline" style={{ flex:1 }} onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" style={{ flex:2 }} onClick={handleSave}>Save Changes</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Journal / notes panel
 function NotesPanel({ position, onClose, onSave }) {
   const [notes,      setNotes]      = useState(position.notes || '');
@@ -495,6 +500,7 @@ function NotesPanel({ position, onClose, onSave }) {
                 document.dispatchEvent(new CustomEvent('removeLegExit', { detail: { posId, legId, idx } }));
               }
             }}
+            onEditLeg={leg => { onClose(); setTimeout(() => document.dispatchEvent(new CustomEvent('editLeg', { detail: leg })), 50); }}
           />
         </div>
 
@@ -549,7 +555,7 @@ function AccountTag({ accountId }) {
 }
 
 export default function TradeHistory() {
-  const { positions, deletePosition, updatePositionStrategy, updatePositionMeta, reopenPosition, addLegExit, removeLegExit } = useJournal();
+  const { positions, deletePosition, updatePositionStrategy, updatePositionMeta, reopenPosition, addLegExit, removeLegExit, updateTrade } = useJournal();
 
   const [filterInstrument, setFilterInstrument] = useState('');
   const [filterStrategy,   setFilterStrategy]   = useState('');
@@ -560,16 +566,20 @@ export default function TradeHistory() {
   const [editExitPos,      setEditExitPos]      = useState(null);
   const [reopenPos,        setReopenPos]        = useState(null);
   const [partialExitLeg,   setPartialExitLeg]   = useState(null); // { leg, positionId }
+  const [editLegData,      setEditLegData]      = useState(null); // { leg } for editing
 
   // Listen for partial exit events from NotesPanel
   React.useEffect(() => {
     const handleOpenPartialExit = (e) => setPartialExitLeg(e.detail);
     const handleRemoveLegExit   = (e) => { const { posId, legId, idx } = e.detail; removeLegExit(posId, legId, idx); };
+    const handleEditLeg         = (e) => setEditLegData(e.detail);
     document.addEventListener('openPartialExit', handleOpenPartialExit);
     document.addEventListener('removeLegExit',   handleRemoveLegExit);
+    document.addEventListener('editLeg',         handleEditLeg);
     return () => {
       document.removeEventListener('openPartialExit', handleOpenPartialExit);
       document.removeEventListener('removeLegExit',   handleRemoveLegExit);
+      document.removeEventListener('editLeg',         handleEditLeg);
     };
   }, [removeLegExit]);
 
@@ -750,6 +760,17 @@ export default function TradeHistory() {
         />
       )}
 
+      {editLegData && (
+        <EditLegPopup
+          leg={editLegData}
+          onClose={() => setEditLegData(null)}
+          onSave={updates => {
+            updateTrade(editLegData.id, updates);
+            setEditLegData(null);
+          }}
+        />
+      )}
+
       {editExitPos && (
         <EditDatesPopup
           position={editExitPos}
@@ -882,6 +903,7 @@ export default function TradeHistory() {
                         isOpen={isOpen}
                         onAddExit={leg => setPartialExitLeg({ leg, positionId: p.positionId })}
                         onRemoveExit={(posId, legId, idx) => removeLegExit(posId, legId, idx)}
+                        onEditLeg={leg => setEditLegData(leg)}
                       />,
                       { minWidth: 220 }
                     )}
