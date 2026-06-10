@@ -214,21 +214,32 @@ export function JournalProvider({ children }) {
   }, [accounts, settings, persist]);
 
   const closePosition = useCallback((positionId, exitData) => {
-    // exitData: { [legId]: { exitPremium, exitDate, entryPrice? } }
+    // exitData: { [legId]: { exitPremium, exitDate, entryPrice?, remainingQty? } }
     setTrades(prev => {
       const next = prev.map(t => {
         if ((t.positionId || t.id) !== positionId) return t;
         const leg = exitData[t.id];
         if (!leg) return t;
-        const updated = { ...t, status: 'CLOSED' };
-        // Always update exit price and date if provided
-        if (leg.exitPremium !== null && leg.exitPremium !== undefined) {
-          updated.exitPremium = parseFloat(leg.exitPremium);
+
+        const existingExits = t.exits || [];
+        const alreadyExitedQty = existingExits.reduce((s, e) => s + (e.quantity || 0), 0);
+        const remainingQty = (leg.remainingQty !== undefined) ? leg.remainingQty : (t.quantity || 1) - alreadyExitedQty;
+
+        let exits = existingExits;
+        let exitPremium = leg.exitPremium !== null && leg.exitPremium !== undefined
+          ? parseFloat(leg.exitPremium) : t.exitPremium;
+
+        if (existingExits.length > 0 && remainingQty > 0 && leg.exitPremium) {
+          // Has partial exits — add final tranche for remaining quantity
+          const finalTranche = { quantity: remainingQty, exitPremium: parseFloat(leg.exitPremium), exitDate: leg.exitDate || new Date().toISOString().slice(0,10) };
+          exits = [...existingExits, finalTranche];
+          // Recalculate weighted avg exit price
+          const totalQty = exits.reduce((s, e) => s + (e.quantity || 1), 0);
+          exitPremium = exits.reduce((s, e) => s + (e.exitPremium || 0) * (e.quantity || 1), 0) / totalQty;
         }
-        if (leg.exitDate) {
-          updated.exitDate = leg.exitDate;
-        }
-        // Update entry price if broker provides a corrected one
+
+        const updated = { ...t, exits, exitPremium, status: 'CLOSED' };
+        if (leg.exitDate) updated.exitDate = leg.exitDate;
         if (leg.entryPrice !== null && leg.entryPrice !== undefined && leg.entryPrice > 0) {
           updated.premium = parseFloat(leg.entryPrice);
         }
