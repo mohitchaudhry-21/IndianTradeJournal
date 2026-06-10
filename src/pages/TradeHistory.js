@@ -482,10 +482,20 @@ function NotesPanel({ position, onClose, onSave }) {
           )}
         </div>
 
-        {/* Legs summary */}
+        {/* Legs summary with partial exit management */}
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>Legs</div>
-          <LegsInline legs={position.legs} />
+          <LegsInline
+            legs={position.legs}
+            positionId={position.positionId}
+            isOpen={position.status === 'OPEN'}
+            onAddExit={leg => { onClose(); setTimeout(() => document.dispatchEvent(new CustomEvent('openPartialExit', { detail: { leg, positionId: position.positionId } })), 50); }}
+            onRemoveExit={(posId, legId, idx) => {
+              if (window.confirm('Remove this exit tranche?')) {
+                document.dispatchEvent(new CustomEvent('removeLegExit', { detail: { posId, legId, idx } }));
+              }
+            }}
+          />
         </div>
 
         {/* Notes */}
@@ -550,6 +560,18 @@ export default function TradeHistory() {
   const [editExitPos,      setEditExitPos]      = useState(null);
   const [reopenPos,        setReopenPos]        = useState(null);
   const [partialExitLeg,   setPartialExitLeg]   = useState(null); // { leg, positionId }
+
+  // Listen for partial exit events from NotesPanel
+  React.useEffect(() => {
+    const handleOpenPartialExit = (e) => setPartialExitLeg(e.detail);
+    const handleRemoveLegExit   = (e) => { const { posId, legId, idx } = e.detail; removeLegExit(posId, legId, idx); };
+    document.addEventListener('openPartialExit', handleOpenPartialExit);
+    document.addEventListener('removeLegExit',   handleRemoveLegExit);
+    return () => {
+      document.removeEventListener('openPartialExit', handleOpenPartialExit);
+      document.removeEventListener('removeLegExit',   handleRemoveLegExit);
+    };
+  }, [removeLegExit]);
 
   const all = useMemo(() =>
     [...positions]
