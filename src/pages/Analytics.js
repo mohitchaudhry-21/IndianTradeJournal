@@ -3,6 +3,7 @@ import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Tooltip,
 import AccountBadge from '../components/AccountBadge';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
+import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
 
 function fmt(n) {
   if (!n) return '₹0';
@@ -187,10 +188,20 @@ export default function Analytics() {
       ? withDates.reduce((s, p) => s + Math.round((new Date(p.closeDate) - new Date(p.openDate)) / 86400000), 0) / withDates.length
       : null;
 
-    // Risk/Reward
+    // Actual R:R (realised avg win / avg loss)
     const rr = stats.avgLoss > 0 ? stats.avgWin / stats.avgLoss : null;
 
-    return { maxDD, avgDays, rr };
+    // Theoretical R:R (avg max profit / avg max loss across all closed positions)
+    const withBoth = closed.filter(p => {
+      const ml = calcMaxLoss(p);
+      const mp = calcMaxProfit(p);
+      return ml !== null && ml > 0 && mp !== null;
+    });
+    const theoreticalRR = withBoth.length > 0
+      ? withBoth.reduce((s, p) => s + calcMaxProfit(p) / Math.abs(calcMaxLoss(p)), 0) / withBoth.length
+      : null;
+
+    return { maxDD, avgDays, rr, theoreticalRR };
   }, [closed, stats]);
 
   // ── Trade Quality ─────────────────────────────────────────────────────────
@@ -266,11 +277,15 @@ export default function Analytics() {
                 <div className="subval">{riskMetrics.maxDD > 0 ? 'Peak to valley drop' : 'No drawdown yet'}</div>
               </div>
               <div className="stat-card">
-                <div className="label">Risk / Reward</div>
-                <div className="value mono" style={{ color: riskMetrics.rr >= 1 ? 'var(--profit)' : 'var(--loss)', fontSize: 22 }}>
-                  {riskMetrics.rr !== null ? riskMetrics.rr.toFixed(2) : '∞'}
+                <div className="label">Avg Risk:Reward</div>
+                <div className="value mono" style={{ color: riskMetrics.theoreticalRR >= 1 ? 'var(--profit)' : riskMetrics.theoreticalRR !== null ? 'var(--loss)' : 'var(--text-muted)', fontSize: 22 }}>
+                  {riskMetrics.theoreticalRR !== null ? '1 : ' + riskMetrics.theoreticalRR.toFixed(2) : '—'}
                 </div>
-                <div className="subval">Avg win ÷ Avg loss</div>
+                <div className="subval">
+                  {riskMetrics.theoreticalRR !== null
+                    ? `Avg across ${closed.filter(p => calcMaxLoss(p) > 0).length} trades`
+                    : 'No closed trades with spreads'}
+                </div>
               </div>
               <div className="stat-card">
                 <div className="label">Avg Days in Trade</div>
