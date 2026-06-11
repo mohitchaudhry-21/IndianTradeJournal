@@ -279,7 +279,7 @@ export default function Analytics() {
               <div className="stat-card">
                 <div className="label">Avg Risk:Reward</div>
                 <div className="value mono" style={{ color: riskMetrics.theoreticalRR >= 1 ? 'var(--profit)' : riskMetrics.theoreticalRR !== null ? 'var(--loss)' : 'var(--text-muted)', fontSize: 22 }}>
-                  {riskMetrics.theoreticalRR !== null ? '1 : ' + riskMetrics.theoreticalRR.toFixed(2) : '—'}
+                  {riskMetrics.theoreticalRR !== null ? riskMetrics.theoreticalRR.toFixed(2) + ' : 1' : '—'}
                 </div>
                 <div className="subval">
                   {riskMetrics.theoreticalRR !== null
