@@ -329,7 +329,7 @@ function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg })
                 <div style={{ textAlign:'right' }}>
                   <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:2 }}>R:R RATIO</div>
                   <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:16, fontWeight:600, color }}>
-                    {rr.toFixed(2)}
+                    {rr.toFixed(2)} : 1
                   </div>
                 </div>
               );
