@@ -635,6 +635,7 @@ export default function TradeHistory() {
         'Exit Date':         p.status !== 'OPEN' ? fmtD(p.closeDate) : 'Active',
         'Max Profit (₹)':    fmtM(maxProfit),
         'Max Loss (₹)':      maxLoss != null ? fmtM(-Math.abs(maxLoss)) : 'Unlimited',
+        'R:R':               maxLoss != null && maxLoss !== 0 ? parseFloat((maxProfit / Math.abs(maxLoss)).toFixed(2)) : '',
         'Margin Used (₹)':   margin ? fmtM(margin) : '',
         'P&L (₹)':           pnl != null && p.status !== 'OPEN' ? fmtM(pnl) : '',
         'Charges (₹)':          p.charges ? Math.round(p.charges) : '',
@@ -831,6 +832,7 @@ export default function TradeHistory() {
                 <TH>Expiry</TH>
                 <TH className="col-hide-lg">Max Profit</TH>
                 <TH className="col-hide-lg">Max Loss</TH>
+                <TH className="col-hide-lg">R:R</TH>
                 <TH className="col-hide-md">Margin Used</TH>
                 <TH>P&amp;L</TH>
                 <TH className="col-hide-lg">Charges</TH>
@@ -918,6 +920,22 @@ export default function TradeHistory() {
                         : <span style={{ color: 'var(--text-muted)', fontSize: 16 }}>∞</span>,
                       { fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }
                     )}
+
+                    {td(() => {
+                      if (maxLoss === null || maxLoss === 0) return <span style={{ color:'var(--text-muted)' }}>—</span>;
+                      const rr = maxProfit / Math.abs(maxLoss);
+                      const color = rr >= 1 ? 'var(--profit)' : rr >= 0.5 ? 'var(--accent)' : 'var(--loss)';
+                      return (
+                        <div>
+                          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontWeight:600, color }}>
+                            {rr.toFixed(2)}
+                          </span>
+                          <div style={{ fontSize:9, color:'var(--text-muted)', marginTop:1 }}>
+                            {rr >= 1 ? 'Favourable' : rr >= 0.5 ? 'Neutral' : 'Unfavourable'}
+                          </div>
+                        </div>
+                      );
+                    }, { fontFamily:"'JetBrains Mono',monospace", whiteSpace:'nowrap' })}
 
                     {/* Margin — editable inline */}
                     {td(
