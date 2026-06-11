@@ -821,7 +821,7 @@ export default function TradeHistory() {
       {all.length === 0 ? (
         <div className="card"><div className="empty-state"><div className="icon">📋</div><p>No positions yet.</p></div></div>
       ) : (
-        <div style={{ overflowX: 'auto', overflowY: 'visible', borderRadius: 10, border: '1px solid var(--border)', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'thin' }}>
+        <div className="table-scroll-container" style={{ overflowX: 'scroll', overflowY: 'visible', borderRadius: 10, border: '1px solid var(--border)', WebkitOverflowScrolling: 'touch' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr>
