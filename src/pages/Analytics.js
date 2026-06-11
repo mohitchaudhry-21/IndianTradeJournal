@@ -198,7 +198,7 @@ export default function Analytics() {
       return ml !== null && ml > 0 && mp !== null;
     });
     const theoreticalRR = withBoth.length > 0
-      ? withBoth.reduce((s, p) => s + calcMaxProfit(p) / Math.abs(calcMaxLoss(p)), 0) / withBoth.length
+      ? withBoth.reduce((s, p) => s + Math.abs(calcMaxLoss(p)) / calcMaxProfit(p), 0) / withBoth.length
       : null;
 
     return { maxDD, avgDays, rr, theoreticalRR };
