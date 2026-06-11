@@ -323,7 +323,7 @@ function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg })
               const mp = calcMaxProfit(position);
               const ml = calcMaxLoss(position);
               if (!ml || ml === 0) return null;
-              const rr = mp / Math.abs(ml);
+              const rr = Math.abs(ml) / mp;
               const color = rr >= 1 ? 'var(--profit)' : rr >= 0.5 ? 'var(--accent)' : 'var(--loss)';
               return (
                 <div style={{ textAlign:'right' }}>
