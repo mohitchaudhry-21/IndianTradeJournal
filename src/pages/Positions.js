@@ -4,6 +4,7 @@ import AccountBadge from '../components/AccountBadge';
 import AccountTag from '../components/AccountTag';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
+import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
 
 function fmt(n) {
   if (n === null || n === undefined) return '—';
@@ -311,11 +312,28 @@ function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg })
           )}
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }} onClick={e => e.stopPropagation()}>
-          <div style={{ textAlign: 'right', marginRight: 8 }}>
-            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 2 }}>NET PREMIUM</div>
-            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 16, fontWeight: 600, color: 'var(--profit)' }}>
-              {fmt(position.netPremiumCollected)}
+          <div style={{ display:'flex', gap:16, marginRight:8 }}>
+            <div style={{ textAlign:'right' }}>
+              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:2 }}>NET PREMIUM</div>
+              <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:16, fontWeight:600, color:'var(--profit)' }}>
+                {fmt(position.netPremiumCollected)}
+              </div>
             </div>
+            {(() => {
+              const mp = calcMaxProfit(position);
+              const ml = calcMaxLoss(position);
+              if (!ml || ml === 0) return null;
+              const rr = mp / Math.abs(ml);
+              const color = rr >= 1 ? 'var(--profit)' : rr >= 0.5 ? 'var(--accent)' : 'var(--loss)';
+              return (
+                <div style={{ textAlign:'right' }}>
+                  <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:2 }}>R:R RATIO</div>
+                  <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:16, fontWeight:600, color }}>
+                    {rr.toFixed(2)}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
           <button className="btn btn-outline btn-sm" onClick={() => onPartialExit(position)}
             style={{ whiteSpace: 'nowrap' }}>⅓ Partial</button>
