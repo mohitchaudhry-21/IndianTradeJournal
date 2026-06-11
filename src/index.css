@@ -227,7 +227,20 @@ tbody td.mono{font-family:'JetBrains Mono',monospace;}
   .page-title { font-size: 17px !important; }
 }
 
-/* ── Thin scrollbar for overflow tables ── */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: var(--bg-card2); }
-::-webkit-scrollbar-thumb { background: var(--border-hover); border-radius: 3px; }
+/* ── Scrollbar always visible for tables ── */
+::-webkit-scrollbar { width: 6px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--bg-card); border-radius: 4px; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.32); }
+
+/* Force horizontal scrollbar always visible on table containers */
+.table-scroll-container {
+  overflow-x: scroll !important;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) var(--bg-card);
+  padding-bottom: 2px;
+}
+.table-scroll-container::-webkit-scrollbar { height: 8px; }
+.table-scroll-container::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 4px; }
+.table-scroll-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.22); border-radius: 4px; }
+.table-scroll-container::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.38); }
