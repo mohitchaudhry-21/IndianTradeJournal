@@ -929,11 +929,8 @@ export default function TradeHistory() {
                         return (
                           <div>
                             <span style={{ fontFamily:"'JetBrains Mono',monospace", fontWeight:600, color }}>
-                              {rr.toFixed(2)}
+                              {rr.toFixed(2)} : 1
                             </span>
-                            <div style={{ fontSize:9, color:'var(--text-muted)', marginTop:1 }}>
-                              {rr >= 1 ? 'Fav' : rr >= 0.5 ? 'Neutral' : 'Unfav'}
-                            </div>
                           </div>
                         );
                       })(),
