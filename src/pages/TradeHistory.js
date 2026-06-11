@@ -921,21 +921,24 @@ export default function TradeHistory() {
                       { fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }
                     )}
 
-                    {td(() => {
-                      if (maxLoss === null || maxLoss === 0) return <span style={{ color:'var(--text-muted)' }}>—</span>;
-                      const rr = maxProfit / Math.abs(maxLoss);
-                      const color = rr >= 1 ? 'var(--profit)' : rr >= 0.5 ? 'var(--accent)' : 'var(--loss)';
-                      return (
-                        <div>
-                          <span style={{ fontFamily:"'JetBrains Mono',monospace", fontWeight:600, color }}>
-                            {rr.toFixed(2)}
-                          </span>
-                          <div style={{ fontSize:9, color:'var(--text-muted)', marginTop:1 }}>
-                            {rr >= 1 ? 'Favourable' : rr >= 0.5 ? 'Neutral' : 'Unfavourable'}
+                    {td(
+                      (() => {
+                        if (maxLoss === null || maxLoss === 0) return <span style={{ color:'var(--text-muted)' }}>—</span>;
+                        const rr = maxProfit / Math.abs(maxLoss);
+                        const color = rr >= 1 ? 'var(--profit)' : rr >= 0.5 ? 'var(--accent)' : 'var(--loss)';
+                        return (
+                          <div>
+                            <span style={{ fontFamily:"'JetBrains Mono',monospace", fontWeight:600, color }}>
+                              {rr.toFixed(2)}
+                            </span>
+                            <div style={{ fontSize:9, color:'var(--text-muted)', marginTop:1 }}>
+                              {rr >= 1 ? 'Fav' : rr >= 0.5 ? 'Neutral' : 'Unfav'}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    }, { fontFamily:"'JetBrains Mono',monospace", whiteSpace:'nowrap' })}
+                        );
+                      })(),
+                      { fontFamily:"'JetBrains Mono',monospace", whiteSpace:'nowrap' }
+                    )}
 
                     {/* Margin — editable inline */}
                     {td(
