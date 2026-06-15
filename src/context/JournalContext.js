@@ -1,4 +1,4 @@
-import { restoreSupabase, cloudSave, cloudLoad, isSupabaseReady } from '../lib/supabase';
+import { restoreSupabase, cloudSave, cloudLoad, mergeAndSave, isSupabaseReady } from '../lib/supabase';
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -61,15 +61,27 @@ export function JournalProvider({ children }) {
 
   const persist = useCallback((newAccounts, newTrades, newSettings) => {
     saveData(newAccounts, newTrades, newSettings);
-    // Debounced cloud sync
+    // Debounced cloud sync — merges with latest cloud data before saving so
+    // this save doesn't overwrite changes made by another user/device
     if (isSupabaseReady()) {
       if (syncTimer.current) clearTimeout(syncTimer.current);
       syncTimer.current = setTimeout(async () => {
         setSyncStatus('syncing');
-        const result = await cloudSave(newAccounts, newTrades, newSettings);
-        setSyncStatus(result.ok ? 'synced' : 'error');
-        if (result.ok) setLastSynced(new Date());
-      }, 2000);
+        const result = await mergeAndSave(newAccounts, newTrades, newSettings);
+        if (result.ok) {
+          setSyncStatus('synced');
+          setLastSynced(new Date());
+          if (result.merged) {
+            const { accounts: ma, trades: mt, settings: ms } = result.merged;
+            saveData(ma, mt, ms);
+            setAccounts(ma);
+            setTrades(mt);
+            setSettings({ ...DEFAULT_SETTINGS, ...ms });
+          }
+        } else {
+          setSyncStatus('error');
+        }
+      }, 500);
     }
   }, []);
 
@@ -92,6 +104,43 @@ export function JournalProvider({ children }) {
       });
     }
   }, []); // eslint-disable-line
+
+  // Flush pending cloud save immediately if the tab is hidden/closed
+  // (handles refresh/close before the debounce timer fires)
+  React.useEffect(() => {
+    const flush = () => {
+      if (syncTimer.current && isSupabaseReady()) {
+        clearTimeout(syncTimer.current);
+        mergeAndSave(accounts, trades, settings);
+      }
+    };
+    const onVisibility = () => { if (document.visibilityState === 'hidden') flush(); };
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('beforeunload', flush);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('beforeunload', flush);
+    };
+  }, [accounts, trades, settings]);
+
+  // Periodically pull latest cloud data (every 30s) — picks up changes
+  // made by other users/devices. Skipped while a local save is pending.
+  React.useEffect(() => {
+    if (!isSupabaseReady()) return;
+    const interval = setInterval(async () => {
+      if (syncTimer.current) return;
+      if (document.visibilityState !== 'visible') return;
+      const { ok, data } = await cloudLoad();
+      if (ok && data) {
+        if (data.accounts) setAccounts(data.accounts);
+        if (data.trades)   setTrades(data.trades);
+        if (data.settings) setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
+        saveData(data.accounts, data.trades, data.settings);
+        setLastSynced(new Date());
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // ─── Accounts ───────────────────────────────────────────────────────────────
   const addAccount = useCallback((acc) => {
