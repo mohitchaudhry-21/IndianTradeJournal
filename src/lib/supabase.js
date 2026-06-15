@@ -91,3 +91,60 @@ export async function cloudLoad() {
     return { ok: false, error: e.message };
   }
 }
+
+// ── Merge-and-save: fetches latest cloud data, merges by trade id, then saves ─
+// This prevents one user's save from wiping out another user's concurrent edits.
+// Strategy:
+//  - trades: merge by id. Local trades overlay cloud trades (local wins for
+//    conflicts). Trades present only in cloud (added by someone else, or not
+//    yet pulled locally) are preserved rather than dropped.
+//  - accounts: merge by id (union, local wins for conflicts).
+//  - settings: deep-merge so partial local updates don't wipe other cloud keys.
+export async function mergeAndSave(localAccounts, localTrades, localSettings) {
+  if (!_client) return { ok: false, error: 'Supabase not connected' };
+  try {
+    const { data: cloudRow, error: fetchErr } = await _client
+      .from('od_data')
+      .select('value')
+      .eq('key', 'main')
+      .single();
+
+    let cloudData = null;
+    if (!fetchErr && cloudRow?.value) cloudData = cloudRow.value;
+
+    const cloudTrades   = cloudData?.trades   || [];
+    const cloudAccounts = cloudData?.accounts || [];
+    const cloudSettings = cloudData?.settings || {};
+
+    // Merge trades by id — cloud first, then overlay local (local wins)
+    const tradeMap = new Map();
+    cloudTrades.forEach(t => { if (t?.id) tradeMap.set(t.id, t); });
+    localTrades.forEach(t => { if (t?.id) tradeMap.set(t.id, t); });
+    const mergedTrades = Array.from(tradeMap.values());
+
+    // Merge accounts by id — union, local wins for conflicts
+    const accountMap = new Map();
+    cloudAccounts.forEach(a => { if (a?.id) accountMap.set(a.id, a); });
+    localAccounts.forEach(a => { if (a?.id) accountMap.set(a.id, a); });
+    const mergedAccounts = Array.from(accountMap.values());
+
+    // Deep-merge settings
+    const mergedSettings = { ...cloudSettings, ...localSettings };
+    if (cloudSettings.lotSizes || localSettings.lotSizes) {
+      mergedSettings.lotSizes = { ...(cloudSettings.lotSizes || {}), ...(localSettings.lotSizes || {}) };
+    }
+    if (cloudSettings.brokerCredentials || localSettings.brokerCredentials) {
+      mergedSettings.brokerCredentials = { ...(cloudSettings.brokerCredentials || {}), ...(localSettings.brokerCredentials || {}) };
+    }
+
+    const { error: saveErr } = await _client.from('od_data').upsert(
+      { key: 'main', value: { accounts: mergedAccounts, trades: mergedTrades, settings: mergedSettings }, updated_at: new Date().toISOString() },
+      { onConflict: 'key' }
+    );
+    if (saveErr) return { ok: false, error: saveErr.message };
+
+    return { ok: true, merged: { accounts: mergedAccounts, trades: mergedTrades, settings: mergedSettings } };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
