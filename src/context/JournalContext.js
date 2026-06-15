@@ -52,6 +52,7 @@ export function JournalProvider({ children }) {
   const [syncStatus, setSyncStatus] = useState('idle'); // idle | syncing | synced | error
   const [lastSynced, setLastSynced] = useState(null);
   const syncTimer = React.useRef(null); // { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }
+  const isSaving  = React.useRef(false); // true while mergeAndSave is in-flight
 
   const [accounts, setAccounts] = useState(saved?.accounts || [
     { id: 'acc_default', name: 'Angel One', broker: 'angelone', capital: 1000000, color: '#F59E0B' },
@@ -66,20 +67,26 @@ export function JournalProvider({ children }) {
     if (isSupabaseReady()) {
       if (syncTimer.current) clearTimeout(syncTimer.current);
       syncTimer.current = setTimeout(async () => {
+        syncTimer.current = null; // timer fired — clear so it doesn't look "pending"
+        isSaving.current = true;
         setSyncStatus('syncing');
-        const result = await mergeAndSave(newAccounts, newTrades, newSettings);
-        if (result.ok) {
-          setSyncStatus('synced');
-          setLastSynced(new Date());
-          if (result.merged) {
-            const { accounts: ma, trades: mt, settings: ms } = result.merged;
-            saveData(ma, mt, ms);
-            setAccounts(ma);
-            setTrades(mt);
-            setSettings({ ...DEFAULT_SETTINGS, ...ms });
+        try {
+          const result = await mergeAndSave(newAccounts, newTrades, newSettings);
+          if (result.ok) {
+            setSyncStatus('synced');
+            setLastSynced(new Date());
+            if (result.merged) {
+              const { accounts: ma, trades: mt, settings: ms } = result.merged;
+              saveData(ma, mt, ms);
+              setAccounts(ma);
+              setTrades(mt);
+              setSettings({ ...DEFAULT_SETTINGS, ...ms });
+            }
+          } else {
+            setSyncStatus('error');
           }
-        } else {
-          setSyncStatus('error');
+        } finally {
+          isSaving.current = false;
         }
       }, 500);
     }
@@ -109,8 +116,9 @@ export function JournalProvider({ children }) {
   // (handles refresh/close before the debounce timer fires)
   React.useEffect(() => {
     const flush = () => {
-      if (syncTimer.current && isSupabaseReady()) {
+      if (syncTimer.current && isSupabaseReady() && !isSaving.current) {
         clearTimeout(syncTimer.current);
+        syncTimer.current = null;
         mergeAndSave(accounts, trades, settings);
       }
     };
@@ -128,19 +136,39 @@ export function JournalProvider({ children }) {
   React.useEffect(() => {
     if (!isSupabaseReady()) return;
     const interval = setInterval(async () => {
-      if (syncTimer.current) return;
+      if (syncTimer.current || isSaving.current) return; // edit pending or save in-flight
       if (document.visibilityState !== 'visible') return;
       const { ok, data } = await cloudLoad();
       if (ok && data) {
-        if (data.accounts) setAccounts(data.accounts);
-        if (data.trades)   setTrades(data.trades);
-        if (data.settings) setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
-        saveData(data.accounts, data.trades, data.settings);
+        // Merge cloud data into local state by id rather than replacing outright —
+        // protects against a stale read racing with a just-completed local save.
+        // Cloud trades not present locally are added; local trades always kept.
+        if (data.trades) {
+          setTrades(prevTrades => {
+            const localIds = new Set(prevTrades.map(t => t?.id).filter(Boolean));
+            const additions = data.trades.filter(t => t?.id && !localIds.has(t.id));
+            if (additions.length === 0) return prevTrades; // nothing new from cloud
+            const merged = [...prevTrades, ...additions];
+            saveData(accounts, merged, settings);
+            return merged;
+          });
+        }
+        if (data.accounts) {
+          setAccounts(prevAccounts => {
+            const localIds = new Set(prevAccounts.map(a => a?.id).filter(Boolean));
+            const additions = data.accounts.filter(a => a?.id && !localIds.has(a.id));
+            if (additions.length === 0) return prevAccounts;
+            return [...prevAccounts, ...additions];
+          });
+        }
+        // Settings: don't auto-merge from periodic refresh — local settings
+        // (lot sizes, broker credentials etc.) take priority and are only
+        // updated via explicit user edits through persist().
         setLastSynced(new Date());
       }
     }, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [accounts, settings]);
 
   // ─── Accounts ───────────────────────────────────────────────────────────────
   const addAccount = useCallback((acc) => {
@@ -521,10 +549,26 @@ export function JournalProvider({ children }) {
   const importData = useCallback((json) => {
     try {
       const { accounts: a, trades: t, settings: s } = JSON.parse(json);
-      setAccounts(a || []);
-      setTrades(t || []);
-      setSettings({ ...DEFAULT_SETTINGS, ...(s || {}) });
-      saveData(a || [], t || [], { ...DEFAULT_SETTINGS, ...(s || {}) });
+      const newAccounts  = a || [];
+      const newTrades    = t || [];
+      const newSettings  = { ...DEFAULT_SETTINGS, ...(s || {}) };
+      setAccounts(newAccounts);
+      setTrades(newTrades);
+      setSettings(newSettings);
+      saveData(newAccounts, newTrades, newSettings);
+      // Push restored data to cloud immediately and authoritatively —
+      // a backup restore should overwrite the cloud, not merge with it,
+      // since the user is explicitly restoring a known-good state.
+      if (isSupabaseReady()) {
+        if (syncTimer.current) { clearTimeout(syncTimer.current); syncTimer.current = null; }
+        isSaving.current = true;
+        setSyncStatus('syncing');
+        cloudSave(newAccounts, newTrades, newSettings).then(result => {
+          setSyncStatus(result.ok ? 'synced' : 'error');
+          if (result.ok) setLastSynced(new Date());
+          isSaving.current = false;
+        });
+      }
       return true;
     } catch { return false; }
   }, []);
