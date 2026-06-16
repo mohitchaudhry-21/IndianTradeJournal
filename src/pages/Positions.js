@@ -428,7 +428,7 @@ function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg, l
 
 export default function Positions() {
   const { positions, closePosition, deletePosition, addLegExit, updateTrade } = useJournal();
-  const { quotes: liveQuotes, loading: liveLoading, lastUpdated: liveUpdated, refresh: refreshLive } = useLivePnL(30000, true);
+  const { quotes: liveQuotes, loading: liveLoading, lastUpdated: liveUpdated, refresh: refreshLive } = useLivePnL(5000, true);
   const navigate = useNavigate();
   const [closingPos,      setClosingPos]      = useState(null);
   const [partialExitPos,  setPartialExitPos]  = useState(null);
