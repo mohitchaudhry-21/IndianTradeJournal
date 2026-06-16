@@ -1,4 +1,5 @@
 import { restoreSupabase, cloudSave, cloudLoad, mergeAndSave, isSupabaseReady } from '../lib/supabase';
+import { useLivePnL } from '../hooks/useLivePnL';
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -38,6 +39,10 @@ function saveData(accounts, trades, settings) {
 }
 
 export function JournalProvider({ children }) {
+  // Single shared live-quotes poll — all pages/components read from this
+  // same instance via context, so every display shows identical numbers
+  // instead of each component fetching its own slightly-offset snapshot.
+  const { quotes: liveQuotes, loading: liveLoading, lastUpdated: liveLastUpdated, refresh: refreshLiveQuotes } = useLivePnL(5000, true);
   const saved = loadData();
 
   const [activeAccountId, setActiveAccountId_raw] = useState(
@@ -595,6 +600,7 @@ export function JournalProvider({ children }) {
       addTrade, addTrades, updateTrade, deleteTrade, deletePosition, closePosition,
       updateSettings,
       exportData, importData,
+      liveQuotes, liveLoading, liveLastUpdated, refreshLiveQuotes,
     }}>
       {children}
     </JournalContext.Provider>
