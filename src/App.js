@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { JournalProvider } from './context/JournalContext';
 import Sidebar from './components/Sidebar';
+import TickerBar from './components/TickerBar';
 import LoginScreen, { isAuthEnabled, isAuthenticated } from './components/LoginScreen';
 import Dashboard from './pages/Dashboard';
 import Positions from './pages/Positions';
@@ -72,8 +73,10 @@ export default function App() {
         <TitleUpdater />
         <div className="app-layout" style={{ minHeight:'100vh', display:'flex' }}>
           <Sidebar />
-          <main className="main-content">
-            <Routes>
+          <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
+            <TickerBar />
+            <main className="main-content" style={{ flex:1 }}>
+              <Routes>
               <Route path="/"           element={<Dashboard />} />
               <Route path="/positions"  element={<Positions />} />
               <Route path="/history"    element={<TradeHistory />} />
@@ -83,8 +86,9 @@ export default function App() {
               <Route path="/settings"   element={<Settings />} />
               <Route path="/screenshot" element={<ScreenshotImport />} />
               <Route path="/calendar"   element={<Calendar />} />
-            </Routes>
-          </main>
+              </Routes>
+            </main>
+          </div>
         </div>
       </HashRouter>
     </ErrorBoundary>
