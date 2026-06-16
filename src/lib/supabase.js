@@ -100,7 +100,7 @@ export async function cloudLoad() {
 //    yet pulled locally) are preserved rather than dropped.
 //  - accounts: merge by id (union, local wins for conflicts).
 //  - settings: deep-merge so partial local updates don't wipe other cloud keys.
-export async function mergeAndSave(localAccounts, localTrades, localSettings) {
+export async function mergeAndSave(localAccounts, localTrades, localSettings, excludeIds = new Set()) {
   if (!_client) return { ok: false, error: 'Supabase not connected' };
   try {
     const { data: cloudRow, error: fetchErr } = await _client
@@ -116,10 +116,13 @@ export async function mergeAndSave(localAccounts, localTrades, localSettings) {
     const cloudAccounts = cloudData?.accounts || [];
     const cloudSettings = cloudData?.settings || {};
 
-    // Merge trades by id — cloud first, then overlay local (local wins)
+    // Merge trades by id — cloud first, then overlay local (local wins).
+    // Trades explicitly deleted locally (excludeIds) are removed even if
+    // the cloud snapshot still has them — this makes deletes authoritative
+    // and immune to races with the cloud not having caught up yet.
     const tradeMap = new Map();
-    cloudTrades.forEach(t => { if (t?.id) tradeMap.set(t.id, t); });
-    localTrades.forEach(t => { if (t?.id) tradeMap.set(t.id, t); });
+    cloudTrades.forEach(t => { if (t?.id && !excludeIds.has(t.id)) tradeMap.set(t.id, t); });
+    localTrades.forEach(t => { if (t?.id && !excludeIds.has(t.id)) tradeMap.set(t.id, t); });
     const mergedTrades = Array.from(tradeMap.values());
 
     // Merge accounts by id — union, local wins for conflicts
