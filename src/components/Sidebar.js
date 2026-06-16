@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useJournal } from '../context/JournalContext';
+import { useLivePnL } from '../hooks/useLivePnL';
+import { calcUnrealizedPnL } from '../utils/livePnL';
 import { isAuthEnabled, logout } from './LoginScreen';
 
 const SECTIONS = [
@@ -54,7 +56,20 @@ function fmtSidebar(n) {
 }
 
 export default function Sidebar() {
-  const { stats, accounts, activeAccountId, setActiveAccountId, dateFilter, setDateFilter, syncStatus, lastSynced } = useJournal();
+  const { stats, accounts, activeAccountId, setActiveAccountId, dateFilter, setDateFilter, syncStatus, lastSynced, positions } = useJournal();
+  const { quotes: liveQuotes } = useLivePnL(5000, true);
+
+  const liveUnrealizedPnL = React.useMemo(() => {
+    const openPositions = positions.filter(p => p.status === 'OPEN'); // already account-filtered
+    if (!Object.keys(liveQuotes).length) return null;
+    let total = 0;
+    let anyFound = false;
+    openPositions.forEach(p => {
+      const upnl = calcUnrealizedPnL(p, liveQuotes);
+      if (upnl !== null) { total += upnl; anyFound = true; }
+    });
+    return anyFound ? total : null;
+  }, [positions, liveQuotes]);
   const navigate = useNavigate();
   const [theme, toggleTheme] = useTheme();
 
@@ -87,6 +102,19 @@ export default function Sidebar() {
             </div>
           </div>
         </div>
+        {liveUnrealizedPnL !== null && (
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'6px 8px', background:'rgba(255,255,255,0.03)', borderRadius:6 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+              <span style={{ width:5, height:5, borderRadius:'50%', background:'var(--accent)', display:'inline-block' }} />
+              <span style={{ fontSize:10, color:'var(--text-muted)', letterSpacing:'0.06em', textTransform:'uppercase' }}>
+                Live P&L{activeAccountId ? '' : ' (All)'}
+              </span>
+            </div>
+            <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:14, fontWeight:600, color: liveUnrealizedPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+              {liveUnrealizedPnL >= 0 ? '+' : ''}{fmtSidebar(liveUnrealizedPnL)}
+            </div>
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 0 }}>
           {[
             { label: 'Open', val: stats.openPositions, color: 'var(--text-primary)' },
