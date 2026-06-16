@@ -4,7 +4,6 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
 import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
-import { useLivePnL } from '../hooks/useLivePnL';
 import { calcUnrealizedPnL } from '../utils/livePnL';
 
 function fmt(n) {
@@ -57,8 +56,7 @@ function AccountTag({ accountId }) {
 }
 
 export default function Dashboard() {
-  const { stats, monthlyPnL, positions, accounts, activeAccountId } = useJournal();
-  const { quotes: liveQuotes } = useLivePnL(5000, true);
+  const { stats, monthlyPnL, positions, accounts, activeAccountId, liveQuotes } = useJournal();
   const navigate = useNavigate();
 
   const recentClosed = useMemo(() =>
