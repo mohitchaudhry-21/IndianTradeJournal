@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useJournal } from '../context/JournalContext';
 
@@ -14,6 +14,21 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, existingPosi
   const [lastSync, setLastSync] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [message, setMessage] = useState('');
+
+  // On mount, check if this broker already has an active session on the
+  // local server (e.g. user navigated away and came back) — restores the
+  // 'Connected' UI state instead of showing 'Not connected' incorrectly.
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${SERVER_URL}/status`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled) return;
+        if (data?.[broker]) setStatus('connected');
+      })
+      .catch(() => {}); // server not running — leave status as-is
+    return () => { cancelled = true; };
+  }, [broker]);
 
   const selectAccount = (accId) => {
     setSelectedAccId(accId);
