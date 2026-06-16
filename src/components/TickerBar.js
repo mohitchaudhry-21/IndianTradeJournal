@@ -6,7 +6,8 @@ import { KNOWN_SYMBOLS } from '../utils/tickerSymbols';
 export default function TickerBar() {
   const { settings, updateSettings } = useJournal();
   const selected = settings.tickerSymbols || [];
-  const { quotes } = useTickerQuotes(selected, 1000);
+  const [paused, setPaused] = useState(false);
+  const { quotes } = useTickerQuotes(selected, 1000, paused);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef(null);
 
@@ -60,7 +61,12 @@ export default function TickerBar() {
         })}
       </div>
 
-      <div ref={pickerRef} style={{ position: 'relative', flexShrink: 0, marginLeft: 12 }}>
+      <div ref={pickerRef} style={{ position: 'relative', flexShrink: 0, marginLeft: 12, display: 'flex', alignItems: 'center', gap: 8 }}>
+        {paused && (
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            ⏸ paused
+          </span>
+        )}
         <button onClick={() => setPickerOpen(o => !o)}
           style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer', padding: '5px 9px', fontSize: 12 }}
           title="Select symbols to display">
@@ -81,6 +87,17 @@ export default function TickerBar() {
                 <span style={{ fontSize: 13, color: 'var(--text-primary)' }}>{s.name}</span>
               </label>
             ))}
+            <div style={{ borderTop: '1px solid var(--border)', marginTop: 6, paddingTop: 6 }}>
+              <button onClick={() => setPaused(p => !p)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                  padding: '6px 8px', background: 'none', border: 'none', borderRadius: 5,
+                  color: paused ? 'var(--profit)' : 'var(--text-primary)', cursor: 'pointer', fontSize: 13, textAlign: 'left',
+                }}>
+                <span>{paused ? '▶' : '⏸'}</span>
+                <span>{paused ? 'Continue updates' : 'Pause updates'}</span>
+              </button>
+            </div>
           </div>
         )}
       </div>
