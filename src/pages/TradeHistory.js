@@ -3,6 +3,7 @@ import AccountBadge from '../components/AccountBadge';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
 import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
+import { fetchTotalCharges, fetchMargin } from '../utils/brokerCharges';
 import { useLivePnL } from '../hooks/useLivePnL';
 import { calcUnrealizedPnL } from '../utils/livePnL';
 
@@ -182,13 +183,24 @@ function StrategyCell({ positionId, value, onChange }) {
 }
 
 // Editable margin cell
-function MarginCell({ value, onSave }) {
+function MarginCell({ value, onSave, position }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ? String(value) : '');
+  const [fetching, setFetching] = useState(false);
   const save = () => {
     const v = parseFloat(draft);
     onSave(isNaN(v) ? null : v);
     setEditing(false);
+  };
+  const hasBrokerLegs = position?.legs?.some(l => l.brokerTradeId);
+  const fetchFromBroker = async (e) => {
+    e.stopPropagation();
+    if (!position) return;
+    setFetching(true);
+    const result = await fetchMargin(position.legs);
+    setFetching(false);
+    if (result.ok) onSave(Math.round(result.margin));
+    else alert(`Could not fetch margin: ${result.error}`);
   };
   if (editing) return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 100 }}>
@@ -200,25 +212,45 @@ function MarginCell({ value, onSave }) {
     </div>
   );
   return (
-    <div onClick={() => { setDraft(value ? String(value) : ''); setEditing(true); }}
-      style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
-      title="Click to set margin used">
-      {value
-        ? <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-secondary)' }}>
-            {value >= 100000 ? '₹' + (value / 100000).toFixed(1) + 'L' : value >= 1000 ? '₹' + (value / 1000).toFixed(0) + 'K' : '₹' + value}
-          </span>
-        : <span style={{ fontSize: 11, color: 'var(--text-muted)', borderBottom: '1px dashed var(--text-muted)' }}>+ add</span>}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+      <div onClick={() => { setDraft(value ? String(value) : ''); setEditing(true); }}
+        style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
+        title="Click to set margin used">
+        {value
+          ? <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-secondary)' }}>
+              {value >= 100000 ? '₹' + (value / 100000).toFixed(1) + 'L' : value >= 1000 ? '₹' + (value / 1000).toFixed(0) + 'K' : '₹' + value}
+            </span>
+          : <span style={{ fontSize: 11, color: 'var(--text-muted)', borderBottom: '1px dashed var(--text-muted)' }}>+ add</span>}
+      </div>
+      {hasBrokerLegs && !value && (
+        <button onClick={fetchFromBroker} disabled={fetching} title="Fetch margin from broker"
+          style={{ background:'rgba(255,255,255,0.06)', border:'none', borderRadius:4, color:'var(--accent)', cursor:'pointer', fontSize:10, padding:'2px 5px' }}>
+          {fetching ? '...' : '⇩ fetch'}
+        </button>
+      )}
     </div>
   );
 }
 
 
 // Editable charges cell (brokerage + taxes)
-function ChargesCell({ value, onSave }) {
+function ChargesCell({ value, onSave, position }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ? String(value) : '');
+  const [fetching, setFetching] = useState(false);
   const save = () => { const v = parseFloat(draft); onSave(isNaN(v) ? null : v); setEditing(false); };
   const fmt = n => n >= 100000 ? '₹'+(n/100000).toFixed(1)+'L' : n >= 1000 ? '₹'+(n/1000).toFixed(0)+'K' : '₹'+n;
+  const hasBrokerLegs = position?.legs?.some(l => l.brokerTradeId);
+  const isOpen = position?.status === 'OPEN';
+  const fetchFromBroker = async (e) => {
+    e.stopPropagation();
+    if (!position) return;
+    setFetching(true);
+    const result = await fetchTotalCharges(position);
+    setFetching(false);
+    if (result.ok) onSave(Math.round(result.charges * 100) / 100);
+    else alert(`Could not fetch charges: ${result.error}`);
+  };
   if (editing) return (
     <div style={{ display:'flex', alignItems:'center', gap:3, minWidth:100 }}>
       <span style={{ fontSize:11, color:'var(--text-muted)' }}>₹</span>
@@ -229,11 +261,19 @@ function ChargesCell({ value, onSave }) {
     </div>
   );
   return (
-    <div onClick={() => { setDraft(value ? String(value) : ''); setEditing(true); }}
-      style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:4 }} title="Click to set charges">
-      {value
-        ? <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, color:'var(--loss)' }}>-{fmt(value)}</span>
-        : <span style={{ fontSize:11, color:'var(--text-muted)', borderBottom:'1px dashed var(--text-muted)' }}>+ add</span>}
+    <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+      <div onClick={() => { setDraft(value ? String(value) : ''); setEditing(true); }}
+        style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:4 }} title="Click to set charges">
+        {value
+          ? <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, color:'var(--loss)' }}>-{fmt(value)}</span>
+          : <span style={{ fontSize:11, color:'var(--text-muted)', borderBottom:'1px dashed var(--text-muted)' }}>+ add</span>}
+      </div>
+      {hasBrokerLegs && (
+        <button onClick={fetchFromBroker} disabled={fetching} title={isOpen ? 'Fetch entry-side charges from broker' : 'Fetch entry + exit charges from broker'}
+          style={{ background:'rgba(255,255,255,0.06)', border:'none', borderRadius:4, color:'var(--accent)', cursor:'pointer', fontSize:10, padding:'2px 5px' }}>
+          {fetching ? '...' : '⇩ fetch'}
+        </button>
+      )}
     </div>
   );
 }
@@ -373,6 +413,8 @@ function NotesPanel({ position, onClose, onSave }) {
   const [charges,    setCharges]    = useState(position.charges ? String(position.charges) : '');
   const [entryDate,  setEntryDate]  = useState(position.openDate ? position.openDate.slice(0,10) : '');
   const [exitDate,   setExitDate]   = useState(position.closeDate ? position.closeDate.slice(0,10) : '');
+  const [fetchingCharges, setFetchingCharges] = useState(false);
+  const [fetchingMargin,  setFetchingMargin]  = useState(false);
   const textRef = useRef();
 
   useEffect(() => { textRef.current?.focus(); }, []);
@@ -455,7 +497,22 @@ function NotesPanel({ position, onClose, onSave }) {
 
         {/* Charges input */}
         <div className="form-group">
-          <label className="form-label">Charges (Brokerage + Taxes) ₹</label>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <label className="form-label" style={{ marginBottom:0 }}>Charges (Brokerage + Taxes) ₹</label>
+            {position.legs?.some(l => l.brokerTradeId) && (
+              <button type="button" disabled={fetchingCharges}
+                onClick={async () => {
+                  setFetchingCharges(true);
+                  const result = await fetchTotalCharges(position);
+                  setFetchingCharges(false);
+                  if (result.ok) setCharges(String(Math.round(result.charges * 100) / 100));
+                  else alert(`Could not fetch charges: ${result.error}`);
+                }}
+                style={{ background:'rgba(255,255,255,0.06)', border:'none', borderRadius:4, color:'var(--accent)', cursor:'pointer', fontSize:11, padding:'2px 8px' }}>
+                {fetchingCharges ? 'fetching...' : '⇩ fetch from broker'}
+              </button>
+            )}
+          </div>
           <input
             className="form-input"
             type="number"
@@ -474,7 +531,22 @@ function NotesPanel({ position, onClose, onSave }) {
 
         {/* Margin input */}
         <div className="form-group">
-          <label className="form-label">Margin Used (₹)</label>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+            <label className="form-label" style={{ marginBottom:0 }}>Margin Used (₹)</label>
+            {position.legs?.some(l => l.brokerTradeId) && (
+              <button type="button" disabled={fetchingMargin}
+                onClick={async () => {
+                  setFetchingMargin(true);
+                  const result = await fetchMargin(position.legs);
+                  setFetchingMargin(false);
+                  if (result.ok) setMargin(String(Math.round(result.margin)));
+                  else alert(`Could not fetch margin: ${result.error}`);
+                }}
+                style={{ background:'rgba(255,255,255,0.06)', border:'none', borderRadius:4, color:'var(--accent)', cursor:'pointer', fontSize:11, padding:'2px 8px' }}>
+                {fetchingMargin ? 'fetching...' : '⇩ fetch from broker'}
+              </button>
+            )}
+          </div>
           <input
             className="form-input"
             type="number"
@@ -942,7 +1014,7 @@ export default function TradeHistory() {
 
                     {/* Margin — editable inline */}
                     {td(
-                      <MarginCell value={p.margin}
+                      <MarginCell value={p.margin} position={p}
                         onSave={v => updatePositionMeta(p.positionId, { positionMargin: v })} />,
                       { whiteSpace: 'nowrap' }
                     )}
@@ -966,7 +1038,7 @@ export default function TradeHistory() {
 
                     {/* Charges */}
                     {td(
-                      <ChargesCell value={p.charges}
+                      <ChargesCell value={p.charges} position={p}
                         onSave={v => updatePositionMeta(p.positionId, { positionCharges: v })} />,
                       { whiteSpace: 'nowrap' }
                     )}
