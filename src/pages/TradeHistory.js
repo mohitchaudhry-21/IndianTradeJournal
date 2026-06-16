@@ -558,7 +558,7 @@ function AccountTag({ accountId }) {
 
 export default function TradeHistory() {
   const { positions, deletePosition, updatePositionStrategy, updatePositionMeta, reopenPosition, addLegExit, removeLegExit, updateTrade } = useJournal();
-  const { quotes: liveQuotes } = useLivePnL(30000, true);
+  const { quotes: liveQuotes } = useLivePnL(5000, true);
 
   const [filterInstrument, setFilterInstrument] = useState('');
   const [filterStrategy,   setFilterStrategy]   = useState('');
