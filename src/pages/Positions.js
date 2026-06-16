@@ -5,6 +5,8 @@ import AccountTag from '../components/AccountTag';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
 import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
+import { useLivePnL } from '../hooks/useLivePnL';
+import { calcUnrealizedPnL } from '../utils/livePnL';
 
 function fmt(n) {
   if (n === null || n === undefined) return '—';
@@ -272,7 +274,7 @@ function EditLegPopup({ leg, onClose, onSave }) {
   );
 }
 
-function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg }) {
+function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg, liveQuotes }) {
   const [expanded, setExpanded] = useState(true);
   const dteColor = position.daysToExpiry !== null
     ? position.daysToExpiry <= 1 ? 'var(--loss)'
@@ -313,6 +315,25 @@ function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg })
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }} onClick={e => e.stopPropagation()}>
           <div style={{ display:'flex', gap:16, marginRight:8 }}>
+            {(() => {
+              const upnl = calcUnrealizedPnL(position, liveQuotes || {});
+              if (upnl === null) return (
+                <div style={{ textAlign:'right' }}>
+                  <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:2 }}>UNREALISED P&L</div>
+                  <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:16, fontWeight:600, color:'var(--text-muted)' }}>
+                    —
+                  </div>
+                </div>
+              );
+              return (
+                <div style={{ textAlign:'right' }}>
+                  <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:2 }}>UNREALISED P&L</div>
+                  <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:16, fontWeight:600, color: upnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                    {fmt(upnl)}
+                  </div>
+                </div>
+              );
+            })()}
             <div style={{ textAlign:'right' }}>
               <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:2 }}>NET PREMIUM</div>
               <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:16, fontWeight:600, color:'var(--profit)' }}>
@@ -407,6 +428,7 @@ function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg })
 
 export default function Positions() {
   const { positions, closePosition, deletePosition, addLegExit, updateTrade } = useJournal();
+  const { quotes: liveQuotes, loading: liveLoading, lastUpdated: liveUpdated, refresh: refreshLive } = useLivePnL(30000, true);
   const navigate = useNavigate();
   const [closingPos,      setClosingPos]      = useState(null);
   const [partialExitPos,  setPartialExitPos]  = useState(null);
@@ -449,7 +471,18 @@ export default function Positions() {
               <div className="page-title">Open Positions</div>
               <AccountBadge />
             </div>
-            <div className="page-subtitle">{open.length} active position{open.length !== 1 ? 's' : ''} · Net premium: <span style={{ color: 'var(--profit)', fontFamily: "'JetBrains Mono', monospace" }}>{fmt(totalNetPremium)}</span></div>
+            <div className="page-subtitle">
+              {open.length} active position{open.length !== 1 ? 's' : ''} · Net premium: <span style={{ color: 'var(--profit)', fontFamily: "'JetBrains Mono', monospace" }}>{fmt(totalNetPremium)}</span>
+              {liveUpdated && (
+                <span style={{ marginLeft:10, fontSize:11, color:'var(--text-muted)' }}>
+                  · Live prices updated {liveUpdated.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
+                  <button onClick={refreshLive} disabled={liveLoading}
+                    style={{ marginLeft:6, background:'none', border:'none', color:'var(--accent)', cursor:'pointer', fontSize:11, textDecoration:'underline' }}>
+                    {liveLoading ? 'refreshing...' : 'refresh now'}
+                  </button>
+                </span>
+              )}
+            </div>
           </div>
           <button className="btn btn-primary" onClick={() => navigate('/entry')}>+ Add Trade</button>
         </div>
@@ -488,6 +521,7 @@ export default function Positions() {
             onPartialExit={handlePartialExit}
             onDelete={deletePosition}
             onEditLeg={leg => setEditLegPos(leg)}
+            liveQuotes={liveQuotes}
           />
         ))
       )}
