@@ -22,6 +22,7 @@ const DEFAULT_SETTINGS = {
   geminiKey: '',
   brokerCredentials: {},
   customDateRanges: [],  // [{ id, name, from, to }]
+  tickerSymbols: ['NIFTY', 'SENSEX'],  // symbols shown in the top ticker bar
 };
 
 function loadData() {
