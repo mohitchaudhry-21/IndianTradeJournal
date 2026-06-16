@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useJournal } from '../context/JournalContext';
-import { useLivePnL } from '../hooks/useLivePnL';
 import { calcUnrealizedPnL } from '../utils/livePnL';
 import { isAuthEnabled, logout } from './LoginScreen';
 
@@ -56,8 +55,7 @@ function fmtSidebar(n) {
 }
 
 export default function Sidebar() {
-  const { stats, accounts, activeAccountId, setActiveAccountId, dateFilter, setDateFilter, syncStatus, lastSynced, positions } = useJournal();
-  const { quotes: liveQuotes } = useLivePnL(5000, true);
+  const { stats, accounts, activeAccountId, setActiveAccountId, dateFilter, setDateFilter, syncStatus, lastSynced, positions, liveQuotes } = useJournal();
 
   const liveUnrealizedPnL = React.useMemo(() => {
     const openPositions = positions.filter(p => p.status === 'OPEN'); // already account-filtered
