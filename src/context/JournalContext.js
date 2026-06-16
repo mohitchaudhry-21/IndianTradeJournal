@@ -53,6 +53,7 @@ export function JournalProvider({ children }) {
   const [lastSynced, setLastSynced] = useState(null);
   const syncTimer = React.useRef(null); // { from: 'YYYY-MM-DD', to: 'YYYY-MM-DD' }
   const isSaving  = React.useRef(false); // true while mergeAndSave is in-flight
+  const recentlyDeletedIds = React.useRef(new Set()); // trade ids deleted in this session
 
   const [accounts, setAccounts] = useState(saved?.accounts || [
     { id: 'acc_default', name: 'Angel One', broker: 'angelone', capital: 1000000, color: '#F59E0B' },
@@ -60,18 +61,21 @@ export function JournalProvider({ children }) {
   const [trades, setTrades] = useState(saved?.trades || []);
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS, ...(saved?.settings || {}) });
 
-  const persist = useCallback((newAccounts, newTrades, newSettings) => {
+  const persist = useCallback((newAccounts, newTrades, newSettings, isDelete = false) => {
     saveData(newAccounts, newTrades, newSettings);
     // Debounced cloud sync — merges with latest cloud data before saving so
-    // this save doesn't overwrite changes made by another user/device
+    // this save doesn't overwrite changes made by another user/device.
+    // Deletes get a much shorter debounce (effectively immediate) since
+    // waiting risks the periodic refresh resurrecting the deleted trade.
     if (isSupabaseReady()) {
       if (syncTimer.current) clearTimeout(syncTimer.current);
+      const delay = isDelete ? 50 : 500;
       syncTimer.current = setTimeout(async () => {
         syncTimer.current = null; // timer fired — clear so it doesn't look "pending"
         isSaving.current = true;
         setSyncStatus('syncing');
         try {
-          const result = await mergeAndSave(newAccounts, newTrades, newSettings);
+          const result = await mergeAndSave(newAccounts, newTrades, newSettings, recentlyDeletedIds.current);
           if (result.ok) {
             setSyncStatus('synced');
             setLastSynced(new Date());
@@ -88,7 +92,7 @@ export function JournalProvider({ children }) {
         } finally {
           isSaving.current = false;
         }
-      }, 500);
+      }, delay);
     }
   }, []);
 
@@ -146,7 +150,11 @@ export function JournalProvider({ children }) {
         if (data.trades) {
           setTrades(prevTrades => {
             const localIds = new Set(prevTrades.map(t => t?.id).filter(Boolean));
-            const additions = data.trades.filter(t => t?.id && !localIds.has(t.id));
+            // Never resurrect a trade that was explicitly deleted locally,
+            // even if the cloud snapshot we just read hasn't caught up yet.
+            const additions = data.trades.filter(t =>
+              t?.id && !localIds.has(t.id) && !recentlyDeletedIds.current.has(t.id)
+            );
             if (additions.length === 0) return prevTrades; // nothing new from cloud
             const merged = [...prevTrades, ...additions];
             saveData(accounts, merged, settings);
@@ -243,16 +251,19 @@ export function JournalProvider({ children }) {
 
   const deleteTrade = useCallback((id) => {
     setTrades(prev => {
+      recentlyDeletedIds.current.add(id);
       const next = prev.filter(t => t.id !== id);
-      persist(accounts, next, settings);
+      persist(accounts, next, settings, true);
       return next;
     });
   }, [accounts, settings, persist]);
 
   const deletePosition = useCallback((positionId) => {
     setTrades(prev => {
+      const removed = prev.filter(t => (t.positionId || t.id) === positionId);
+      removed.forEach(t => { if (t.id) recentlyDeletedIds.current.add(t.id); });
       const next = prev.filter(t => (t.positionId || t.id) !== positionId);
-      persist(accounts, next, settings);
+      persist(accounts, next, settings, true); // isDelete=true — force immediate authoritative save
       return next;
     });
   }, [accounts, settings, persist]);
