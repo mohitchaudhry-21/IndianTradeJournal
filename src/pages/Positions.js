@@ -5,7 +5,6 @@ import AccountTag from '../components/AccountTag';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
 import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
-import { useLivePnL } from '../hooks/useLivePnL';
 import { calcUnrealizedPnL } from '../utils/livePnL';
 
 function fmt(n) {
@@ -427,8 +426,7 @@ function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg, l
 }
 
 export default function Positions() {
-  const { positions, closePosition, deletePosition, addLegExit, updateTrade } = useJournal();
-  const { quotes: liveQuotes, loading: liveLoading, lastUpdated: liveUpdated, refresh: refreshLive } = useLivePnL(5000, true);
+  const { positions, closePosition, deletePosition, addLegExit, updateTrade, liveQuotes, liveLoading, liveLastUpdated, refreshLiveQuotes } = useJournal();
   const navigate = useNavigate();
   const [closingPos,      setClosingPos]      = useState(null);
   const [partialExitPos,  setPartialExitPos]  = useState(null);
@@ -473,10 +471,10 @@ export default function Positions() {
             </div>
             <div className="page-subtitle">
               {open.length} active position{open.length !== 1 ? 's' : ''} · Net premium: <span style={{ color: 'var(--profit)', fontFamily: "'JetBrains Mono', monospace" }}>{fmt(totalNetPremium)}</span>
-              {liveUpdated && (
+              {liveLastUpdated && (
                 <span style={{ marginLeft:10, fontSize:11, color:'var(--text-muted)' }}>
-                  · Live prices updated {liveUpdated.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
-                  <button onClick={refreshLive} disabled={liveLoading}
+                  · Live prices updated {liveLastUpdated.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
+                  <button onClick={refreshLiveQuotes} disabled={liveLoading}
                     style={{ marginLeft:6, background:'none', border:'none', color:'var(--accent)', cursor:'pointer', fontSize:11, textDecoration:'underline' }}>
                     {liveLoading ? 'refreshing...' : 'refresh now'}
                   </button>
