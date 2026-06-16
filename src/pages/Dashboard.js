@@ -4,6 +4,8 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
 import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
+import { useLivePnL } from '../hooks/useLivePnL';
+import { calcUnrealizedPnL } from '../utils/livePnL';
 
 function fmt(n) {
   if (n === null || n === undefined) return '—';
@@ -56,6 +58,7 @@ function AccountTag({ accountId }) {
 
 export default function Dashboard() {
   const { stats, monthlyPnL, positions, accounts, activeAccountId } = useJournal();
+  const { quotes: liveQuotes } = useLivePnL(30000, true);
   const navigate = useNavigate();
 
   const recentClosed = useMemo(() =>
@@ -71,6 +74,17 @@ export default function Dashboard() {
       .sort((a, b) => (a.daysToExpiry ?? 999) - (b.daysToExpiry ?? 999)),
     [positions]
   );
+
+  const totalUnrealizedPnL = useMemo(() => {
+    if (!Object.keys(liveQuotes).length) return null;
+    let total = 0;
+    let anyFound = false;
+    openPositions.forEach(p => {
+      const upnl = calcUnrealizedPnL(p, liveQuotes);
+      if (upnl !== null) { total += upnl; anyFound = true; }
+    });
+    return anyFound ? total : null;
+  }, [openPositions, liveQuotes]);
 
   const chartData = monthlyPnL.slice(-8);
 
@@ -126,6 +140,13 @@ export default function Dashboard() {
           <div className="label">Win Rate</div>
           <div className="value profit">{stats.winRate.toFixed(1)}%</div>
           <div className="subval">PF: {isFinite(stats.profitFactor) ? stats.profitFactor.toFixed(2) : '∞'} · {stats.totalPositions} trades</div>
+        </div>
+        <div className="stat-card">
+          <div className="label">Unrealised P&amp;L</div>
+          <div className={`value ${totalUnrealizedPnL === null ? '' : pnlClass(totalUnrealizedPnL)}`}>
+            {totalUnrealizedPnL === null ? '—' : fmtSimple(totalUnrealizedPnL)}
+          </div>
+          <div className="subval">{openPositions.length} open position{openPositions.length !== 1 ? 's' : ''} · live</div>
         </div>
       </div>
 
