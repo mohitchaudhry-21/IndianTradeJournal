@@ -3,6 +3,8 @@ import AccountBadge from '../components/AccountBadge';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
 import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
+import { useLivePnL } from '../hooks/useLivePnL';
+import { calcUnrealizedPnL } from '../utils/livePnL';
 
 function fmtMoney(n) {
   if (n === null || n === undefined) return '—';
@@ -556,6 +558,7 @@ function AccountTag({ accountId }) {
 
 export default function TradeHistory() {
   const { positions, deletePosition, updatePositionStrategy, updatePositionMeta, reopenPosition, addLegExit, removeLegExit, updateTrade } = useJournal();
+  const { quotes: liveQuotes } = useLivePnL(30000, true);
 
   const [filterInstrument, setFilterInstrument] = useState('');
   const [filterStrategy,   setFilterStrategy]   = useState('');
@@ -945,9 +948,19 @@ export default function TradeHistory() {
                     )}
 
                     {td(
-                      isOpen
-                        ? <span style={{ color: 'var(--text-muted)' }}>—</span>
-                        : <span style={{ color: pnl > 0 ? 'var(--profit)' : pnl < 0 ? 'var(--loss)' : 'var(--text-muted)', fontWeight: 600 }}>{fmtMoney(pnl)}</span>,
+                      (() => {
+                        if (!isOpen) {
+                          return <span style={{ color: pnl > 0 ? 'var(--profit)' : pnl < 0 ? 'var(--loss)' : 'var(--text-muted)', fontWeight: 600 }}>{fmtMoney(pnl)}</span>;
+                        }
+                        const upnl = calcUnrealizedPnL(p, liveQuotes);
+                        if (upnl === null) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+                        return (
+                          <div>
+                            <span style={{ color: upnl > 0 ? 'var(--profit)' : upnl < 0 ? 'var(--loss)' : 'var(--text-muted)', fontWeight: 600 }}>{fmtMoney(upnl)}</span>
+                            <div style={{ fontSize:9, color:'var(--text-muted)', marginTop:1 }}>live</div>
+                          </div>
+                        );
+                      })(),
                       { fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }
                     )}
 
