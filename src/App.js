@@ -73,9 +73,9 @@ export default function App() {
         <TitleUpdater />
         <div className="app-layout" style={{ minHeight:'100vh', display:'flex' }}>
           <Sidebar />
-          <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
+          <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, marginLeft:'var(--sidebar-w)' }}>
             <TickerBar />
-            <main className="main-content" style={{ flex:1 }}>
+            <main className="main-content" style={{ flex:1, marginLeft:0 }}>
               <Routes>
               <Route path="/"           element={<Dashboard />} />
               <Route path="/positions"  element={<Positions />} />
