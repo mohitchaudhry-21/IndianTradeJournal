@@ -58,7 +58,7 @@ function AccountTag({ accountId }) {
 
 export default function Dashboard() {
   const { stats, monthlyPnL, positions, accounts, activeAccountId } = useJournal();
-  const { quotes: liveQuotes } = useLivePnL(30000, true);
+  const { quotes: liveQuotes } = useLivePnL(5000, true);
   const navigate = useNavigate();
 
   const recentClosed = useMemo(() =>
