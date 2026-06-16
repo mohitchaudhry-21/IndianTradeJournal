@@ -4,7 +4,6 @@ import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
 import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
 import { fetchTotalCharges, fetchMargin } from '../utils/brokerCharges';
-import { useLivePnL } from '../hooks/useLivePnL';
 import { calcUnrealizedPnL } from '../utils/livePnL';
 
 function fmtMoney(n) {
@@ -629,8 +628,7 @@ function AccountTag({ accountId }) {
 }
 
 export default function TradeHistory() {
-  const { positions, deletePosition, updatePositionStrategy, updatePositionMeta, reopenPosition, addLegExit, removeLegExit, updateTrade } = useJournal();
-  const { quotes: liveQuotes } = useLivePnL(5000, true);
+  const { positions, deletePosition, updatePositionStrategy, updatePositionMeta, reopenPosition, addLegExit, removeLegExit, updateTrade, liveQuotes } = useJournal();
 
   const [filterInstrument, setFilterInstrument] = useState('');
   const [filterStrategy,   setFilterStrategy]   = useState('');
