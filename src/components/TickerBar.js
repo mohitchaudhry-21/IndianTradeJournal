@@ -31,9 +31,9 @@ export default function TickerBar() {
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       padding: '8px 16px', borderBottom: '1px solid var(--border)',
-      background: 'var(--bg-secondary)', minHeight: 44,
+      background: 'var(--bg-secondary)', minHeight: 44, width: '100%', boxSizing: 'border-box',
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 28, overflowX: 'auto' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap', flex: 1, minWidth: 0, overflow: 'hidden' }}>
         {selected.length === 0 && (
           <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>No symbols selected — click the arrow to add some</span>
         )}
@@ -41,7 +41,7 @@ export default function TickerBar() {
           const q = quoteFor(name);
           const up = q && q.change >= 0;
           return (
-            <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 10, whiteSpace: 'nowrap' }}>
+            <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 10, whiteSpace: 'nowrap', flexShrink: 0 }}>
               <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{name}</span>
               {q ? (
                 <>
@@ -60,7 +60,7 @@ export default function TickerBar() {
         })}
       </div>
 
-      <div ref={pickerRef} style={{ position: 'relative' }}>
+      <div ref={pickerRef} style={{ position: 'relative', flexShrink: 0, marginLeft: 12 }}>
         <button onClick={() => setPickerOpen(o => !o)}
           style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer', padding: '5px 9px', fontSize: 12 }}
           title="Select symbols to display">
