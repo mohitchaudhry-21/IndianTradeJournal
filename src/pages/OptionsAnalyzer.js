@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useJournal } from '../context/JournalContext';
 import { fetchOptionChain, toNseSymbol } from '../utils/optionChain';
+import { fetchTickerQuotes } from '../utils/tickerQuotes';
 import {
   payoffAt, intrinsicAt, netPremium, findBreakevens,
   positionGreeks, maxProfitLoss, impliedFuturesPrice, standardDeviation,
@@ -35,7 +36,7 @@ export default function OptionsAnalyzer() {
   const [chainError, setChainError] = useState(null);
 
   const [spot, setSpot] = useState(null);
-  const [targetDte, setTargetDte] = useState(null);
+  const [targetTimeMs, setTargetTimeMs] = useState(null); // target datetime, as ms since epoch
 
   const position = openPositions.find(p => p.positionId === selectedPositionId) || openPositions[0];
 
@@ -43,7 +44,22 @@ export default function OptionsAnalyzer() {
   useEffect(() => {
     if (!position) return;
     setCheckedLegIds(new Set(position.legs.map(l => l.id)));
-    setTargetDte(position.daysToExpiry ?? 5);
+    setTargetTimeMs(Date.now());
+  }, [position?.positionId]); // eslint-disable-line
+
+  // Fetch the real current spot price independently of the option chain
+  // source — AngelOne's optionGreek response doesn't include an underlying
+  // value, so relying on the chain response alone left spot defaulting to
+  // a meaningless placeholder (the first leg's strike) whenever NSE failed.
+  useEffect(() => {
+    if (!position) return;
+    let cancelled = false;
+    fetchTickerQuotes([toNseSymbol(position.instrument)]).then(result => {
+      if (cancelled) return;
+      const quote = result.quotes?.find(q => q.name === toNseSymbol(position.instrument));
+      if (quote?.ltp) setSpot(quote.ltp);
+    });
+    return () => { cancelled = true; };
   }, [position?.positionId]); // eslint-disable-line
 
   // Fetch the live option chain for this position's instrument + expiry,
@@ -63,6 +79,9 @@ export default function OptionsAnalyzer() {
         return;
       }
       setChainSource(result.source);
+      // NSE's response includes a reliable underlying value — prefer it
+      // over the ticker quote when available, since it's from the same
+      // snapshot as the option chain data itself (consistent pricing).
       if (result.underlyingValue) setSpot(result.underlyingValue);
 
       const byLeg = {};
@@ -74,7 +93,6 @@ export default function OptionsAnalyzer() {
         }
       });
       setChainData(byLeg);
-      if (!spot) setSpot(position.legs[0]?.strike || 0);
     });
 
     return () => { cancelled = true; };
@@ -111,7 +129,15 @@ export default function OptionsAnalyzer() {
   const spotMin = Math.min(...enrichedLegs.map(l => l.strike)) * 0.92;
   const spotMax = Math.max(...enrichedLegs.map(l => l.strike)) * 1.08;
   const currentSpot = spot || (spotMin + spotMax) / 2;
-  const T = (targetDte || 0) / 365;
+
+  const expiryMs = position.expiry ? new Date(position.expiry).getTime() : Date.now();
+  const nowMs = Date.now();
+  const targetMs = targetTimeMs ?? nowMs;
+  // Time remaining from the chosen target moment to expiry, in years —
+  // hour-level precision rather than whole days, since theta decay is
+  // continuous through the trading day, not a once-a-day step.
+  const T = Math.max(expiryMs - targetMs, 0) / (1000 * 60 * 60 * 24 * 365);
+  const targetDaysToExpiry = Math.max(expiryMs - targetMs, 0) / (1000 * 60 * 60 * 24);
 
   const { maxProfit, maxLoss } = maxProfitLoss(activeLegs, spotMin, spotMax);
   const riskReward = (maxLoss < 0 && maxProfit > 0) ? `${(Math.abs(maxLoss) / maxProfit).toFixed(2)} : 1` : '—';
@@ -210,39 +236,63 @@ export default function OptionsAnalyzer() {
             </div>
           </div>
 
-          <svg viewBox="0 0 700 280" style={{ width: '100%', height: 280 }}>
-            {chartPoints.map((p, i) => {
-              const x = 40 + (i / (chartPoints.length - 1)) * 630;
-              const w = 630 / chartPoints.length;
-              const leg = enrichedLegs.reduce((a, b) => Math.abs(b.strike - p.spot) < Math.abs(a.strike - p.spot) ? b : a, enrichedLegs[0]);
-              const withinBar = Math.abs(leg.strike - p.spot) < (spotMax - spotMin) / chartPoints.length;
-              if (!withinBar || !checkedLegIds.has(leg.id)) return null;
-              const barH = (leg.oi / maxOi) * 100;
-              return (
-                <rect key={i} x={x - w / 2} y={230 - barH} width={w * 0.9} height={barH}
-                  fill={leg.optionType === 'CE' ? 'var(--loss)' : 'var(--profit)'} opacity={0.18} />
-              );
-            })}
-            <line x1="40" y1="130" x2="670" y2="130" stroke="rgba(255,255,255,0.06)" />
-            {chartPoints.length > 1 && (
-              <>
-                <polyline
-                  points={chartPoints.map((p, i) => `${40 + (i / (chartPoints.length - 1)) * 630},${130 - (p.onExpiry / maxAbsPnl) * 100}`).join(' ')}
-                  fill="none" stroke="rgba(228,235,248,0.4)" strokeWidth="1.5" strokeDasharray="4,4"
-                />
-                <polyline
-                  points={chartPoints.map((p, i) => `${40 + (i / (chartPoints.length - 1)) * 630},${130 - (p.onTarget / maxAbsPnl) * 100}`).join(' ')}
-                  fill="none" stroke="var(--profit)" strokeWidth="2.5"
-                />
-              </>
-            )}
-            {(() => {
-              const xPos = 40 + ((currentSpot - spotMin) / (spotMax - spotMin)) * 630;
-              return <line x1={xPos} y1="10" x2={xPos} y2="250" stroke="var(--accent)" strokeWidth="1" strokeDasharray="3,3" />;
-            })()}
-            <text x="40" y="265" fontSize="10" fill="var(--text-muted)">{Math.round(spotMin).toLocaleString('en-IN')}</text>
-            <text x="640" y="265" fontSize="10" fill="var(--text-muted)" textAnchor="end">{Math.round(spotMax).toLocaleString('en-IN')}</text>
-          </svg>
+          {(() => {
+            const W = 700, H = 280, padL = 46, padR = 16, padT = 16, padB = 30;
+            const plotW = W - padL - padR;
+            const plotH = H - padT - padB;
+            const xScale = s => padL + ((s - spotMin) / (spotMax - spotMin)) * plotW;
+            const yScale = v => padT + plotH / 2 - (v / maxAbsPnl) * (plotH / 2);
+            const zeroY = yScale(0);
+
+            const expiryPath = chartPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(p.spot)},${yScale(p.onExpiry)}`).join(' ');
+            const targetPath = chartPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(p.spot)},${yScale(p.onTarget)}`).join(' ');
+            const lossAreaPath = `${expiryPath} L${xScale(spotMax)},${zeroY} L${xScale(spotMin)},${zeroY} Z`;
+
+            return (
+              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 280 }}>
+                {[0.25, 0.5, 0.75].map(frac => (
+                  <line key={frac} x1={padL} y1={padT + plotH * frac} x2={W - padR} y2={padT + plotH * frac} stroke="rgba(255,255,255,0.04)" />
+                ))}
+                {enrichedLegs.filter(l => checkedLegIds.has(l.id)).map(leg => {
+                  const x = xScale(leg.strike);
+                  const barW = Math.max(plotW / 60, 4);
+                  const barH = (leg.oi / maxOi) * (plotH * 0.42);
+                  return (
+                    <rect key={leg.id} x={x - barW / 2} y={zeroY - barH} width={barW} height={barH}
+                      fill={leg.optionType === 'CE' ? 'var(--loss)' : 'var(--profit)'} opacity={0.32} />
+                  );
+                })}
+                <line x1={padL} y1={zeroY} x2={W - padR} y2={zeroY} stroke="rgba(255,255,255,0.1)" />
+                <path d={lossAreaPath} fill="var(--loss)" opacity={0.08} />
+                {chartPoints.length > 1 && (
+                  <>
+                    <path d={expiryPath} fill="none" stroke="rgba(228,235,248,0.4)" strokeWidth="1.5" strokeDasharray="4,4" />
+                    <path d={targetPath} fill="none" stroke="var(--profit)" strokeWidth="2.5" />
+                  </>
+                )}
+                {(() => {
+                  const xPos = xScale(currentSpot);
+                  return (
+                    <>
+                      <line x1={xPos} y1={padT} x2={xPos} y2={H - padB} stroke="var(--accent)" strokeWidth="1" strokeDasharray="3,3" />
+                      <rect x={xPos - 58} y={2} width={116} height={18} rx={4} fill="var(--bg-card2)" stroke="var(--border)" />
+                      <text x={xPos} y={14} fontSize="10" fill="var(--text-primary)" textAnchor="middle" fontFamily="'JetBrains Mono', monospace">
+                        Spot: {Math.round(currentSpot).toLocaleString('en-IN')}
+                      </text>
+                    </>
+                  );
+                })()}
+                {[0, 0.25, 0.5, 0.75, 1].map(frac => {
+                  const val = spotMin + (spotMax - spotMin) * frac;
+                  return (
+                    <text key={frac} x={xScale(val)} y={H - 8} fontSize="10" fill="var(--text-muted)" textAnchor="middle">
+                      {Math.round(val).toLocaleString('en-IN')}
+                    </text>
+                  );
+                })}
+              </svg>
+            );
+          })()}
 
           <div style={{ textAlign: 'center', marginTop: 10 }}>
             <span style={{
@@ -265,13 +315,35 @@ export default function OptionsAnalyzer() {
                 style={{ width: '100%', accentColor: 'var(--accent)' }} />
             </div>
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
-                <span>Target date</span>
-                <span style={{ fontFamily: "'JetBrains Mono', monospace", color: 'var(--text-primary)' }}>{targetDte}d</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                <button
+                  onClick={() => setTargetTimeMs(t => Math.max((t ?? nowMs) - 24 * 60 * 60 * 1000, nowMs))}
+                  style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}
+                >‹</button>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 13, fontWeight: 600 }}>
+                    {new Date(targetMs).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}
+                    {' '}
+                    {new Date(targetMs).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                    {targetDaysToExpiry < 1
+                      ? `${Math.round(targetDaysToExpiry * 24)} hours to expiry`
+                      : `${targetDaysToExpiry.toFixed(1)} days to expiry`}
+                  </div>
+                </div>
+                <button
+                  onClick={() => setTargetTimeMs(t => Math.min((t ?? nowMs) + 24 * 60 * 60 * 1000, expiryMs))}
+                  style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}
+                >›</button>
               </div>
-              <input type="range" min={0} max={Math.max((position.daysToExpiry ?? 5) + 5, 14)} step={1} value={targetDte || 0}
-                onChange={e => setTargetDte(parseFloat(e.target.value))}
+              <input type="range" min={nowMs} max={expiryMs} step={60 * 60 * 1000} value={targetMs}
+                onChange={e => setTargetTimeMs(parseFloat(e.target.value))}
                 style={{ width: '100%', accentColor: 'var(--accent)' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                <span>{new Date(nowMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                <span>{new Date(expiryMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -326,6 +398,7 @@ export default function OptionsAnalyzer() {
               <tr style={{ color: 'var(--text-muted)' }}>
                 <th style={{ width: 26 }}></th>
                 <th style={{ textAlign: 'left', fontFamily: 'Inter, sans-serif', fontWeight: 500, padding: '4px 0' }}>Leg</th>
+                <th style={{ textAlign: 'right', fontWeight: 500, padding: '4px 0' }}>Avg</th>
                 <th style={{ textAlign: 'right', fontWeight: 500, padding: '4px 0' }}>LTP</th>
                 <th style={{ textAlign: 'right', fontWeight: 500, padding: '4px 0' }}>IV</th>
                 <th style={{ textAlign: 'right', fontWeight: 500, padding: '4px 0' }}>OI</th>
@@ -344,8 +417,15 @@ export default function OptionsAnalyzer() {
                       <input type="checkbox" checked={isChecked} onChange={() => toggleLeg(leg.id)} style={{ accentColor: 'var(--accent)', cursor: 'pointer' }} />
                     </td>
                     <td style={{ padding: '6px 0', textAlign: 'left', fontFamily: 'Inter, sans-serif' }}>
-                      <span style={{ color: leg.transactionType === 'SELL' ? 'var(--loss)' : 'var(--profit)', fontWeight: 600 }}>{leg.transactionType}</span> {leg.strike} {leg.optionType}
+                      <span style={{
+                        display: 'inline-block', width: 16, height: 16, borderRadius: 3, textAlign: 'center', lineHeight: '16px',
+                        fontSize: 10, fontWeight: 700, marginRight: 6,
+                        background: leg.transactionType === 'SELL' ? 'var(--loss-dim)' : 'var(--profit-dim)',
+                        color: leg.transactionType === 'SELL' ? 'var(--loss)' : 'var(--profit)',
+                      }}>{leg.transactionType === 'SELL' ? 'S' : 'B'}</span>
+                      {leg.quantity} x {position.expiry ? new Date(position.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : ''} {leg.strike} {leg.optionType}
                     </td>
+                    <td style={{ padding: '6px 0', textAlign: 'right', color: 'var(--text-secondary)' }}>{leg.premium.toFixed(1)}</td>
                     <td style={{ padding: '6px 0', textAlign: 'right' }}>{leg.ltp.toFixed(1)}</td>
                     <td style={{ padding: '6px 0', textAlign: 'right' }}>{leg.iv.toFixed(1)}%</td>
                     <td style={{ padding: '6px 0', textAlign: 'right' }}>{(leg.oi / 100000).toFixed(1)}L</td>
