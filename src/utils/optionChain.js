@@ -6,11 +6,18 @@ const SYNC_SERVER = 'http://localhost:5001';
 // free, no auth needed) and falling back to AngelOne's Option Greeks API
 // only if NSE's scrape fails (site changes, bot-detection tightening, etc).
 //
+// isoExpiry: the position's stored expiry as an ISO date string (e.g.
+// "2026-06-26") — converted internally to whichever format each broker's
+// API actually expects, since NSE and AngelOne use different conventions.
+//
 // Returns a normalized shape regardless of source:
 // { ok, source: 'nse' | 'angelone', underlyingValue, rows: [
 //     { strike, expiry, CE: { ltp, iv, oi, delta, gamma, theta, vega },
 //               PE: { ltp, iv, oi, delta, gamma, theta, vega } }, ... ] }
-export async function fetchOptionChain(symbol, expiryDate, r = 0.065) {
+export async function fetchOptionChain(symbol, isoExpiry, r = 0.065) {
+  const nseExpiry = toNseExpiryFormat(isoExpiry);
+  const angelExpiry = toAngelOneExpiryFormat(isoExpiry);
+
   // ---- Try NSE first ----
   try {
     const res = await fetch(`${SYNC_SERVER}/optionchain/nse`, {
@@ -20,7 +27,7 @@ export async function fetchOptionChain(symbol, expiryDate, r = 0.065) {
     });
     const data = await res.json();
     if (data.success && data.records?.length) {
-      const rows = normalizeNseRecords(data.records, expiryDate, data.underlyingValue, r);
+      const rows = normalizeNseRecords(data.records, nseExpiry, data.underlyingValue, r);
       if (rows.length) {
         return { ok: true, source: 'nse', underlyingValue: data.underlyingValue, rows };
       }
@@ -34,7 +41,7 @@ export async function fetchOptionChain(symbol, expiryDate, r = 0.065) {
     const res = await fetch(`${SYNC_SERVER}/optionchain/angelone`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: symbol, expirydate: expiryDate }),
+      body: JSON.stringify({ name: symbol, expirydate: angelExpiry }),
     });
     const data = await res.json();
     if (data.success && data.chain?.length) {
