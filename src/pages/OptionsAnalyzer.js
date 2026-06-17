@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useJournal } from '../context/JournalContext';
-import { fetchOptionChain, toNseExpiryFormat, toAngelOneExpiryFormat, toNseSymbol } from '../utils/optionChain';
+import { fetchOptionChain, toNseSymbol } from '../utils/optionChain';
 import {
   payoffAt, intrinsicAt, netPremium, findBreakevens,
   positionGreeks, maxProfitLoss, impliedFuturesPrice, standardDeviation,
@@ -55,9 +55,7 @@ export default function OptionsAnalyzer() {
     setChainError(null);
 
     const symbol = toNseSymbol(position.instrument);
-    const nseExpiry = toNseExpiryFormat(position.expiry);
-
-    fetchOptionChain(symbol, nseExpiry, RISK_FREE_RATE).then(result => {
+    fetchOptionChain(symbol, position.expiry, RISK_FREE_RATE).then(result => {
       if (cancelled) return;
       setLoadingChain(false);
       if (!result.ok) {
