@@ -35,7 +35,8 @@ export default function OptionsAnalyzer() {
   const [loadingChain, setLoadingChain] = useState(false);
   const [chainError, setChainError] = useState(null);
 
-  const [spot, setSpot] = useState(null);
+  const [liveSpot, setLiveSpot] = useState(null); // real market spot, refreshed by polling
+  const [scenarioSpot, setScenarioSpot] = useState(null); // user-dragged target spot, null = follow live
   const [targetTimeMs, setTargetTimeMs] = useState(null); // target datetime, as ms since epoch
 
   const position = openPositions.find(p => p.positionId === selectedPositionId) || openPositions[0];
@@ -45,57 +46,85 @@ export default function OptionsAnalyzer() {
     if (!position) return;
     setCheckedLegIds(new Set(position.legs.map(l => l.id)));
     setTargetTimeMs(Date.now());
+    setScenarioSpot(null);
   }, [position?.positionId]); // eslint-disable-line
 
   // Fetch the real current spot price independently of the option chain
   // source — AngelOne's optionGreek response doesn't include an underlying
   // value, so relying on the chain response alone left spot defaulting to
   // a meaningless placeholder (the first leg's strike) whenever NSE failed.
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [nowTick, setNowTick] = useState(Date.now());
+
+  // Ticks every second purely to keep the "updated Xs ago" label live —
+  // doesn't trigger any network calls itself.
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const secondsAgo = lastUpdated ? Math.max(0, Math.round((nowTick - lastUpdated) / 1000)) : null;
+
   useEffect(() => {
     if (!position) return;
     let cancelled = false;
-    fetchTickerQuotes([toNseSymbol(position.instrument)]).then(result => {
-      if (cancelled) return;
-      const quote = result.quotes?.find(q => q.name === toNseSymbol(position.instrument));
-      if (quote?.ltp) setSpot(quote.ltp);
-    });
-    return () => { cancelled = true; };
+
+    const fetchSpot = () => {
+      fetchTickerQuotes([toNseSymbol(position.instrument)]).then(result => {
+        if (cancelled) return;
+        const quote = result.quotes?.find(q => q.name === toNseSymbol(position.instrument));
+        if (quote?.ltp) setLiveSpot(quote.ltp);
+      });
+    };
+
+    fetchSpot();
+    // Refresh the live spot price periodically so the analyzer tracks the
+    // market in real time rather than showing a stale snapshot from load.
+    const intervalId = setInterval(fetchSpot, 7000);
+    return () => { cancelled = true; clearInterval(intervalId); };
   }, [position?.positionId]); // eslint-disable-line
 
   // Fetch the live option chain for this position's instrument + expiry,
-  // matching each leg's strike + optionType to the chain response.
+  // matching each leg's strike + optionType to the chain response. Polled
+  // on the same cadence as spot so LTP/IV/OI per leg, and everything
+  // derived from them (Greeks, P&L tables, payoff curve), stays current.
   useEffect(() => {
     if (!position) return;
     let cancelled = false;
-    setLoadingChain(true);
-    setChainError(null);
 
-    const symbol = toNseSymbol(position.instrument);
-    fetchOptionChain(symbol, position.expiry, RISK_FREE_RATE).then(result => {
-      if (cancelled) return;
-      setLoadingChain(false);
-      if (!result.ok) {
-        setChainError(result.error);
-        return;
-      }
-      setChainSource(result.source);
-      // NSE's response includes a reliable underlying value — prefer it
-      // over the ticker quote when available, since it's from the same
-      // snapshot as the option chain data itself (consistent pricing).
-      if (result.underlyingValue) setSpot(result.underlyingValue);
-
-      const byLeg = {};
-      position.legs.forEach(leg => {
-        const row = result.rows.find(r => r.strike === leg.strike);
-        const legData = row ? row[leg.optionType] : null;
-        if (legData) {
-          byLeg[leg.id] = { ltp: legData.ltp, iv: legData.iv, oi: legData.oi };
+    const fetchChain = (isFirstLoad) => {
+      if (isFirstLoad) setLoadingChain(true);
+      const symbol = toNseSymbol(position.instrument);
+      fetchOptionChain(symbol, position.expiry, RISK_FREE_RATE).then(result => {
+        if (cancelled) return;
+        if (isFirstLoad) setLoadingChain(false);
+        if (!result.ok) {
+          if (isFirstLoad) setChainError(result.error);
+          return;
         }
-      });
-      setChainData(byLeg);
-    });
+        setChainError(null);
+        setChainSource(result.source);
+        // NSE's response includes a reliable underlying value — prefer it
+        // over the ticker quote when available, since it's from the same
+        // snapshot as the option chain data itself (consistent pricing).
+        if (result.underlyingValue) setLiveSpot(result.underlyingValue);
 
-    return () => { cancelled = true; };
+        const byLeg = {};
+        position.legs.forEach(leg => {
+          const row = result.rows.find(r => r.strike === leg.strike);
+          const legData = row ? row[leg.optionType] : null;
+          if (legData) {
+            byLeg[leg.id] = { ltp: legData.ltp, iv: legData.iv, oi: legData.oi };
+          }
+        });
+        setChainData(byLeg);
+        setLastUpdated(Date.now());
+      });
+    };
+
+    fetchChain(true);
+    const intervalId = setInterval(() => fetchChain(false), 7000);
+    return () => { cancelled = true; clearInterval(intervalId); };
   }, [position?.positionId]); // eslint-disable-line
 
   if (!openPositions.length) {
@@ -128,7 +157,7 @@ export default function OptionsAnalyzer() {
 
   const spotMin = Math.min(...enrichedLegs.map(l => l.strike)) * 0.92;
   const spotMax = Math.max(...enrichedLegs.map(l => l.strike)) * 1.08;
-  const currentSpot = spot || (spotMin + spotMax) / 2;
+  const currentSpot = scenarioSpot ?? liveSpot ?? (spotMin + spotMax) / 2;
 
   const expiryMs = position.expiry ? new Date(position.expiry).getTime() : Date.now();
   const nowMs = Date.now();
@@ -203,6 +232,12 @@ export default function OptionsAnalyzer() {
         </select>
         {loadingChain && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>loading option chain…</span>}
         {chainError && <span style={{ fontSize: 11, color: 'var(--loss)' }}>chain unavailable — using entry premiums</span>}
+        {!loadingChain && !chainError && lastUpdated && (
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--profit)', display: 'inline-block' }} />
+            updated {secondsAgo}s ago
+          </span>
+        )}
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 18 }}>
         {position.legs.map(l => `${l.strike}${l.optionType}`).join('/')} · {position.legs[0]?.quantity}L × {position.legs[0]?.lotSize}
@@ -306,15 +341,28 @@ export default function OptionsAnalyzer() {
 
           <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
-                <span>Target spot price</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  Target spot price
+                  {scenarioSpot !== null && (
+                    <button onClick={() => setScenarioSpot(null)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
+                  )}
+                </span>
                 <span style={{ fontFamily: "'JetBrains Mono', monospace", color: 'var(--text-primary)' }}>{Math.round(currentSpot).toLocaleString('en-IN')}</span>
               </div>
               <input type="range" min={spotMin} max={spotMax} step={10} value={currentSpot}
-                onChange={e => setSpot(parseFloat(e.target.value))}
+                onChange={e => setScenarioSpot(parseFloat(e.target.value))}
                 style={{ width: '100%', accentColor: 'var(--accent)' }} />
             </div>
             <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  Target date
+                  {targetTimeMs !== null && Math.abs(targetTimeMs - nowMs) > 1000 && (
+                    <button onClick={() => setTargetTimeMs(Date.now())} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
+                  )}
+                </span>
+              </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <button
                   onClick={() => setTargetTimeMs(t => Math.max((t ?? nowMs) - 24 * 60 * 60 * 1000, nowMs))}
