@@ -4,15 +4,28 @@ const RISK_FREE_RATE = 0.065;
 
 // Calculate P&L for a set of legs at a given spot price and time-to-expiry.
 // T=0 means at/after expiry (uses intrinsic value only).
-export function payoffAt(legs, S, T, r = RISK_FREE_RATE) {
+//
+// useRealLtp: when true (the "right now" scenario), legs with a real
+// chain-quoted LTP use that directly instead of a Black-Scholes theoretical
+// price — this keeps the analyzer's current-moment P&L consistent with the
+// live P&L shown elsewhere in the app, which is based on actual quoted
+// prices, not a model. Black-Scholes only takes over for genuine
+// what-if scenarios (a different spot and/or a future target date), where
+// no real quote for that hypothetical exists.
+export function payoffAt(legs, S, T, r = RISK_FREE_RATE, useRealLtp = false) {
   let total = 0;
   legs.forEach(leg => {
     const qty = (leg.quantity || 1) * (leg.lotSize || 1);
     const sign = leg.transactionType === 'SELL' ? -1 : 1;
     const sigma = (leg.iv || 15) / 100;
-    const value = T <= 0
-      ? (leg.optionType === 'CE' ? Math.max(S - leg.strike, 0) : Math.max(leg.strike - S, 0))
-      : blackScholes(S, leg.strike, T, r, sigma, leg.optionType).price;
+    let value;
+    if (T <= 0) {
+      value = leg.optionType === 'CE' ? Math.max(S - leg.strike, 0) : Math.max(leg.strike - S, 0);
+    } else if (useRealLtp && leg.ltp !== undefined && leg.ltp !== null) {
+      value = leg.ltp;
+    } else {
+      value = blackScholes(S, leg.strike, T, r, sigma, leg.optionType).price;
+    }
     total += sign * (value - leg.premium) * qty;
   });
   return total;
