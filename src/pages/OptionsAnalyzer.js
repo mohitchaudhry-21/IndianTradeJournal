@@ -166,13 +166,17 @@ export default function OptionsAnalyzer() {
   // hour-level precision rather than whole days, since theta decay is
   // continuous through the trading day, not a once-a-day step.
   const T = Math.max(expiryMs - targetMs, 0) / (1000 * 60 * 60 * 24 * 365);
+  // True only when neither slider has been moved away from "right now" —
+  // in that exact state, P&L should use real quoted LTPs rather than a
+  // Black-Scholes re-derivation, so it matches the live P&L shown elsewhere.
+  const isCurrentMoment = scenarioSpot === null && Math.abs(targetMs - nowMs) < 60 * 1000;
   const targetDaysToExpiry = Math.max(expiryMs - targetMs, 0) / (1000 * 60 * 60 * 24);
 
   const { maxProfit, maxLoss } = maxProfitLoss(activeLegs, spotMin, spotMax);
   const riskReward = (maxLoss < 0 && maxProfit > 0) ? `${(Math.abs(maxLoss) / maxProfit).toFixed(2)} : 1` : '—';
   const breakevens = findBreakevens(activeLegs, spotMin, spotMax);
   const net = netPremium(activeLegs);
-  const curPnl = activeLegs.length ? payoffAt(activeLegs, currentSpot, T) : null;
+  const curPnl = activeLegs.length ? payoffAt(activeLegs, currentSpot, T, RISK_FREE_RATE, isCurrentMoment) : null;
   const intrinsic = activeLegs.length ? intrinsicAt(activeLegs, currentSpot) : null;
   const timeValue = curPnl !== null && intrinsic !== null ? curPnl - intrinsic : null;
   const greeks = activeLegs.length ? positionGreeks(activeLegs, currentSpot, T) : { delta: 0, gamma: 0, theta: 0, vega: 0 };
