@@ -18,6 +18,7 @@ const SECTIONS = [
     items: [
       { to: '/history',    label: 'Trade History',    icon: '☰' },
       { to: '/analytics',  label: 'Analytics',        icon: '⟋' },
+      { to: '/analyzer',   label: 'Options Analyzer', icon: '⌖' },
     ],
   },
   {
