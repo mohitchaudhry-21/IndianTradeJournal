@@ -6,6 +6,7 @@ import TickerBar from './components/TickerBar';
 import LoginScreen, { isAuthEnabled, isAuthenticated } from './components/LoginScreen';
 import Dashboard from './pages/Dashboard';
 import Positions from './pages/Positions';
+import OptionsAnalyzer from './pages/OptionsAnalyzer';
 import TradeHistory from './pages/TradeHistory';
 import Analytics from './pages/Analytics';
 import ManualEntry from './pages/ManualEntry';
@@ -79,6 +80,7 @@ export default function App() {
               <Routes>
               <Route path="/"           element={<Dashboard />} />
               <Route path="/positions"  element={<Positions />} />
+              <Route path="/analyzer"   element={<OptionsAnalyzer />} />
               <Route path="/history"    element={<TradeHistory />} />
               <Route path="/analytics"  element={<Analytics />} />
               <Route path="/entry"      element={<ManualEntry />} />
