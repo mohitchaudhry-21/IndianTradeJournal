@@ -88,6 +88,8 @@ export default function OptionsAnalyzer() {
   // matching each leg's strike + optionType to the chain response. Polled
   // on the same cadence as spot so LTP/IV/OI per leg, and everything
   // derived from them (Greeks, P&L tables, payoff curve), stays current.
+  const [pollFailing, setPollFailing] = useState(false);
+
   useEffect(() => {
     if (!position) return;
     let cancelled = false;
@@ -100,8 +102,10 @@ export default function OptionsAnalyzer() {
         if (isFirstLoad) setLoadingChain(false);
         if (!result.ok) {
           if (isFirstLoad) setChainError(result.error);
+          else setPollFailing(true);
           return;
         }
+        setPollFailing(false);
         setChainError(null);
         setChainSource(result.source);
         // NSE's response includes a reliable underlying value — prefer it
@@ -144,11 +148,18 @@ export default function OptionsAnalyzer() {
   const enrichedLegs = position.legs.map(leg => {
     const remainingQty = (leg.quantity || 1) - (leg.exits || []).reduce((s, e) => s + (e.quantity || 0), 0);
     const chain = chainData[leg.id];
+    // AngelOne's optionGreek endpoint returns Greeks and IV but never LTP —
+    // only NSE's chain includes real LTP per strike. So a "live" LTP is
+    // only genuinely live when it came from NSE; otherwise there's no real
+    // current price available and the entry premium is shown as a clearly
+    // labeled placeholder rather than silently passed off as live data.
+    const hasLiveLtp = chainSource === 'nse' && chain?.ltp !== undefined && chain?.ltp !== null;
     return {
       ...leg,
       quantity: remainingQty,
       iv: chain?.iv ?? 15,
-      ltp: chain?.ltp ?? leg.premium,
+      ltp: hasLiveLtp ? chain.ltp : leg.premium,
+      ltpIsLive: hasLiveLtp,
       oi: chain?.oi ?? 0,
     };
   }).filter(l => l.quantity > 0);
@@ -170,13 +181,15 @@ export default function OptionsAnalyzer() {
   // in that exact state, P&L should use real quoted LTPs rather than a
   // Black-Scholes re-derivation, so it matches the live P&L shown elsewhere.
   const isCurrentMoment = scenarioSpot === null && Math.abs(targetMs - nowMs) < 60 * 1000;
+  const allActiveLegsHaveLiveLtp = activeLegs.length > 0 && activeLegs.every(l => l.ltpIsLive);
+  const useRealLtpForHeadline = isCurrentMoment && allActiveLegsHaveLiveLtp;
   const targetDaysToExpiry = Math.max(expiryMs - targetMs, 0) / (1000 * 60 * 60 * 24);
 
   const { maxProfit, maxLoss } = maxProfitLoss(activeLegs, spotMin, spotMax);
   const riskReward = (maxLoss < 0 && maxProfit > 0) ? `${(Math.abs(maxLoss) / maxProfit).toFixed(2)} : 1` : '—';
   const breakevens = findBreakevens(activeLegs, spotMin, spotMax);
   const net = netPremium(activeLegs);
-  const curPnl = activeLegs.length ? payoffAt(activeLegs, currentSpot, T, RISK_FREE_RATE, isCurrentMoment) : null;
+  const curPnl = activeLegs.length ? payoffAt(activeLegs, currentSpot, T, RISK_FREE_RATE, useRealLtpForHeadline) : null;
   const intrinsic = activeLegs.length ? intrinsicAt(activeLegs, currentSpot) : null;
   const timeValue = curPnl !== null && intrinsic !== null ? curPnl - intrinsic : null;
   const greeks = activeLegs.length ? positionGreeks(activeLegs, currentSpot, T) : { delta: 0, gamma: 0, theta: 0, vega: 0 };
@@ -236,7 +249,13 @@ export default function OptionsAnalyzer() {
         </select>
         {loadingChain && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>loading option chain…</span>}
         {chainError && <span style={{ fontSize: 11, color: 'var(--loss)' }}>chain unavailable — using entry premiums</span>}
-        {!loadingChain && !chainError && lastUpdated && (
+        {!loadingChain && !chainError && pollFailing && (
+          <span style={{ fontSize: 11, color: '#FFA53D', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#FFA53D', display: 'inline-block' }} />
+            live updates stalled — showing data from {secondsAgo}s ago
+          </span>
+        )}
+        {!loadingChain && !chainError && !pollFailing && lastUpdated && (
           <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--profit)', display: 'inline-block' }} />
             updated {secondsAgo}s ago
@@ -478,7 +497,9 @@ export default function OptionsAnalyzer() {
                       {leg.quantity} x {position.expiry ? new Date(position.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : ''} {leg.strike} {leg.optionType}
                     </td>
                     <td style={{ padding: '6px 0', textAlign: 'right', color: 'var(--text-secondary)' }}>{leg.premium.toFixed(1)}</td>
-                    <td style={{ padding: '6px 0', textAlign: 'right' }}>{leg.ltp.toFixed(1)}</td>
+                    <td style={{ padding: '6px 0', textAlign: 'right', color: leg.ltpIsLive ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                      {leg.ltp.toFixed(1)}{!leg.ltpIsLive && <span style={{ fontSize: 9 }}> (entry)</span>}
+                    </td>
                     <td style={{ padding: '6px 0', textAlign: 'right' }}>{leg.iv.toFixed(1)}%</td>
                     <td style={{ padding: '6px 0', textAlign: 'right' }}>{(leg.oi / 100000).toFixed(1)}L</td>
                     <td style={{ padding: '6px 0', textAlign: 'right' }}>{(sign * g.delta).toFixed(2)}</td>
