@@ -15,6 +15,29 @@ function fmt(value, decimals = 1) {
   return Number.isFinite(n) ? n.toFixed(decimals) : '—';
 }
 
+// OI change is stored as an absolute delta (changeInOi), not a percentage —
+// derive the percentage from the implied previous OI. Returns null rather
+// than 0 when there's no real OI data (e.g. AngelOne's chain, which never
+// reports OI), so the UI can show a dash instead of a misleading "+0%".
+function oiChangePct(side) {
+  if (!side) return null;
+  const prevOi = side.oi - side.changeInOi;
+  if (!prevOi) return null;
+  return (side.changeInOi / prevOi) * 100;
+}
+
+function OiBar({ value, max, color }) {
+  const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ width: 32, height: 6, background: 'var(--bg-card2)', borderRadius: 3, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: 6, background: color, borderRadius: 3 }} />
+      </div>
+      <span style={{ fontSize: 11, color: 'var(--text-muted)', minWidth: 28 }}>{value ? fmt(value / 100000, 1) + 'L' : '—'}</span>
+    </div>
+  );
+}
+
 function formatAngelExpiry(angelExpiry) {
   // "26JUN2026" -> "26 Jun"
   if (!angelExpiry || angelExpiry.length < 7) return angelExpiry;
@@ -42,7 +65,8 @@ export default function StrategyBuilder() {
 
   const [legs, setLegs] = useState([]); // { id, strike, optionType, transactionType, quantity, lotSize, iv, premium, ltp }
   const [scenarioSpot, setScenarioSpot] = useState(null);
-  const [pickerView, setPickerView] = useState('LTP'); // 'LTP' | 'OI' | 'GREEKS'
+  const [pickerView, setPickerView] = useState('CHAIN'); // 'CHAIN' | 'GREEKS' — OI is now always shown in CHAIN view
+  const [hoveredStrike, setHoveredStrike] = useState(null); // strike currently hovered, reveals B/S buttons
 
   // Fetch available expiries whenever the instrument changes
   useEffect(() => {
@@ -216,18 +240,8 @@ export default function StrategyBuilder() {
 
   return (
     <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
-          <div className="page-title">Strategy builder</div>
-          <select value={instrument} onChange={e => setInstrument(e.target.value)}
-            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', padding: '6px 10px', fontSize: 13 }}>
-            {KNOWN_SYMBOLS.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
-          </select>
-          <select value={selectedExpiry || ''} onChange={e => setSelectedExpiry(e.target.value)}
-            style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', padding: '6px 10px', fontSize: 13 }}>
-            {expiries.map(exp => <option key={exp} value={exp}>{formatAngelExpiry(exp)}</option>)}
-          </select>
-        </div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+        <div className="page-title">Strategy builder</div>
         {chainSource && (
           <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--profit)', display: 'inline-block' }} />
@@ -235,8 +249,21 @@ export default function StrategyBuilder() {
           </span>
         )}
       </div>
-      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 18 }}>
-        Click B or S next to a strike's price to add it as a leg. Click again to add another lot. Spot: {currentSpot ? Math.round(currentSpot).toLocaleString('en-IN') : '—'}
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', marginBottom: 16, flexWrap: 'wrap' }}>
+        <select value={instrument} onChange={e => setInstrument(e.target.value)}
+          style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', padding: '6px 10px', fontSize: 13 }}>
+          {KNOWN_SYMBOLS.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
+        </select>
+        <span style={{ fontSize: 15, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}>
+          {currentSpot ? Math.round(currentSpot).toLocaleString('en-IN') : '—'}
+        </span>
+        <span style={{ width: 1, height: 18, background: 'var(--border)' }} />
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Expiry</span>
+        <select value={selectedExpiry || ''} onChange={e => setSelectedExpiry(e.target.value)}
+          style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', padding: '6px 10px', fontSize: 13 }}>
+          {expiries.map(exp => <option key={exp} value={exp}>{formatAngelExpiry(exp)}</option>)}
+        </select>
       </div>
 
       {legs.length > 0 && (
@@ -278,7 +305,7 @@ export default function StrategyBuilder() {
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 8 }}>
-              {['LTP', 'OI', 'GREEKS'].map(v => (
+              {['CHAIN', 'GREEKS'].map(v => (
                 <button key={v} onClick={() => setPickerView(v)}
                   style={{
                     background: pickerView === v ? 'var(--accent)' : 'var(--bg-card2)',
@@ -296,32 +323,53 @@ export default function StrategyBuilder() {
               <thead>
                 <tr style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase' }}>
                   {pickerView === 'GREEKS' && <th style={{ textAlign: 'right', padding: '4px 6px' }}>Delta</th>}
-                  <th style={{ textAlign: 'right', padding: '4px 6px' }}>{pickerView === 'OI' ? 'Call OI' : pickerView === 'GREEKS' ? 'Call Θ' : 'Call LTP'}</th>
+                  <th style={{ textAlign: 'right', padding: '4px 6px' }}>OI chg</th>
+                  <th style={{ textAlign: 'right', padding: '4px 6px' }}>Call OI</th>
+                  <th style={{ textAlign: 'right', padding: '4px 6px' }}>Call LTP</th>
                   <th style={{ textAlign: 'center', padding: '4px 6px' }}>Strike</th>
-                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>{pickerView === 'OI' ? 'Put OI' : pickerView === 'GREEKS' ? 'Put Θ' : 'Put LTP'}</th>
+                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>Put LTP</th>
+                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>Put OI</th>
+                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>OI chg</th>
                   {pickerView === 'GREEKS' && <th style={{ textAlign: 'left', padding: '4px 6px' }}>Delta</th>}
                 </tr>
               </thead>
               <tbody>
                 {chainRows.map(row => {
                   const isAtm = Math.abs(row.strike - currentSpot) < (spotMax - spotMin) / chainRows.length / 2;
+                  const showCeBtns = row.CE && (isAtm || hoveredStrike === row.strike);
+                  const showPeBtns = row.PE && (isAtm || hoveredStrike === row.strike);
+                  const ceChg = oiChangePct(row.CE);
+                  const peChg = oiChangePct(row.PE);
                   return (
-                    <tr key={row.strike} style={{ background: isAtm ? 'rgba(255,255,255,0.04)' : 'transparent' }}>
+                    <tr key={row.strike}
+                      onMouseEnter={() => setHoveredStrike(row.strike)}
+                      onMouseLeave={() => setHoveredStrike(prev => prev === row.strike ? null : prev)}
+                      style={{ background: isAtm ? 'var(--accent-dim)' : 'transparent', borderTop: isAtm ? '1px solid var(--accent)' : 'none', borderBottom: isAtm ? '1px solid var(--accent)' : 'none' }}>
                       {pickerView === 'GREEKS' && (
                         <td style={{ textAlign: 'right', padding: '5px 6px', color: 'var(--text-secondary)' }}>{fmt(row.CE?.delta, 2)}</td>
                       )}
+                      <td style={{ textAlign: 'right', padding: '5px 6px', color: ceChg === null ? 'var(--text-muted)' : ceChg >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                        {ceChg === null ? '—' : `${ceChg >= 0 ? '+' : ''}${Math.round(ceChg)}%`}
+                      </td>
+                      <td style={{ textAlign: 'right', padding: '5px 6px' }}>
+                        {row.CE ? <OiBar value={row.CE.oi} max={maxOi} color="var(--loss)" /> : '—'}
+                      </td>
                       <td style={{ textAlign: 'right', padding: '5px 6px' }}>
                         {row.CE ? (
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 4 }}>
-                            <button onClick={() => addLeg(row.strike, 'CE', 'BUY')}
-                              title="Buy CE"
-                              style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer' }}>B</button>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4, minHeight: 18 }}>
+                            {showCeBtns && (
+                              <button onClick={() => addLeg(row.strike, 'CE', 'BUY')}
+                                title="Buy CE"
+                                style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer' }}>B</button>
+                            )}
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", minWidth: 50, textAlign: 'right' }}>
-                              {pickerView === 'OI' ? fmt((row.CE.oi || 0) / 100000) + 'L' : pickerView === 'GREEKS' ? fmt(row.CE.theta) : fmt(row.CE.ltp)}
+                              {pickerView === 'GREEKS' ? fmt(row.CE.theta) : fmt(row.CE.ltp)}
                             </span>
-                            <button onClick={() => addLeg(row.strike, 'CE', 'SELL')}
-                              title="Sell CE"
-                              style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer' }}>S</button>
+                            {showCeBtns && (
+                              <button onClick={() => addLeg(row.strike, 'CE', 'SELL')}
+                                title="Sell CE"
+                                style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer' }}>S</button>
+                            )}
                           </div>
                         ) : '—'}
                       </td>
@@ -330,18 +378,28 @@ export default function StrategyBuilder() {
                       </td>
                       <td style={{ textAlign: 'left', padding: '5px 6px' }}>
                         {row.PE ? (
-                          <div style={{ display: 'flex', justifyContent: 'flex-start', gap: 4 }}>
-                            <button onClick={() => addLeg(row.strike, 'PE', 'BUY')}
-                              title="Buy PE"
-                              style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer' }}>B</button>
+                          <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 4, minHeight: 18 }}>
+                            {showPeBtns && (
+                              <button onClick={() => addLeg(row.strike, 'PE', 'BUY')}
+                                title="Buy PE"
+                                style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer' }}>B</button>
+                            )}
                             <span style={{ fontFamily: "'JetBrains Mono', monospace", minWidth: 50 }}>
-                              {pickerView === 'OI' ? fmt((row.PE.oi || 0) / 100000) + 'L' : pickerView === 'GREEKS' ? fmt(row.PE.theta) : fmt(row.PE.ltp)}
+                              {pickerView === 'GREEKS' ? fmt(row.PE.theta) : fmt(row.PE.ltp)}
                             </span>
-                            <button onClick={() => addLeg(row.strike, 'PE', 'SELL')}
-                              title="Sell PE"
-                              style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer' }}>S</button>
+                            {showPeBtns && (
+                              <button onClick={() => addLeg(row.strike, 'PE', 'SELL')}
+                                title="Sell PE"
+                                style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer' }}>S</button>
+                            )}
                           </div>
                         ) : '—'}
+                      </td>
+                      <td style={{ textAlign: 'left', padding: '5px 6px' }}>
+                        {row.PE ? <OiBar value={row.PE.oi} max={maxOi} color="var(--profit)" /> : '—'}
+                      </td>
+                      <td style={{ textAlign: 'left', padding: '5px 6px', color: peChg === null ? 'var(--text-muted)' : peChg >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                        {peChg === null ? '—' : `${peChg >= 0 ? '+' : ''}${Math.round(peChg)}%`}
                       </td>
                       {pickerView === 'GREEKS' && (
                         <td style={{ textAlign: 'left', padding: '5px 6px', color: 'var(--text-secondary)' }}>{fmt(row.PE?.delta, 2)}</td>
@@ -478,7 +536,7 @@ export default function StrategyBuilder() {
 
       {legs.length === 0 && (
         <div style={{ textAlign: 'center', padding: '60px 0', color: 'var(--text-muted)', fontSize: 13 }}>
-          Click B or S next to any strike's price to start building a strategy.
+          Hover a strike's price and click B or S to start building a strategy.
         </div>
       )}
     </div>
