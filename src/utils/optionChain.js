@@ -128,7 +128,10 @@ function normalizeNseRecords(records, targetExpiry, spot, r) {
 function normalizeAngelOneChain(chain) {
   const byStrike = {};
   chain.forEach(item => {
-    const strike = item.strikePrice;
+    // AngelOne's API can return strikePrice as a string (e.g. "24200.000000")
+    // rather than a number — coerce explicitly so downstream strict-equality
+    // matching against leg.strike (always a number) doesn't silently fail.
+    const strike = parseFloat(item.strikePrice);
     if (!byStrike[strike]) byStrike[strike] = { strike, expiry: null };
     byStrike[strike][item.optionType] = {
       ltp: item.ltp || 0,
