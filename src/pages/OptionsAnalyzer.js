@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useJournal } from '../context/JournalContext';
 import { fetchOptionChain, fetchAngelOneLtp, angelOneLtpKey, toNseSymbol } from '../utils/optionChain';
 import { fetchTickerQuotes } from '../utils/tickerQuotes';
+import { isMarketOpen, saveAnalysisSnapshot, loadAnalysisSnapshot } from '../utils/marketHours';
 import {
   payoffAt, intrinsicAt, netPremium, findBreakevens,
   positionGreeks, maxProfitLoss, impliedFuturesPrice, standardDeviation,
@@ -40,11 +41,13 @@ export default function OptionsAnalyzer() {
   const [checkedLegIds, setCheckedLegIds] = useState(new Set());
   const [chainData, setChainData] = useState({}); // legId -> { ltp, iv, oi }
   const [chainSource, setChainSource] = useState(null); // 'nse' | 'angelone' | null
-  const [angelLtpByLeg, setAngelLtpByLeg] = useState({}); // legId -> real LTP, only populated when chainSource is angelone
+  const [angelLtpByLeg, setAngelLtpByLeg] = useState({}); // legId -> { ltp, oi }, only populated when chainSource is angelone
   const [loadingChain, setLoadingChain] = useState(false);
   const [chainError, setChainError] = useState(null);
 
   const [liveSpot, setLiveSpot] = useState(null); // real market spot, refreshed by polling
+  const liveSpotRef = useRef(null);
+  useEffect(() => { liveSpotRef.current = liveSpot; }, [liveSpot]);
   const [scenarioSpot, setScenarioSpot] = useState(null); // user-dragged target spot, null = follow live
   const [targetTimeMs, setTargetTimeMs] = useState(null); // target datetime, as ms since epoch
 
@@ -54,7 +57,11 @@ export default function OptionsAnalyzer() {
   useEffect(() => {
     if (!position) return;
     setCheckedLegIds(new Set(position.legs.map(l => l.id)));
-    setTargetTimeMs(Date.now());
+    // null means "follow the live clock" — only a manual drag pins this to
+    // a concrete timestamp. Pinning it here on load would freeze the
+    // target date at whatever moment the position was opened, silently
+    // going stale (and the P&L with it) the longer the page stays open.
+    setTargetTimeMs(null);
     setScenarioSpot(null);
   }, [position?.positionId]); // eslint-disable-line
 
@@ -63,6 +70,8 @@ export default function OptionsAnalyzer() {
   // value, so relying on the chain response alone left spot defaulting to
   // a meaningless placeholder (the first leg's strike) whenever NSE failed.
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [usingSnapshot, setUsingSnapshot] = useState(false);
+  const [snapshotSavedAt, setSnapshotSavedAt] = useState(null);
   const [nowTick, setNowTick] = useState(Date.now());
 
   // Ticks every second purely to keep the "updated Xs ago" label live —
@@ -77,6 +86,18 @@ export default function OptionsAnalyzer() {
   useEffect(() => {
     if (!position) return;
     let cancelled = false;
+
+    if (!isMarketOpen()) {
+      // Market's closed — there's nothing genuinely live to poll, so load
+      // whatever was last saved while it was open instead of hitting the
+      // broker API with calls it may not handle well post-close.
+      const snap = loadAnalysisSnapshot(position.positionId);
+      if (snap?.liveSpot) setLiveSpot(snap.liveSpot);
+      setUsingSnapshot(true);
+      setSnapshotSavedAt(snap?.savedAt ?? null);
+      return;
+    }
+    setUsingSnapshot(false);
 
     const fetchSpot = () => {
       fetchTickerQuotes([toNseSymbol(position.instrument)]).then(result => {
@@ -102,6 +123,19 @@ export default function OptionsAnalyzer() {
   useEffect(() => {
     if (!position) return;
     let cancelled = false;
+
+    if (!isMarketOpen()) {
+      const snap = loadAnalysisSnapshot(position.positionId);
+      if (snap) {
+        setChainData(snap.chainData || {});
+        setChainSource(snap.chainSource || null);
+        setAngelLtpByLeg(snap.angelLtpByLeg || {});
+        setLastUpdated(snap.savedAt || null);
+      } else {
+        setChainError('Market is closed and no earlier snapshot from today is available — open this position once during market hours to enable after-hours analysis.');
+      }
+      return;
+    }
 
     const fetchChain = (isFirstLoad) => {
       if (isFirstLoad) setLoadingChain(true);
@@ -152,9 +186,13 @@ export default function OptionsAnalyzer() {
               if (ltpResult.quotesByKey[key] !== undefined) byLegLtp[leg.id] = ltpResult.quotesByKey[key];
             });
             setAngelLtpByLeg(byLegLtp);
+            // Snapshot after the AngelOne lookup resolves too, so a
+            // post-close session has real LTP and OI available, not just Greeks.
+            saveAnalysisSnapshot(position.positionId, { chainData: byLeg, chainSource: result.source, angelLtpByLeg: byLegLtp, liveSpot: result.underlyingValue || liveSpotRef.current });
           });
         } else {
           setAngelLtpByLeg({});
+          saveAnalysisSnapshot(position.positionId, { chainData: byLeg, chainSource: result.source, angelLtpByLeg: {}, liveSpot: result.underlyingValue || liveSpotRef.current });
         }
       });
     };
@@ -181,22 +219,23 @@ export default function OptionsAnalyzer() {
   const enrichedLegs = position.legs.map(leg => {
     const remainingQty = (leg.quantity || 1) - (leg.exits || []).reduce((s, e) => s + (e.quantity || 0), 0);
     const chain = chainData[leg.id];
-    const angelLtp = angelLtpByLeg[leg.id];
+    const angelData = angelLtpByLeg[leg.id]; // { ltp, oi } from AngelOne's FULL-mode quote lookup
     // A "live" LTP comes from either NSE's chain (which includes it
     // directly) or AngelOne's separate per-contract lookup (since
-    // AngelOne's optionGreek endpoint never returns LTP itself). Only when
-    // neither source has resolved a real price does the entry premium
-    // stand in, and it's clearly labeled as a placeholder when it does.
+    // AngelOne's optionGreek endpoint never returns LTP or OI itself).
+    // Only when neither source has resolved a real price does the entry
+    // premium stand in, and it's clearly labeled as a placeholder when it does.
     const hasLiveLtp = (chainSource === 'nse' && chain?.ltp !== undefined && chain?.ltp !== null)
-      || (chainSource === 'angelone' && angelLtp !== undefined && angelLtp !== null);
-    const liveLtpValue = chainSource === 'nse' ? chain?.ltp : angelLtp;
+      || (chainSource === 'angelone' && angelData?.ltp !== undefined && angelData?.ltp !== null);
+    const liveLtpValue = chainSource === 'nse' ? chain?.ltp : angelData?.ltp;
+    const liveOiValue = chainSource === 'nse' ? chain?.oi : angelData?.oi;
     return {
       ...leg,
       quantity: remainingQty,
       iv: chain?.iv ?? 15,
       ltp: hasLiveLtp ? liveLtpValue : leg.premium,
       ltpIsLive: hasLiveLtp,
-      oi: chain?.oi ?? 0,
+      oi: liveOiValue ?? 0,
     };
   }).filter(l => l.quantity > 0);
 
@@ -207,7 +246,7 @@ export default function OptionsAnalyzer() {
   const currentSpot = scenarioSpot ?? liveSpot ?? (spotMin + spotMax) / 2;
 
   const expiryMs = position.expiry ? new Date(position.expiry).getTime() : Date.now();
-  const nowMs = Date.now();
+  const nowMs = nowTick;
   const targetMs = targetTimeMs ?? nowMs;
   // Time remaining from the chosen target moment to expiry, in years —
   // hour-level precision rather than whole days, since theta decay is
@@ -283,15 +322,24 @@ export default function OptionsAnalyzer() {
             </option>
           ))}
         </select>
-        {loadingChain && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>loading option chain…</span>}
-        {chainError && <span style={{ fontSize: 11, color: 'var(--loss)' }}>chain unavailable — using entry premiums</span>}
-        {!loadingChain && !chainError && pollFailing && (
+        {usingSnapshot && (
+          <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--text-muted)', display: 'inline-block' }} />
+            market closed — analyzing last data from{' '}
+            {snapshotSavedAt
+              ? new Date(snapshotSavedAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+              : 'today'}
+          </span>
+        )}
+        {!usingSnapshot && loadingChain && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>loading option chain…</span>}
+        {!usingSnapshot && chainError && <span style={{ fontSize: 11, color: 'var(--loss)' }}>chain unavailable — using entry premiums</span>}
+        {!usingSnapshot && !loadingChain && !chainError && pollFailing && (
           <span style={{ fontSize: 11, color: '#FFA53D', display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#FFA53D', display: 'inline-block' }} />
             live updates stalled — showing data from {secondsAgo}s ago
           </span>
         )}
-        {!loadingChain && !chainError && !pollFailing && lastUpdated && (
+        {!usingSnapshot && !loadingChain && !chainError && !pollFailing && lastUpdated && (
           <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--profit)', display: 'inline-block' }} />
             updated {secondsAgo}s ago
@@ -437,7 +485,7 @@ export default function OptionsAnalyzer() {
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   Target date
                   {targetTimeMs !== null && Math.abs(targetTimeMs - nowMs) > 1000 && (
-                    <button onClick={() => setTargetTimeMs(Date.now())} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
+                    <button onClick={() => setTargetTimeMs(null)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
                   )}
                 </span>
               </div>
@@ -515,7 +563,7 @@ export default function OptionsAnalyzer() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: chainSource === 'nse' ? 'var(--profit)' : chainSource === 'angelone' ? '#FFA53D' : 'var(--text-muted)', display: 'inline-block' }} />
-              <span>{checkedLegIds.size} of {enrichedLegs.length} legs selected{chainSource ? ` · ${chainSource === 'nse' ? 'live from NSE' : 'live from AngelOne'}` : ''}</span>
+              <span>{checkedLegIds.size} of {enrichedLegs.length} legs selected{chainSource ? ` · ${usingSnapshot ? `${chainSource === 'nse' ? 'NSE' : 'AngelOne'} (last close)` : (chainSource === 'nse' ? 'live from NSE' : 'live from AngelOne')}` : ''}</span>
             </div>
             <button onClick={selectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer' }}>select all</button>
           </div>
