@@ -309,19 +309,8 @@ export default function OptionsAnalyzer() {
 
   return (
     <div style={{ padding: 28 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
         <div className="page-title" style={{ margin: 0 }}>Options analyzer</div>
-        <select
-          value={position.positionId}
-          onChange={e => setSelectedPositionId(e.target.value)}
-          style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, padding: '7px 10px', outline: 'none', minWidth: 260 }}
-        >
-          {openPositions.map(p => (
-            <option key={p.positionId} value={p.positionId}>
-              {p.instrument} {p.strategyName} · {p.expiry ? new Date(p.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : ''}
-            </option>
-          ))}
-        </select>
         {usingSnapshot && (
           <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--text-muted)', display: 'inline-block' }} />
@@ -346,9 +335,44 @@ export default function OptionsAnalyzer() {
           </span>
         )}
       </div>
-      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 18 }}>
-        {position.legs.map(l => `${l.strike}${l.optionType}`).join('/')} · {position.legs[0]?.quantity}L × {position.legs[0]?.lotSize}
-        {position.daysToExpiry !== null && ` · ${position.daysToExpiry}d to expiry`}
+
+      <div style={{ marginBottom: 18 }}>
+        <select
+          value={position.positionId}
+          onChange={e => setSelectedPositionId(e.target.value)}
+          style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, padding: '9px 12px', outline: 'none', marginBottom: 10 }}
+        >
+          {openPositions.map(p => (
+            <option key={p.positionId} value={p.positionId}>
+              {p.instrument} {p.strategyName} · {p.expiry ? new Date(p.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : ''}
+            </option>
+          ))}
+        </select>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: position.daysToExpiry !== null ? 8 : 0 }}>
+          {position.legs.map(l => (
+            <div key={l.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-card2)', borderRadius: 8, padding: '8px 12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{
+                  fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
+                  background: l.transactionType === 'SELL' ? 'var(--loss-dim)' : 'var(--profit-dim)',
+                  color: l.transactionType === 'SELL' ? 'var(--loss)' : 'var(--profit)',
+                }}>{l.transactionType}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{l.strike}{l.optionType}</span>
+              </div>
+              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{l.quantity}L × {l.lotSize}</span>
+            </div>
+          ))}
+        </div>
+
+        {position.daysToExpiry !== null && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,165,61,0.10)', borderRadius: 8, padding: '8px 12px' }}>
+            <span style={{ fontSize: 11, color: '#FFA53D' }}>Expiry</span>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#FFA53D' }}>
+              {position.daysToExpiry}d{position.expiry ? ` · ${new Date(position.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` : ''}
+            </span>
+          </div>
+        )}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 18 }}>
