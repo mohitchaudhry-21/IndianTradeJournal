@@ -515,7 +515,7 @@ export default function OptionsAnalyzer() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ width: 6, height: 6, borderRadius: '50%', background: chainSource === 'nse' ? 'var(--profit)' : chainSource === 'angelone' ? '#FFA53D' : 'var(--text-muted)', display: 'inline-block' }} />
-              <span>{checkedLegIds.size} of {enrichedLegs.length} legs selected{chainSource ? ` · ${chainSource === 'nse' ? 'live from NSE' : 'AngelOne (NSE unavailable)'}` : ''}</span>
+              <span>{checkedLegIds.size} of {enrichedLegs.length} legs selected{chainSource ? ` · ${chainSource === 'nse' ? 'live from NSE' : 'live from AngelOne'}` : ''}</span>
             </div>
             <button onClick={selectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer' }}>select all</button>
           </div>
