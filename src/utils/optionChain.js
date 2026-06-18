@@ -54,6 +54,42 @@ export async function fetchOptionChain(symbol, isoExpiry, r = 0.065) {
   }
 }
 
+// Fetch real, current LTP for specific option contracts directly from
+// AngelOne — used only when the option chain came from the AngelOne
+// fallback, since that source's Greeks API never includes LTP at all
+// (confirmed against AngelOne's own documented response fields). Resolves
+// each leg to its scrip-master token server-side, then batch-fetches LTP.
+//
+// legs: [{ instrument, strike, optionType, expiry (ISO date) }]
+// Returns: { ok, quotesByKey: { "NIFTY_24200_CE_26JUN2026": 66.9, ... }, unresolved: [] }
+export async function fetchAngelOneLtp(legs) {
+  if (!legs.length) return { ok: false, quotesByKey: {}, unresolved: [] };
+  try {
+    const payload = legs.map(leg => ({
+      instrument: leg.instrument,
+      strike: leg.strike,
+      optionType: leg.optionType,
+      expiry: toAngelOneExpiryFormat(leg.expiry),
+    }));
+    const res = await fetch(`${SYNC_SERVER}/optionchain/angelone-ltp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ legs: payload }),
+    });
+    const data = await res.json();
+    if (!data.success) return { ok: false, quotesByKey: {}, unresolved: data.unresolved || [], error: data.error };
+    return { ok: true, quotesByKey: data.quotes || {}, unresolved: data.unresolved || [] };
+  } catch (e) {
+    return { ok: false, quotesByKey: {}, unresolved: [], error: e.message };
+  }
+}
+
+// Build the same lookup key used server-side, so the frontend can match a
+// leg back to its quote in the quotesByKey map.
+export function angelOneLtpKey(leg) {
+  return `${leg.instrument}_${leg.strike}_${leg.optionType}_${toAngelOneExpiryFormat(leg.expiry)}`;
+}
+
 // NSE gives IV, LTP, OI per strike but no pre-computed Greeks — calculate
 // them locally with Black-Scholes using NSE's own market-implied IV.
 function normalizeNseRecords(records, targetExpiry, spot, r) {
