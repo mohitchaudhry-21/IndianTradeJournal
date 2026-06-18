@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchOptionChain, fetchExpiryList } from '../utils/optionChain';
+import { fetchOptionChain, fetchExpiryList, fetchAngelOneLtp, angelOneLtpKey } from '../utils/optionChain';
 import { fetchTickerQuotes } from '../utils/tickerQuotes';
 import { payoffAt, netPremium, findBreakevens, positionGreeks, maxProfitLoss, impliedFuturesPrice, standardDeviation } from '../utils/optionsAnalysis';
 import { KNOWN_SYMBOLS } from '../utils/tickerSymbols';
@@ -137,6 +137,35 @@ export default function StrategyBuilder() {
         setChainSource(result.source);
         setChainRows(result.rows);
         if (result.underlyingValue) setSpot(result.underlyingValue);
+
+        // AngelOne's optionGreek API (the fallback used whenever NSE's
+        // chain is blocked) only ever returns Greeks/IV — never LTP or OI,
+        // confirmed against its own documented response fields. Without
+        // this follow-up call every strike would show a flat 0 LTP and a
+        // blank OI, indistinguishable from the chain having no data at all
+        // even though it loaded successfully. Mirrors the same real-price
+        // backfill the Options Analyzer already does for saved legs.
+        if (result.source === 'angelone' && result.rows.length) {
+          const legsToPrice = [];
+          result.rows.forEach(row => {
+            ['CE', 'PE'].forEach(type => {
+              if (row[type]) legsToPrice.push({ instrument, strike: row.strike, optionType: type, expiry: isoFromAngel });
+            });
+          });
+          fetchAngelOneLtp(legsToPrice).then(ltpResult => {
+            if (cancelled || !ltpResult.ok) return;
+            setChainRows(prevRows => prevRows.map(row => {
+              const next = { ...row };
+              ['CE', 'PE'].forEach(type => {
+                if (!next[type]) return;
+                const key = angelOneLtpKey({ instrument, strike: row.strike, optionType: type, expiry: isoFromAngel });
+                const quote = ltpResult.quotesByKey[key];
+                if (quote) next[type] = { ...next[type], ltp: quote.ltp, oi: quote.oi };
+              });
+              return next;
+            }));
+          });
+        }
       });
     };
 
