@@ -7,6 +7,7 @@ import LoginScreen, { isAuthEnabled, isAuthenticated } from './components/LoginS
 import Dashboard from './pages/Dashboard';
 import Positions from './pages/Positions';
 import OptionsAnalyzer from './pages/OptionsAnalyzer';
+import StrategyBuilder from './pages/StrategyBuilder';
 import TradeHistory from './pages/TradeHistory';
 import Analytics from './pages/Analytics';
 import ManualEntry from './pages/ManualEntry';
@@ -81,6 +82,7 @@ export default function App() {
               <Route path="/"           element={<Dashboard />} />
               <Route path="/positions"  element={<Positions />} />
               <Route path="/analyzer"   element={<OptionsAnalyzer />} />
+              <Route path="/strategy-builder" element={<StrategyBuilder />} />
               <Route path="/history"    element={<TradeHistory />} />
               <Route path="/analytics"  element={<Analytics />} />
               <Route path="/entry"      element={<ManualEntry />} />
