@@ -116,7 +116,7 @@ export default function OptionsAnalyzer() {
 
         const byLeg = {};
         position.legs.forEach(leg => {
-          const row = result.rows.find(r => r.strike === leg.strike);
+          const row = result.rows.find(r => Math.abs(r.strike - leg.strike) < 0.01);
           const legData = row ? row[leg.optionType] : null;
           if (legData) {
             byLeg[leg.id] = { ltp: legData.ltp, iv: legData.iv, oi: legData.oi };
@@ -392,14 +392,33 @@ export default function OptionsAnalyzer() {
 
           <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   Target spot price
                   {scenarioSpot !== null && (
                     <button onClick={() => setScenarioSpot(null)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
                   )}
                 </span>
-                <span style={{ fontFamily: "'JetBrains Mono', monospace", color: 'var(--text-primary)' }}>{Math.round(currentSpot).toLocaleString('en-IN')}</span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <button onClick={() => setScenarioSpot(Math.max(spotMin, currentSpot - 10))}
+                    style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text-primary)', width: 24, height: 24, cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>−</button>
+                  <input
+                    type="number"
+                    value={Math.round(currentSpot)}
+                    onChange={e => {
+                      const v = parseFloat(e.target.value);
+                      if (!isNaN(v)) setScenarioSpot(v);
+                    }}
+                    style={{
+                      width: 90, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace",
+                      fontSize: 15, fontWeight: 600, color: 'var(--text-primary)',
+                      background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 5,
+                      padding: '4px 8px',
+                    }}
+                  />
+                  <button onClick={() => setScenarioSpot(Math.min(spotMax, currentSpot + 10))}
+                    style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text-primary)', width: 24, height: 24, cursor: 'pointer', fontSize: 14, lineHeight: 1 }}>+</button>
+                </div>
               </div>
               <input type="range" min={spotMin} max={spotMax} step={10} value={currentSpot}
                 onChange={e => setScenarioSpot(parseFloat(e.target.value))}
