@@ -2,12 +2,17 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useJournal } from '../context/JournalContext';
 import { useTickerQuotes } from '../hooks/useTickerQuotes';
 import { KNOWN_SYMBOLS } from '../utils/tickerSymbols';
+import { isMarketOpen } from '../utils/marketHours';
 
 export default function TickerBar() {
   const { settings, updateSettings } = useJournal();
   const selected = settings.tickerSymbols || [];
   const [paused, setPaused] = useState(false);
-  const { quotes } = useTickerQuotes(selected, 1000, paused);
+  const marketOpen = isMarketOpen();
+  // No point polling every second for a price that isn't moving — back off
+  // to a slow refresh after close (still useful in case the underlying
+  // quote source corrects/updates its closing print shortly after the bell).
+  const { quotes } = useTickerQuotes(selected, marketOpen ? 1000 : 60000, paused);
   const [pickerOpen, setPickerOpen] = useState(false);
   const pickerRef = useRef(null);
 
@@ -52,6 +57,11 @@ export default function TickerBar() {
                   <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: up ? 'var(--profit)' : 'var(--loss)' }}>
                     {up ? '▲' : '▼'} {up ? '+' : ''}{q.change.toFixed(2)} ({up ? '+' : ''}{q.changePct.toFixed(2)}%)
                   </span>
+                  {!marketOpen && (
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', borderRadius: 4, padding: '1px 5px' }}>
+                      Closed
+                    </span>
+                  )}
                 </>
               ) : (
                 <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>—</span>
