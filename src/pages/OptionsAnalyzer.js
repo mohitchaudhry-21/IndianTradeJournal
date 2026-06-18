@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useJournal } from '../context/JournalContext';
-import { fetchOptionChain, toNseSymbol } from '../utils/optionChain';
+import { fetchOptionChain, fetchAngelOneLtp, angelOneLtpKey, toNseSymbol } from '../utils/optionChain';
 import { fetchTickerQuotes } from '../utils/tickerQuotes';
 import {
   payoffAt, intrinsicAt, netPremium, findBreakevens,
@@ -32,6 +32,7 @@ export default function OptionsAnalyzer() {
   const [checkedLegIds, setCheckedLegIds] = useState(new Set());
   const [chainData, setChainData] = useState({}); // legId -> { ltp, iv, oi }
   const [chainSource, setChainSource] = useState(null); // 'nse' | 'angelone' | null
+  const [angelLtpByLeg, setAngelLtpByLeg] = useState({}); // legId -> real LTP, only populated when chainSource is angelone
   const [loadingChain, setLoadingChain] = useState(false);
   const [chainError, setChainError] = useState(null);
 
@@ -123,6 +124,30 @@ export default function OptionsAnalyzer() {
         });
         setChainData(byLeg);
         setLastUpdated(Date.now());
+
+        // AngelOne's Greeks/IV response never includes LTP — fetch real
+        // current prices separately via the scrip-master-backed lookup
+        // whenever AngelOne is the active source, so the legs table shows
+        // genuine live prices instead of falling back to entry premiums.
+        if (result.source === 'angelone') {
+          const legsForLtp = position.legs.map(leg => ({
+            instrument: position.instrument,
+            strike: leg.strike,
+            optionType: leg.optionType,
+            expiry: position.expiry,
+          }));
+          fetchAngelOneLtp(legsForLtp).then(ltpResult => {
+            if (cancelled || !ltpResult.ok) return;
+            const byLegLtp = {};
+            position.legs.forEach(leg => {
+              const key = angelOneLtpKey({ instrument: position.instrument, strike: leg.strike, optionType: leg.optionType, expiry: position.expiry });
+              if (ltpResult.quotesByKey[key] !== undefined) byLegLtp[leg.id] = ltpResult.quotesByKey[key];
+            });
+            setAngelLtpByLeg(byLegLtp);
+          });
+        } else {
+          setAngelLtpByLeg({});
+        }
       });
     };
 
@@ -148,17 +173,20 @@ export default function OptionsAnalyzer() {
   const enrichedLegs = position.legs.map(leg => {
     const remainingQty = (leg.quantity || 1) - (leg.exits || []).reduce((s, e) => s + (e.quantity || 0), 0);
     const chain = chainData[leg.id];
-    // AngelOne's optionGreek endpoint returns Greeks and IV but never LTP —
-    // only NSE's chain includes real LTP per strike. So a "live" LTP is
-    // only genuinely live when it came from NSE; otherwise there's no real
-    // current price available and the entry premium is shown as a clearly
-    // labeled placeholder rather than silently passed off as live data.
-    const hasLiveLtp = chainSource === 'nse' && chain?.ltp !== undefined && chain?.ltp !== null;
+    const angelLtp = angelLtpByLeg[leg.id];
+    // A "live" LTP comes from either NSE's chain (which includes it
+    // directly) or AngelOne's separate per-contract lookup (since
+    // AngelOne's optionGreek endpoint never returns LTP itself). Only when
+    // neither source has resolved a real price does the entry premium
+    // stand in, and it's clearly labeled as a placeholder when it does.
+    const hasLiveLtp = (chainSource === 'nse' && chain?.ltp !== undefined && chain?.ltp !== null)
+      || (chainSource === 'angelone' && angelLtp !== undefined && angelLtp !== null);
+    const liveLtpValue = chainSource === 'nse' ? chain?.ltp : angelLtp;
     return {
       ...leg,
       quantity: remainingQty,
       iv: chain?.iv ?? 15,
-      ltp: hasLiveLtp ? chain.ltp : leg.premium,
+      ltp: hasLiveLtp ? liveLtpValue : leg.premium,
       ltpIsLive: hasLiveLtp,
       oi: chain?.oi ?? 0,
     };
