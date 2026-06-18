@@ -179,6 +179,26 @@ export function toAngelOneExpiryFormat(isoDate) {
   return `${day}${month}${d.getFullYear()}`;
 }
 
+// Fetch every available expiry for an instrument (powers the Strategy
+// Builder's expiry dropdown, where there's no saved position to derive an
+// expiry from). Returns AngelOne-format date strings (e.g. "26JUN2026"),
+// since that's directly usable as the expiry param for chain/LTP lookups
+// without a round-trip ISO conversion.
+export async function fetchExpiryList(instrument) {
+  try {
+    const res = await fetch(`${SYNC_SERVER}/optionchain/expirylist`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instrument }),
+    });
+    const data = await res.json();
+    if (!data.success) return { ok: false, expiries: [], error: data.error };
+    return { ok: true, expiries: data.expiries || [] };
+  } catch (e) {
+    return { ok: false, expiries: [], error: e.message };
+  }
+}
+
 // Map a stored instrument name (e.g. "NIFTY", "SENSEX") to NSE's expected
 // symbol param — these already match 1:1 for the indices OptionsDesk tracks.
 export function toNseSymbol(instrument) {
