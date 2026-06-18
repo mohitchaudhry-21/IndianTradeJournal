@@ -9,6 +9,14 @@ import {
 
 const RISK_FREE_RATE = 0.065;
 
+// Defensive formatting — broker APIs occasionally return numeric fields as
+// strings or omit them entirely, and a bare .toFixed() call on anything
+// non-numeric crashes the whole page rather than degrading gracefully.
+function fmt(value, decimals = 1) {
+  const n = typeof value === 'number' ? value : parseFloat(value);
+  return Number.isFinite(n) ? n.toFixed(decimals) : '—';
+}
+
 function fmtMoney(n) {
   if (n === null || n === undefined || isNaN(n)) return '—';
   const sign = n < 0 ? '-' : '+';
@@ -543,14 +551,14 @@ export default function OptionsAnalyzer() {
                       }}>{leg.transactionType === 'SELL' ? 'S' : 'B'}</span>
                       {leg.quantity} x {position.expiry ? new Date(position.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : ''} {leg.strike} {leg.optionType}
                     </td>
-                    <td style={{ padding: '6px 0', textAlign: 'right', color: 'var(--text-secondary)' }}>{leg.premium.toFixed(1)}</td>
+                    <td style={{ padding: '6px 0', textAlign: 'right', color: 'var(--text-secondary)' }}>{fmt(leg.premium)}</td>
                     <td style={{ padding: '6px 0', textAlign: 'right', color: leg.ltpIsLive ? 'var(--text-primary)' : 'var(--text-muted)' }}>
-                      {leg.ltp.toFixed(1)}{!leg.ltpIsLive && <span style={{ fontSize: 9 }}> (entry)</span>}
+                      {fmt(leg.ltp)}{!leg.ltpIsLive && <span style={{ fontSize: 9 }}> (entry)</span>}
                     </td>
-                    <td style={{ padding: '6px 0', textAlign: 'right' }}>{leg.iv.toFixed(1)}%</td>
-                    <td style={{ padding: '6px 0', textAlign: 'right' }}>{(leg.oi / 100000).toFixed(1)}L</td>
-                    <td style={{ padding: '6px 0', textAlign: 'right' }}>{(sign * g.delta).toFixed(2)}</td>
-                    <td style={{ padding: '6px 0', textAlign: 'right' }}>{(sign * g.theta).toFixed(1)}</td>
+                    <td style={{ padding: '6px 0', textAlign: 'right' }}>{fmt(leg.iv)}%</td>
+                    <td style={{ padding: '6px 0', textAlign: 'right' }}>{fmt((leg.oi || 0) / 100000)}L</td>
+                    <td style={{ padding: '6px 0', textAlign: 'right' }}>{fmt(sign * g.delta, 2)}</td>
+                    <td style={{ padding: '6px 0', textAlign: 'right' }}>{fmt(sign * g.theta)}</td>
                   </tr>
                 );
               })}
