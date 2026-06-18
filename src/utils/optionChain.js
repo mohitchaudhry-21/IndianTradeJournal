@@ -97,22 +97,22 @@ function normalizeNseRecords(records, targetExpiry, spot, r) {
   const T = filtered[0] ? daysToExpiry(filtered[0].expiryDate) / 365 : 0;
 
   return filtered.map(rec => {
-    const row = { strike: rec.strikePrice, expiry: rec.expiryDate };
+    const row = { strike: parseFloat(rec.strikePrice), expiry: rec.expiryDate };
     ['CE', 'PE'].forEach(type => {
       const leg = rec[type];
       if (!leg) { row[type] = null; return; }
-      const iv = (leg.impliedVolatility || 0) / 100;
+      const iv = (parseFloat(leg.impliedVolatility) || 0) / 100;
       const greeks = iv > 0 && spot
-        ? blackScholes(spot, rec.strikePrice, T, r, iv, type)
+        ? blackScholes(spot, row.strike, T, r, iv, type)
         : { delta: 0, gamma: 0, theta: 0, vega: 0 };
       row[type] = {
-        ltp: leg.lastPrice || 0,
-        iv: leg.impliedVolatility || 0,
-        oi: leg.openInterest || 0,
-        changeInOi: leg.changeinOpenInterest || 0,
-        volume: leg.totalTradedVolume || 0,
-        bid: leg.bidprice || 0,
-        ask: leg.askPrice || 0,
+        ltp: parseFloat(leg.lastPrice) || 0,
+        iv: parseFloat(leg.impliedVolatility) || 0,
+        oi: parseFloat(leg.openInterest) || 0,
+        changeInOi: parseFloat(leg.changeinOpenInterest) || 0,
+        volume: parseFloat(leg.totalTradedVolume) || 0,
+        bid: parseFloat(leg.bidprice) || 0,
+        ask: parseFloat(leg.askPrice) || 0,
         delta: greeks.delta,
         gamma: greeks.gamma,
         theta: greeks.theta,
@@ -128,23 +128,24 @@ function normalizeNseRecords(records, targetExpiry, spot, r) {
 function normalizeAngelOneChain(chain) {
   const byStrike = {};
   chain.forEach(item => {
-    // AngelOne's API can return strikePrice as a string (e.g. "24200.000000")
-    // rather than a number — coerce explicitly so downstream strict-equality
-    // matching against leg.strike (always a number) doesn't silently fail.
+    // AngelOne's API can return numeric fields as strings rather than
+    // numbers — coerce every one explicitly. A single un-coerced string
+    // field reaching a .toFixed() call anywhere downstream crashes the
+    // whole page, so this isn't optional.
     const strike = parseFloat(item.strikePrice);
     if (!byStrike[strike]) byStrike[strike] = { strike, expiry: null };
     byStrike[strike][item.optionType] = {
-      ltp: item.ltp || 0,
-      iv: item.impliedVolatility || 0,
+      ltp: parseFloat(item.ltp) || 0,
+      iv: parseFloat(item.impliedVolatility) || 0,
       oi: 0,
       changeInOi: 0,
-      volume: item.tradeVolume || 0,
+      volume: parseFloat(item.tradeVolume) || 0,
       bid: 0,
       ask: 0,
-      delta: item.delta || 0,
-      gamma: item.gamma || 0,
-      theta: item.theta || 0,
-      vega: item.vega || 0,
+      delta: parseFloat(item.delta) || 0,
+      gamma: parseFloat(item.gamma) || 0,
+      theta: parseFloat(item.theta) || 0,
+      vega: parseFloat(item.vega) || 0,
     };
   });
   return Object.values(byStrike).sort((a, b) => a.strike - b.strike);
