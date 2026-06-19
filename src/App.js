@@ -55,6 +55,19 @@ const PAGE_TITLES = {
   '/settings':   'Settings',
 };
 
+// Keeps StrategyBuilder mounted at all times — only toggles visibility.
+// This preserves the live option chain poll, leg state, expiry selection,
+// and all derived data across navigation without needing sessionStorage hacks.
+function StrategyBuilderKeepAlive() {
+  const location = useLocation();
+  const isActive = location.pathname === '/strategy-builder';
+  return (
+    <div style={{ display: isActive ? 'block' : 'none' }}>
+      <StrategyBuilder />
+    </div>
+  );
+}
+
 function TitleUpdater() {
   const location = useLocation();
   useEffect(() => {
@@ -78,11 +91,16 @@ export default function App() {
           <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, marginLeft:'var(--sidebar-w)' }}>
             <TickerBar />
             <main className="main-content" style={{ flex:1, marginLeft:0 }}>
+              {/* StrategyBuilder is always mounted (never unmounted on navigation)
+                  so its option chain polling, leg state, and expiry data all
+                  survive when the user navigates to another page and comes back.
+                  We simply hide/show it with CSS instead of mounting/unmounting. */}
+              <StrategyBuilderKeepAlive />
               <Routes>
               <Route path="/"           element={<Dashboard />} />
               <Route path="/positions"  element={<Positions />} />
               <Route path="/analyzer"   element={<OptionsAnalyzer />} />
-              <Route path="/strategy-builder" element={<StrategyBuilder />} />
+              <Route path="/strategy-builder" element={null} />
               <Route path="/history"    element={<TradeHistory />} />
               <Route path="/analytics"  element={<Analytics />} />
               <Route path="/entry"      element={<ManualEntry />} />
