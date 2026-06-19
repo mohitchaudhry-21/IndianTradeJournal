@@ -1,6 +1,25 @@
-import { blackScholes } from './blackscholes';
+import { blackScholes, impliedVolatility as solveIV } from './blackscholes';
 
 const RISK_FREE_RATE = 0.065;
+
+// Calibrate IV for each leg from its real entry LTP, so that Black-Scholes
+// reproduces the actual market price at the time of entry. This makes the
+// P&L chart consistent with real quoted premiums rather than drifting based
+// on the chain's per-strike model IV.
+export function calibrateLegsIV(legs, S, T, r = RISK_FREE_RATE) {
+  if (T <= 0) return legs;
+  return legs.map(leg => {
+    const marketPrice = leg.ltp ?? leg.premium;
+    if (!marketPrice || marketPrice <= 0) return leg;
+    try {
+      const calibratedSigma = solveIV(marketPrice, S, leg.strike, T, r, leg.optionType, (leg.iv || 15) / 100);
+      if (calibratedSigma > 0.001 && calibratedSigma < 5) {
+        return { ...leg, iv: calibratedSigma * 100 };
+      }
+    } catch (e) { /* fall through to original IV */ }
+    return leg;
+  });
+}
 
 // Calculate P&L for a set of legs at a given spot price and time-to-expiry.
 // T=0 means at/after expiry (uses intrinsic value only).
