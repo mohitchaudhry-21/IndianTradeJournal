@@ -13,7 +13,7 @@ const RISK_FREE_RATE = 0.065;
 // Defensive formatting — broker APIs occasionally return numeric fields as
 // strings or omit them entirely, and a bare .toFixed() call on anything
 // non-numeric crashes the whole page rather than degrading gracefully.
-function fmt(value, decimals = 1) {
+function fmt(value, decimals = 2) {
   const n = typeof value === 'number' ? value : parseFloat(value);
   return Number.isFinite(n) ? n.toFixed(decimals) : '—';
 }
@@ -21,7 +21,7 @@ function fmt(value, decimals = 1) {
 function fmtMoney(n) {
   if (n === null || n === undefined || isNaN(n)) return '—';
   const sign = n < 0 ? '-' : '+';
-  return `${sign}₹${Math.abs(Math.round(n)).toLocaleString('en-IN')}`;
+  return `${sign}₹${Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function StatCard({ label, value, color }) {
@@ -379,10 +379,10 @@ export default function OptionsAnalyzer() {
         <StatCard label="Max profit" value={fmtMoney(maxProfit)} color="var(--profit)" />
         <StatCard label="Max loss" value={fmtMoney(maxLoss)} color="var(--loss)" />
         <StatCard label="Risk:reward" value={riskReward} />
-        <StatCard label="Breakeven" value={breakevens.length ? breakevens.map(b => b.toLocaleString('en-IN')).join(' / ') : '—'} />
+        <StatCard label="Breakeven" value={breakevens.length ? breakevens.map(b => b.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})).join(' / ') : '—'} />
         <StatCard label="Net premium" value={activeLegs.length ? fmtMoney(net) : '—'} color={net >= 0 ? 'var(--profit)' : 'var(--loss)'} />
         <StatCard label="Time value" value={fmtMoney(timeValue)} />
-        <StatCard label="Margin used" value={position.margin ? `₹${Math.round(position.margin).toLocaleString('en-IN')}` : '—'} />
+        <StatCard label="Margin used" value={position.margin ? `₹${position.margin.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '—'} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2.1fr 1fr', gap: 16, marginBottom: 16 }}>
@@ -443,7 +443,7 @@ export default function OptionsAnalyzer() {
                       <line x1={xPos} y1={padT} x2={xPos} y2={H - padB} stroke="var(--accent)" strokeWidth="1" strokeDasharray="3,3" />
                       <rect x={xPos - 58} y={2} width={116} height={18} rx={4} fill="var(--bg-card2)" stroke="var(--border)" />
                       <text x={xPos} y={14} fontSize="10" fill="var(--text-primary)" textAnchor="middle" fontFamily="'JetBrains Mono', monospace">
-                        Spot: {Math.round(currentSpot).toLocaleString('en-IN')}
+                        Spot: {currentSpot.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                       </text>
                     </>
                   );
@@ -452,7 +452,7 @@ export default function OptionsAnalyzer() {
                   const val = spotMin + (spotMax - spotMin) * frac;
                   return (
                     <text key={frac} x={xScale(val)} y={H - 8} fontSize="10" fill="var(--text-muted)" textAnchor="middle">
-                      {Math.round(val).toLocaleString('en-IN')}
+                      {val.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                     </text>
                   );
                 })}
