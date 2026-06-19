@@ -36,13 +36,16 @@ export function payoffAt(legs, S, T, r = RISK_FREE_RATE, useRealLtp = false) {
   legs.forEach(leg => {
     const qty = (leg.quantity || 1) * (leg.lotSize || 1);
     const sign = leg.transactionType === 'SELL' ? -1 : 1;
-    const sigma = (leg.iv || 15) / 100;
     let value;
-    if (T <= 0) {
+    // Futures: linear payoff — value = spot price at scenario
+    if (leg.optionType === 'FUT') {
+      value = S;
+    } else if (T <= 0) {
       value = leg.optionType === 'CE' ? Math.max(S - leg.strike, 0) : Math.max(leg.strike - S, 0);
     } else if (useRealLtp && leg.ltp !== undefined && leg.ltp !== null) {
       value = leg.ltp;
     } else {
+      const sigma = (leg.iv || 15) / 100;
       value = blackScholes(S, leg.strike, T, r, sigma, leg.optionType).price;
     }
     total += sign * (value - leg.premium) * qty;
@@ -89,6 +92,12 @@ export function findBreakevens(legs, spotMin, spotMax, step = 10) {
 export function positionGreeks(legs, S, T, r = RISK_FREE_RATE) {
   let delta = 0, gamma = 0, theta = 0, vega = 0;
   legs.forEach(leg => {
+    if (leg.optionType === 'FUT') {
+      // Futures delta = 1 (long) or -1 (short), no gamma/theta/vega
+      const qty = (leg.quantity || 1) * (leg.lotSize || 1);
+      delta += (leg.transactionType === 'SELL' ? -1 : 1) * qty;
+      return;
+    }
     const qty = (leg.quantity || 1) * (leg.lotSize || 1);
     const sign = leg.transactionType === 'SELL' ? -1 : 1;
     const sigma = (leg.iv || 15) / 100;
