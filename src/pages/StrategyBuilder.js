@@ -92,10 +92,19 @@ export default function StrategyBuilder() {
   const [chainError, setChainError] = useState(null);
   const [spot, setSpot] = useState(null);
 
-  const [legs, setLegs] = useState([]); // { id, strike, optionType, transactionType, quantity, lotSize, iv, premium, ltp }
+  const [legs, setLegs] = useState(() => {
+    // Restore legs from sessionStorage on reload
+    try { const saved = sessionStorage.getItem('sb_legs'); return saved ? JSON.parse(saved) : []; } catch { return []; }
+  });
   const [scenarioSpot, setScenarioSpot] = useState(null);
-  const [pickerView, setPickerView] = useState('CHAIN'); // 'CHAIN' | 'GREEKS' — OI is now always shown in CHAIN view
-  const [hoveredStrike, setHoveredStrike] = useState(null); // strike currently hovered, reveals B/S buttons
+  const [pickerView, setPickerView] = useState('CHAIN'); // 'CHAIN' | 'GREEKS' | 'FUTURES'
+  const [hoveredStrike, setHoveredStrike] = useState(null);
+
+  // Drafts — persisted in localStorage
+  const [drafts, setDrafts] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('sb_drafts') || '[]'); } catch { return []; }
+  });
+  const [showDrafts, setShowDrafts] = useState(false);
   const atmRowRef = React.useRef(null);   // attached to the ATM row so we can scroll to it
   const tableBodyRef = React.useRef(null);
   const chartSvgRef = React.useRef(null);
@@ -110,9 +119,17 @@ export default function StrategyBuilder() {
   }, []);
 
   // Pre-compute the array of valid market timestamps (Mon–Fri 9:15–15:30 IST)
-  // so the time slider can only land on real trading moments.
+  // Derive expiry epoch directly from selectedExpiry string to avoid TDZ
+  // (expiryDate useMemo is defined later in the component).
   const nowMs = nowTick;
-  const expiryMsForSlider = React.useMemo(() => expiryDate ? expiryDate.getTime() : nowMs, [expiryDate, nowMs]);
+  const expiryMsForSlider = React.useMemo(() => {
+    if (!selectedExpiry) return nowMs + 7 * 24 * 60 * 60 * 1000;
+    const day = parseInt(selectedExpiry.slice(0, 2), 10);
+    const monthAbbr = selectedExpiry.slice(2, 5).toUpperCase();
+    const year = parseInt(selectedExpiry.slice(5), 10);
+    const months = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
+    return new Date(year, months[monthAbbr] ?? 0, day, 15, 30).getTime();
+  }, [selectedExpiry]); // eslint-disable-line
   const marketTimestamps = React.useMemo(
     () => generateMarketTimestamps(nowMs, expiryMsForSlider),
     [expiryMsForSlider] // eslint-disable-line
@@ -278,6 +295,16 @@ export default function StrategyBuilder() {
     return () => clearTimeout(timer);
   }, [chainRows.length, spot]);
 
+  // Persist current legs to sessionStorage so a page reload restores the strategy
+  useEffect(() => {
+    try { sessionStorage.setItem('sb_legs', JSON.stringify(legs)); } catch {}
+  }, [legs]);
+
+  // Persist drafts to localStorage whenever they change
+  useEffect(() => {
+    try { localStorage.setItem('sb_drafts', JSON.stringify(drafts)); } catch {}
+  }, [drafts]);
+
   const lotSize = getLotSize(instrument);
 
   // Add a leg when a strike's LTP cell is clicked. If a leg for this exact
@@ -318,6 +345,48 @@ export default function StrategyBuilder() {
 
   function clearAllLegs() {
     setLegs([]);
+  }
+
+  function saveDraft() {
+    if (!legs.length) return;
+    const name = `${instrument} ${selectedExpiry ? formatAngelExpiry(selectedExpiry) : ''} · ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+    const draft = { id: Date.now(), name, instrument, selectedExpiry, legs };
+    setDrafts(prev => [draft, ...prev.slice(0, 19)]); // keep max 20 drafts
+  }
+
+  function loadDraft(draft) {
+    setLegs(draft.legs);
+    if (draft.instrument) setInstrument(draft.instrument);
+    if (draft.selectedExpiry) setSelectedExpiry(draft.selectedExpiry);
+    setShowDrafts(false);
+  }
+
+  function deleteDraft(id) {
+    setDrafts(prev => prev.filter(d => d.id !== id));
+  }
+
+  function addFuturesLeg(expiry, forwardPrice, transactionType) {
+    setLegs(prev => {
+      const existingIdx = prev.findIndex(l => l.optionType === 'FUT' && l.expiry === expiry && l.transactionType === transactionType);
+      if (existingIdx >= 0) {
+        const next = [...prev];
+        next[existingIdx] = { ...next[existingIdx], quantity: next[existingIdx].quantity + 1 };
+        return next;
+      }
+      return [...prev, {
+        id: nextLegId(),
+        strike: forwardPrice,
+        optionType: 'FUT',
+        expiry,
+        transactionType,
+        quantity: 1,
+        lotSize,
+        iv: 0,
+        premium: forwardPrice,
+        ltp: forwardPrice,
+        ltpIsLive: false,
+      }];
+    });
   }
 
   // Keep each leg's iv/ltp synced to the live chain as it refreshes, so a
@@ -455,9 +524,9 @@ export default function StrategyBuilder() {
 
       <div style={{ display: 'grid', gridTemplateColumns: legs.length ? '1.4fr 1fr' : '1fr', gap: 16 }}>
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
             <div style={{ display: 'flex', gap: 8 }}>
-              {['CHAIN', 'GREEKS'].map(v => (
+              {['CHAIN', 'GREEKS', 'FUTURES'].map(v => (
                 <button key={v} onClick={() => setPickerView(v)}
                   style={{
                     background: pickerView === v ? 'var(--accent)' : 'var(--bg-card2)',
@@ -470,7 +539,59 @@ export default function StrategyBuilder() {
             {chainError && <span style={{ fontSize: 11, color: 'var(--loss)' }}>{chainError}</span>}
           </div>
 
-          <div style={{ maxHeight: 480, overflowY: 'auto' }}>
+          {pickerView === 'FUTURES' && (
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
+                Synthetic futures — implied forward price computed from spot + carry cost for each expiry.
+              </div>
+              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 400 }}>Expiry</th>
+                    <th style={{ textAlign: 'center', padding: '4px 8px', fontWeight: 400 }}>Days</th>
+                    <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 400 }}>Forward price</th>
+                    <th style={{ padding: '4px 8px' }} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {expiries.map(exp => {
+                    const day = parseInt(exp.slice(0, 2), 10);
+                    const monthAbbr = exp.slice(2, 5).toUpperCase();
+                    const year = parseInt(exp.slice(5), 10);
+                    const months = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
+                    const expMs = new Date(year, months[monthAbbr] ?? 0, day, 15, 30).getTime();
+                    const daysLeft = Math.max(0, (expMs - Date.now()) / (1000 * 60 * 60 * 24));
+                    const T_exp = daysLeft / 365;
+                    const fwd = currentSpot ? (currentSpot * Math.exp(RISK_FREE_RATE * T_exp)) : null;
+                    const isSelected = exp === selectedExpiry;
+                    return (
+                      <tr key={exp} style={{ borderTop: '1px solid var(--border)', background: isSelected ? 'var(--accent-dim)' : 'transparent' }}>
+                        <td style={{ padding: '8px 8px', fontWeight: isSelected ? 600 : 400 }}>
+                          {new Date(year, months[monthAbbr] ?? 0, day).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                        </td>
+                        <td style={{ padding: '8px 8px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>{daysLeft.toFixed(0)}</td>
+                        <td style={{ padding: '8px 8px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", color: 'var(--text-primary)' }}>
+                          {fwd ? fwd.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+                        </td>
+                        <td style={{ padding: '8px 8px' }}>
+                          {fwd && (
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                              <button onClick={() => addFuturesLeg(exp, fwd, 'BUY')}
+                                style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 4, padding: '2px 10px', fontSize: 12, cursor: 'pointer' }}>B</button>
+                              <button onClick={() => addFuturesLeg(exp, fwd, 'SELL')}
+                                style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 4, padding: '2px 10px', fontSize: 12, cursor: 'pointer' }}>S</button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {pickerView !== 'FUTURES' && (
+            <div style={{ maxHeight: 480, overflowY: 'auto' }}>
             <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
               <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 1 }}>
                 {/* Section row: CALLS | — | — | PUTS */}
@@ -608,6 +729,7 @@ export default function StrategyBuilder() {
               </tbody>
             </table>
           </div>
+          )}
         </div>
 
         {legs.length > 0 && (
@@ -616,8 +738,35 @@ export default function StrategyBuilder() {
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Legs ({legs.length})</div>
-                <button onClick={clearAllLegs} style={{ background: 'none', border: 'none', color: 'var(--loss)', fontSize: 11, cursor: 'pointer' }}>Clear all</button>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={() => setShowDrafts(s => !s)}
+                    style={{ background: showDrafts ? 'var(--accent-dim)' : 'none', border: '1px solid var(--border)', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', borderRadius: 5, padding: '2px 8px' }}>
+                    {drafts.length > 0 ? `Drafts (${drafts.length})` : 'Drafts'}
+                  </button>
+                  <button onClick={saveDraft}
+                    style={{ background: 'var(--accent)', border: 'none', color: '#fff', fontSize: 11, cursor: 'pointer', borderRadius: 5, padding: '2px 10px' }}>
+                    Save draft
+                  </button>
+                  <button onClick={clearAllLegs} style={{ background: 'none', border: 'none', color: 'var(--loss)', fontSize: 11, cursor: 'pointer' }}>Clear all</button>
+                </div>
               </div>
+              {showDrafts && drafts.length > 0 && (
+                <div style={{ marginBottom: 12, background: 'var(--bg-card2)', borderRadius: 8, overflow: 'hidden' }}>
+                  {drafts.map(d => (
+                    <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 10px', borderBottom: '1px solid var(--border)', fontSize: 12 }}>
+                      <button onClick={() => loadDraft(d)}
+                        style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', textAlign: 'left', fontSize: 12, padding: 0 }}>
+                        {d.name}
+                        <span style={{ marginLeft: 8, color: 'var(--text-muted)', fontSize: 10 }}>{d.legs.length} leg{d.legs.length !== 1 ? 's' : ''}</span>
+                      </button>
+                      <button onClick={() => deleteDraft(d.id)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 14, padding: 0 }}>×</button>
+                    </div>
+                  ))}
+                  {showDrafts && drafts.length === 0 && (
+                    <div style={{ padding: '10px', color: 'var(--text-muted)', fontSize: 12 }}>No drafts saved yet.</div>
+                  )}
+                </div>
+              )}
               {legs.map(leg => (
                 <div key={leg.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0', borderTop: '1px solid var(--border)', fontSize: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -629,9 +778,9 @@ export default function StrategyBuilder() {
                     }}>{leg.transactionType === 'SELL' ? 'S' : 'B'}</span>
                     <input type="number" min={1} value={leg.quantity} onChange={e => updateLegQty(leg.id, parseInt(e.target.value, 10) || 1)}
                       style={{ width: 36, background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: 12, padding: '2px 4px' }} />
-                    <span style={{ color: 'var(--text-primary)' }}>× {leg.strike} {leg.optionType}</span>
+                    <span style={{ color: 'var(--text-primary)' }}>× {leg.strike.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {leg.optionType}</span>
                     <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-card2)', borderRadius: 4, padding: '1px 5px' }}>
-                      {selectedExpiry ? formatAngelExpiry(selectedExpiry) : '—'}
+                      {leg.optionType === 'FUT' && leg.expiry ? formatAngelExpiry(leg.expiry) : (selectedExpiry ? formatAngelExpiry(selectedExpiry) : '—')}
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
