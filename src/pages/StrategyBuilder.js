@@ -151,14 +151,32 @@ export default function StrategyBuilder() {
         // even though it loaded successfully. Mirrors the same real-price
         // backfill the Options Analyzer already does for saved legs.
         if (result.source === 'angelone' && result.rows.length) {
+          // Limit LTP backfill to ATM ±25 strikes — sending all 300+ legs in one
+          // request causes Flask's JSON parser to silently return None (400 "No legs
+          // provided"), and deep OTM strikes aren't practically useful for strategy
+          // building anyway. Find the ATM strike first, then filter around it.
+          const spotVal = result.underlyingValue || spot;
+          const sortedStrikes = result.rows.map(r => r.strike).sort((a, b) => a - b);
+          const atmStrike = spotVal
+            ? sortedStrikes.reduce((best, s) => Math.abs(s - spotVal) < Math.abs(best - spotVal) ? s : best, sortedStrikes[0])
+            : sortedStrikes[Math.floor(sortedStrikes.length / 2)];
+          const atmIdx = sortedStrikes.indexOf(atmStrike);
+          const nearAtmStrikes = new Set(sortedStrikes.slice(Math.max(0, atmIdx - 25), atmIdx + 26));
+
           const legsToPrice = [];
           result.rows.forEach(row => {
+            if (!nearAtmStrikes.has(row.strike)) return;
             ['CE', 'PE'].forEach(type => {
               if (row[type]) legsToPrice.push({ instrument, strike: row.strike, optionType: type, expiry: isoFromAngel });
             });
           });
+          console.log(`[LTP backfill] ${legsToPrice.length} legs near ATM ${atmStrike} (spot ${spotVal})`);
+          if (!legsToPrice.length) return;
           fetchAngelOneLtp(legsToPrice).then(ltpResult => {
-            if (cancelled || !ltpResult.ok) return;
+            if (cancelled || !ltpResult.ok) {
+              console.warn('[LTP backfill] failed:', ltpResult.error);
+              return;
+            }
             setChainRows(prevRows => prevRows.map(row => {
               const next = { ...row };
               ['CE', 'PE'].forEach(type => {
@@ -372,9 +390,9 @@ export default function StrategyBuilder() {
                   {pickerView === 'GREEKS' && <th style={{ textAlign: 'right', padding: '4px 6px' }}>Delta</th>}
                   <th style={{ textAlign: 'right', padding: '4px 6px' }}>OI chg</th>
                   <th style={{ textAlign: 'right', padding: '4px 6px' }}>Call OI</th>
-                  <th style={{ textAlign: 'right', padding: '4px 6px' }}>Call LTP</th>
+                  <th style={{ textAlign: 'right', padding: '4px 6px' }}>{pickerView === 'GREEKS' ? 'Call θ' : 'Call LTP'}</th>
                   <th style={{ textAlign: 'center', padding: '4px 6px' }}>Strike</th>
-                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>Put LTP</th>
+                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>{pickerView === 'GREEKS' ? 'Put θ' : 'Put LTP'}</th>
                   <th style={{ textAlign: 'left', padding: '4px 6px' }}>Put OI</th>
                   <th style={{ textAlign: 'left', padding: '4px 6px' }}>OI chg</th>
                   {pickerView === 'GREEKS' && <th style={{ textAlign: 'left', padding: '4px 6px' }}>Delta</th>}
