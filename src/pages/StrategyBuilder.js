@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { fetchOptionChain, fetchExpiryList, fetchAngelOneLtp, angelOneLtpKey } from '../utils/optionChain';
 import { fetchTickerQuotes } from '../utils/tickerQuotes';
-import { payoffAt, netPremium, findBreakevens, positionGreeks, maxProfitLoss, impliedFuturesPrice, standardDeviation } from '../utils/optionsAnalysis';
+import { payoffAt, netPremium, findBreakevens, positionGreeks, maxProfitLoss, impliedFuturesPrice, standardDeviation, calibrateLegsIV } from '../utils/optionsAnalysis';
 import { KNOWN_SYMBOLS } from '../utils/tickerSymbols';
 import { getLotSize } from '../utils/lotSizes';
 
@@ -71,7 +71,14 @@ export default function StrategyBuilder() {
   const tableBodyRef = React.useRef(null);
   const chartSvgRef = React.useRef(null);
   const [chartHoverSpot, setChartHoverSpot] = React.useState(null); // spot under mouse in payoff chart
-  const [daysFromNow, setDaysFromNow] = React.useState(0); // 0 = today, daysToExpiry = expiry
+  const [targetTimeMs, setTargetTimeMs] = React.useState(null); // null = right now
+
+  // Tick every second so "right now" stays current (matches OptionsAnalyzer)
+  const [nowTick, setNowTick] = React.useState(Date.now());
+  React.useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
 
   // Fetch available expiries whenever the instrument changes
   useEffect(() => {
@@ -300,45 +307,59 @@ export default function StrategyBuilder() {
   const T = expiryDate ? Math.max(expiryDate.getTime() - Date.now(), 0) / (1000 * 60 * 60 * 24 * 365) : 0;
   const daysToExpiry = expiryDate ? Math.max(expiryDate.getTime() - Date.now(), 0) / (1000 * 60 * 60 * 24) : 0;
 
-  // T_chart: time fraction used for the "today" payoff line, controlled by the time slider.
-  // 0 = at expiry (time value = 0), T = full time remaining (right now).
-  const T_chart = daysToExpiry > 0 ? Math.max(0, (daysToExpiry - Math.min(daysFromNow, daysToExpiry))) / 365 : 0;
+  // Mirror OptionsAnalyzer's time slider: targetTimeMs=null means right now
+  const nowMs = nowTick;
+  const expiryMs = expiryDate ? expiryDate.getTime() : nowMs;
+  const targetMs = targetTimeMs ?? nowMs;
+  const T_chart = Math.max(expiryMs - targetMs, 0) / (1000 * 60 * 60 * 24 * 365);
+  const targetDaysToExpiry = Math.max(expiryMs - targetMs, 0) / (1000 * 60 * 60 * 24);
+  const isCurrentMoment = targetTimeMs === null || Math.abs(targetMs - nowMs) < 60 * 1000;
 
-  const curPnl = legs.length ? payoffAt(legs, currentSpot, T, RISK_FREE_RATE, true) : null;
-  const { maxProfit, maxLoss } = legs.length ? maxProfitLoss(legs, spotMin, spotMax) : { maxProfit: null, maxLoss: null };
-  const breakevens = legs.length ? findBreakevens(legs, spotMin, spotMax) : [];
-  const greeks = legs.length ? positionGreeks(legs, currentSpot, T) : { delta: 0, gamma: 0, theta: 0, vega: 0 };
-  const netPrem = legs.length ? netPremium(legs) : 0;
-  const sd = legs.length && currentSpot ? standardDeviation(legs, currentSpot, T) : { sd1: 0, sd2: 0 };
+  // Back-solve each leg's IV from its real market LTP so that Black-Scholes
+  // is calibrated to actual quoted prices. Without this, BS with a 12% chain
+  // IV gives ~₹2 for a 600-OTM call that the market is quoting at ₹31 —
+  // producing a massive phantom P&L loss on the chart. Recalibration ensures
+  // BS(current_spot, strike, T, r, calibratedIV) = entry_premium exactly.
+  const calibratedLegs = useMemo(() => {
+    if (!legs.length || T <= 0) return legs;
+    return calibrateLegsIV(legs, currentSpot, T, RISK_FREE_RATE);
+  }, [legs, currentSpot, T]); // eslint-disable-line
+
+  const curPnl = calibratedLegs.length ? payoffAt(calibratedLegs, currentSpot, T_chart, RISK_FREE_RATE, isCurrentMoment) : null;
+  const { maxProfit, maxLoss } = calibratedLegs.length ? maxProfitLoss(calibratedLegs, spotMin, spotMax) : { maxProfit: null, maxLoss: null };
+  const breakevens = calibratedLegs.length ? findBreakevens(calibratedLegs, spotMin, spotMax) : [];
+  const greeks = calibratedLegs.length ? positionGreeks(calibratedLegs, currentSpot, T, RISK_FREE_RATE) : { delta: 0, gamma: 0, theta: 0, vega: 0 };
+  const netPrem = calibratedLegs.length ? netPremium(calibratedLegs) : 0;
+  const sd = calibratedLegs.length && currentSpot ? standardDeviation(calibratedLegs, currentSpot, T) : { sd1: 0, sd2: 0 };
   const futuresPrice = currentSpot ? impliedFuturesPrice(currentSpot, T) : 0;
   const riskReward = (maxLoss !== null && maxLoss < 0 && maxProfit !== null && maxProfit > 0) ? `${(maxProfit / Math.abs(maxLoss)).toFixed(2)} : 1` : '—';
 
   // Probability of Profit: fraction of spot range where expiry payoff > 0
   const pop = useMemo(() => {
-    if (!legs.length || !chainRows.length) return null;
+    if (!calibratedLegs.length || !chainRows.length) return null;
     const step = Math.round((spotMax - spotMin) / 200 / 10) * 10 || 5;
     let wins = 0, total = 0;
     for (let s = spotMin; s <= spotMax; s += step) {
-      if (payoffAt(legs, s, 0) > 0) wins++;
+      if (payoffAt(calibratedLegs, s, 0) > 0) wins++;
       total++;
     }
     return total > 0 ? Math.round((wins / total) * 100) : null;
-  }, [legs, spotMin, spotMax]); // eslint-disable-line
+  }, [calibratedLegs, spotMin, spotMax]); // eslint-disable-line
 
   // Intrinsic value = payoff at expiry at current spot
-  const intrinsicValue = legs.length && currentSpot ? payoffAt(legs, currentSpot, 0) : 0;
+  const intrinsicValue = calibratedLegs.length && currentSpot ? payoffAt(calibratedLegs, currentSpot, 0) : 0;
   // Time value = difference between current (with time) vs expiry payoff
-  const timeValue = legs.length && currentSpot ? (payoffAt(legs, currentSpot, T, RISK_FREE_RATE, true) - intrinsicValue) : 0;
+  const timeValue = calibratedLegs.length && currentSpot ? (payoffAt(calibratedLegs, currentSpot, T, RISK_FREE_RATE, true) - intrinsicValue) : 0;
 
   const chartPoints = useMemo(() => {
-    if (!legs.length || !chainRows.length) return [];
+    if (!calibratedLegs.length || !chainRows.length) return [];
     const step = Math.round((spotMax - spotMin) / 50 / 10) * 10 || 10;
     const pts = [];
     for (let s = spotMin; s <= spotMax; s += step) {
-      pts.push({ spot: s, onExpiry: payoffAt(legs, s, 0), onTarget: payoffAt(legs, s, T_chart) });
+      pts.push({ spot: s, onExpiry: payoffAt(calibratedLegs, s, 0), onTarget: payoffAt(calibratedLegs, s, T_chart) });
     }
     return pts;
-  }, [legs, spotMin, spotMax, T_chart]); // eslint-disable-line
+  }, [calibratedLegs, spotMin, spotMax, T_chart]); // eslint-disable-line
 
   const maxAbsPnl = chartPoints.length ? Math.max(...chartPoints.map(p => Math.max(Math.abs(p.onExpiry), Math.abs(p.onTarget))), 1) : 1;
   const maxOi = chainRows.length ? Math.max(...chainRows.map(r => Math.max(r.CE?.oi || 0, r.PE?.oi || 0)), 1) : 1;
@@ -621,7 +642,7 @@ export default function StrategyBuilder() {
           {/* Header row: P&L readout */}
           {(() => {
             const readSpot = chartHoverSpot ?? currentSpot;
-            const readPnl = readSpot ? payoffAt(legs, readSpot, T_chart, RISK_FREE_RATE, true) : null;
+            const readPnl = readSpot ? payoffAt(calibratedLegs, readSpot, T_chart, RISK_FREE_RATE, true) : null;
             return (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>
@@ -651,8 +672,8 @@ export default function StrategyBuilder() {
             const targetPath = chartPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(p.spot)},${yScale(p.onTarget)}`).join(' ');
             const lossAreaPath = `${expiryPath} L${xScale(spotMax)},${zeroY} L${xScale(spotMin)},${zeroY} Z`;
             const hoverX = chartHoverSpot ? xScale(chartHoverSpot) : null;
-            const hoverPnlExpiry = chartHoverSpot ? payoffAt(legs, chartHoverSpot, 0) : null;
-            const hoverPnlToday = chartHoverSpot ? payoffAt(legs, chartHoverSpot, T_chart) : null;
+            const hoverPnlExpiry = chartHoverSpot ? payoffAt(calibratedLegs, chartHoverSpot, 0) : null;
+            const hoverPnlToday = chartHoverSpot ? payoffAt(calibratedLegs, chartHoverSpot, T_chart) : null;
             // Y-axis labels
             const pnlStep = maxAbsPnl > 50000 ? 25000 : maxAbsPnl > 10000 ? 10000 : maxAbsPnl > 2000 ? 2000 : 500;
             const yLabels = [];
@@ -737,20 +758,42 @@ export default function StrategyBuilder() {
               style={{ width: '100%', accentColor: 'var(--accent)' }} />
           </div>
 
-          {/* Time slider */}
+          {/* Time slider — identical to OptionsAnalyzer */}
           <div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
-              <span>Days from now</span>
-              <span style={{ fontFamily: "'JetBrains Mono', monospace", color: daysFromNow === 0 ? 'var(--accent)' : daysFromNow >= Math.floor(daysToExpiry) ? 'var(--loss)' : 'var(--text-primary)' }}>
-                {daysFromNow === 0 ? 'Today' : daysFromNow >= Math.floor(daysToExpiry) ? 'At expiry' : `+${daysFromNow}d`}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                Target date
+                {targetTimeMs !== null && Math.abs(targetTimeMs - nowMs) > 1000 && (
+                  <button onClick={() => setTargetTimeMs(null)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
+                )}
               </span>
             </div>
-            <input type="range" min={0} max={Math.max(1, Math.ceil(daysToExpiry))} step={1} value={daysFromNow}
-              onChange={e => setDaysFromNow(parseInt(e.target.value, 10))}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+              <button
+                onClick={() => setTargetTimeMs(t => Math.max((t ?? nowMs) - 24 * 60 * 60 * 1000, nowMs))}
+                style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}>‹</button>
+              <div style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>
+                  {new Date(targetMs).toLocaleDateString('en-IN', { weekday: 'short', day: '2-digit', month: 'short' })}
+                  {' '}
+                  {new Date(targetMs).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                  {targetDaysToExpiry < 1
+                    ? `${Math.round(targetDaysToExpiry * 24)} hours to expiry`
+                    : `${targetDaysToExpiry.toFixed(1)} days to expiry`}
+                </div>
+              </div>
+              <button
+                onClick={() => setTargetTimeMs(t => Math.min((t ?? nowMs) + 24 * 60 * 60 * 1000, expiryMs))}
+                style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}>›</button>
+            </div>
+            <input type="range" min={nowMs} max={expiryMs} step={60 * 60 * 1000} value={targetMs}
+              onChange={e => setTargetTimeMs(parseFloat(e.target.value))}
               style={{ width: '100%', accentColor: '#FFA53D' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-              <span>Today</span>
-              <span>Expiry ({daysToExpiry.toFixed(1)}d)</span>
+              <span>{new Date(nowMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+              <span>{new Date(expiryMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
             </div>
           </div>
         </div>
