@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=Chivo+Mono:wght@400;500&display=swap');
 
 :root {
   --bg-primary:    #080A10;
@@ -66,7 +66,7 @@ body {
   font-size:14px;
   -webkit-font-smoothing:antialiased;
 }
-.mono { font-family:'JetBrains Mono',monospace; }
+.mono { font-family:'Chivo Mono',monospace; }
 ::-webkit-scrollbar { width:5px; height:5px; }
 ::-webkit-scrollbar-track { background:transparent; }
 ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.08); border-radius:3px; }
@@ -90,7 +90,7 @@ body {
 
 .stat-card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:18px 20px; }
 .stat-card .label { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); margin-bottom:10px; }
-.stat-card .value { font-family:'JetBrains Mono',monospace; font-size:24px; font-weight:500; color:var(--text-primary); line-height:1; }
+.stat-card .value { font-family:'Chivo Mono',monospace; font-size:24px; font-weight:500; color:var(--text-primary); line-height:1; }
 .stat-card .subval { font-size:12px; color:var(--text-muted); margin-top:6px; }
 .stat-card .value.profit{color:var(--profit);}
 .stat-card .value.loss{color:var(--loss);}
@@ -137,9 +137,9 @@ tbody tr:last-child { border-bottom:none; }
 tbody tr:hover { background:var(--bg-hover); }
 tbody td { padding:12px 14px; color:var(--text-secondary); }
 tbody td.text-primary{color:var(--text-primary);font-weight:500;}
-tbody td.profit{color:var(--profit);font-family:'JetBrains Mono',monospace;}
-tbody td.loss{color:var(--loss);font-family:'JetBrains Mono',monospace;}
-tbody td.mono{font-family:'JetBrains Mono',monospace;}
+tbody td.profit{color:var(--profit);font-family:'Chivo Mono',monospace;}
+tbody td.loss{color:var(--loss);font-family:'Chivo Mono',monospace;}
+tbody td.mono{font-family:'Chivo Mono',monospace;}
 
 /* Forms */
 .form-group { margin-bottom:16px; }
@@ -155,9 +155,9 @@ tbody td.mono{font-family:'JetBrains Mono',monospace;}
 .divider { height:1px; background:var(--border); margin:20px 0; }
 
 /* P&L */
-.pnl-positive{color:var(--profit);font-family:'JetBrains Mono',monospace;}
-.pnl-negative{color:var(--loss);font-family:'JetBrains Mono',monospace;}
-.pnl-zero{color:var(--text-muted);font-family:'JetBrains Mono',monospace;}
+.pnl-positive{color:var(--profit);font-family:'Chivo Mono',monospace;}
+.pnl-negative{color:var(--loss);font-family:'Chivo Mono',monospace;}
+.pnl-zero{color:var(--text-muted);font-family:'Chivo Mono',monospace;}
 
 /* Empty state */
 .empty-state { text-align:center; padding:60px 20px; color:var(--text-muted); }
