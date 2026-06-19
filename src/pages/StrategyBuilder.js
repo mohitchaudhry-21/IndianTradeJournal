@@ -67,6 +67,8 @@ export default function StrategyBuilder() {
   const [scenarioSpot, setScenarioSpot] = useState(null);
   const [pickerView, setPickerView] = useState('CHAIN'); // 'CHAIN' | 'GREEKS' — OI is now always shown in CHAIN view
   const [hoveredStrike, setHoveredStrike] = useState(null); // strike currently hovered, reveals B/S buttons
+  const atmRowRef = React.useRef(null);   // attached to the ATM row so we can scroll to it
+  const tableBodyRef = React.useRef(null);
 
   // Fetch available expiries whenever the instrument changes
   useEffect(() => {
@@ -116,12 +118,15 @@ export default function StrategyBuilder() {
     // The chain fetch utility expects an ISO-ish date for internal format
     // conversion; reconstruct a real Date from the AngelOne string so it
     // round-trips correctly through toNseExpiryFormat/toAngelOneExpiryFormat.
+    // Build a UTC ISO string from the AngelOne expiry string (e.g. "23JUN2026")
+    // using Date.UTC so the date doesn't roll back one day when IST (+5:30)
+    // is converted to UTC (e.g. local midnight 23 Jun → "2026-06-22T18:30:00Z").
     const isoFromAngel = (() => {
       const day = parseInt(selectedExpiry.slice(0, 2), 10);
       const monthAbbr = selectedExpiry.slice(2, 5).toUpperCase();
       const year = parseInt(selectedExpiry.slice(5), 10);
       const months = { JAN: 0, FEB: 1, MAR: 2, APR: 3, MAY: 4, JUN: 5, JUL: 6, AUG: 7, SEP: 8, OCT: 9, NOV: 10, DEC: 11 };
-      return new Date(year, months[monthAbbr] ?? 0, day).toISOString();
+      return new Date(Date.UTC(year, months[monthAbbr] ?? 0, day)).toISOString();
     })();
 
     const fetchChain = (isFirstLoad) => {
@@ -173,6 +178,19 @@ export default function StrategyBuilder() {
     const intervalId = setInterval(() => fetchChain(false), 10000);
     return () => { cancelled = true; clearInterval(intervalId); };
   }, [instrument, selectedExpiry]);
+
+  // Scroll the ATM row into the centre of the table whenever the chain
+  // first loads or spot changes. A 200ms delay lets React finish painting
+  // the rows before the ref is valid.
+  useEffect(() => {
+    if (!atmRowRef.current || !tableBodyRef.current) return;
+    const timer = setTimeout(() => {
+      if (atmRowRef.current) {
+        atmRowRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      }
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [chainRows.length, spot]);
 
   const lotSize = getLotSize(instrument);
 
@@ -362,15 +380,16 @@ export default function StrategyBuilder() {
                   {pickerView === 'GREEKS' && <th style={{ textAlign: 'left', padding: '4px 6px' }}>Delta</th>}
                 </tr>
               </thead>
-              <tbody>
+              <tbody ref={tableBodyRef}>
                 {chainRows.map(row => {
-                  const isAtm = Math.abs(row.strike - currentSpot) < (spotMax - spotMin) / chainRows.length / 2;
+                  const isAtm = spot && Math.abs(row.strike - spot) === Math.min(...chainRows.map(r => Math.abs(r.strike - spot)));
                   const showCeBtns = row.CE && (isAtm || hoveredStrike === row.strike);
                   const showPeBtns = row.PE && (isAtm || hoveredStrike === row.strike);
                   const ceChg = oiChangePct(row.CE);
                   const peChg = oiChangePct(row.PE);
                   return (
                     <tr key={row.strike}
+                      ref={isAtm ? atmRowRef : null}
                       onMouseEnter={() => setHoveredStrike(row.strike)}
                       onMouseLeave={() => setHoveredStrike(prev => prev === row.strike ? null : prev)}
                       style={{ background: isAtm ? 'var(--accent-dim)' : 'transparent', borderTop: isAtm ? '1px solid var(--accent)' : 'none', borderBottom: isAtm ? '1px solid var(--accent)' : 'none' }}>
