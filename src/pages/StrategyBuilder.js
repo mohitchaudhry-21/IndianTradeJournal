@@ -10,9 +10,38 @@ const RISK_FREE_RATE = 0.065;
 // Defensive formatting — broker APIs occasionally return numeric fields as
 // strings or omit them entirely, and a bare .toFixed() call on anything
 // non-numeric crashes the whole page rather than degrading gracefully.
-function fmt(value, decimals = 1) {
+function fmt(value, decimals = 2) {
   const n = typeof value === 'number' ? value : parseFloat(value);
   return Number.isFinite(n) ? n.toFixed(decimals) : '—';
+}
+
+// Generate the array of valid NSE market timestamps between fromMs and toMs.
+// NSE trades Mon–Fri, 09:15–15:30 IST (UTC+05:30), at 15-minute granularity.
+// The slider uses indices into this array so non-market hours simply don't exist.
+function generateMarketTimestamps(fromMs, toMs) {
+  const IST = 5.5 * 60 * 60 * 1000; // IST offset from UTC
+  const OPEN  = 9 * 60 + 15;        // 09:15 in minutes from midnight IST
+  const CLOSE = 15 * 60 + 30;       // 15:30 in minutes from midnight IST
+  const STEP  = 15;                  // 15-minute steps
+  const result = [fromMs];
+  // Advance to the next 15-min boundary at or after fromMs
+  let cur = new Date(fromMs);
+  const rem = cur.getMinutes() % STEP;
+  if (rem !== 0) cur.setMinutes(cur.getMinutes() + (STEP - rem), 0, 0);
+  else cur.setSeconds(0, 0);
+  while (cur.getTime() <= toMs) {
+    const istMs = cur.getTime() + IST;
+    const d = new Date(istMs);
+    const dow = d.getUTCDay();           // 0=Sun,6=Sat
+    const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+    if (dow >= 1 && dow <= 5 && mins >= OPEN && mins <= CLOSE) {
+      const t = cur.getTime();
+      if (t > fromMs && t < toMs) result.push(t);
+    }
+    cur = new Date(cur.getTime() + STEP * 60 * 1000);
+  }
+  result.push(toMs);
+  return [...new Set(result)].sort((a, b) => a - b);
 }
 
 // OI change is stored as an absolute delta (changeInOi), not a percentage —
@@ -79,6 +108,19 @@ export default function StrategyBuilder() {
     const id = setInterval(() => setNowTick(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  // Pre-compute the array of valid market timestamps (Mon–Fri 9:15–15:30 IST)
+  // so the time slider can only land on real trading moments.
+  const nowMs = nowTick;
+  const expiryMsForSlider = React.useMemo(() => expiryDate ? expiryDate.getTime() : nowMs, [expiryDate, nowMs]);
+  const marketTimestamps = React.useMemo(
+    () => generateMarketTimestamps(nowMs, expiryMsForSlider),
+    [expiryMsForSlider] // eslint-disable-line
+  );
+  // sliderIdx: index into marketTimestamps. 0 = now, last = expiry.
+  const [sliderIdx, setSliderIdx] = React.useState(0);
+  // Keep sliderIdx in bounds when marketTimestamps changes length
+  const clampedIdx = Math.min(sliderIdx, marketTimestamps.length - 1);
 
   // Fetch available expiries whenever the instrument changes
   useEffect(() => {
@@ -308,12 +350,11 @@ export default function StrategyBuilder() {
   const daysToExpiry = expiryDate ? Math.max(expiryDate.getTime() - Date.now(), 0) / (1000 * 60 * 60 * 24) : 0;
 
   // Mirror OptionsAnalyzer's time slider: targetTimeMs=null means right now
-  const nowMs = nowTick;
   const expiryMs = expiryDate ? expiryDate.getTime() : nowMs;
-  const targetMs = targetTimeMs ?? nowMs;
+  const targetMs = clampedIdx === 0 ? nowMs : marketTimestamps[clampedIdx];
   const T_chart = Math.max(expiryMs - targetMs, 0) / (1000 * 60 * 60 * 24 * 365);
   const targetDaysToExpiry = Math.max(expiryMs - targetMs, 0) / (1000 * 60 * 60 * 24);
-  const isCurrentMoment = targetTimeMs === null || Math.abs(targetMs - nowMs) < 60 * 1000;
+  const isCurrentMoment = clampedIdx === 0;
 
   // Back-solve each leg's IV from its real market LTP so that Black-Scholes
   // is calibrated to actual quoted prices. Without this, BS with a 12% chain
@@ -382,7 +423,7 @@ export default function StrategyBuilder() {
           {KNOWN_SYMBOLS.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
         </select>
         <span style={{ fontSize: 15, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}>
-          {currentSpot ? Math.round(currentSpot).toLocaleString('en-IN') : '—'}
+          {currentSpot ? (currentSpot).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—'}
         </span>
         <span style={{ width: 1, height: 18, background: 'var(--border)' }} />
         <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Expiry</span>
@@ -395,14 +436,14 @@ export default function StrategyBuilder() {
       {legs.length > 0 && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
           {[
-            { label: 'Max profit', value: maxProfit === null ? '—' : maxProfit > 1e6 ? 'Unlimited' : (maxProfit > 0 ? '+' : '') + '₹' + Math.round(maxProfit).toLocaleString('en-IN'), color: maxProfit > 0 ? 'var(--profit)' : 'var(--text-primary)' },
-            { label: 'Max loss', value: maxLoss === null ? '—' : maxLoss < -1e6 ? 'Unlimited' : '−₹' + Math.abs(Math.round(maxLoss)).toLocaleString('en-IN'), color: maxLoss < 0 ? 'var(--loss)' : 'var(--text-primary)' },
-            { label: 'Breakeven', value: breakevens.length ? breakevens.map(b => Math.round(b).toLocaleString('en-IN')).join(' / ') : '—', color: 'var(--text-primary)' },
+            { label: 'Max profit', value: maxProfit === null ? '—' : maxProfit > 1e6 ? 'Unlimited' : (maxProfit > 0 ? '+' : '') + '₹' + (maxProfit).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}), color: maxProfit > 0 ? 'var(--profit)' : 'var(--text-primary)' },
+            { label: 'Max loss', value: maxLoss === null ? '—' : maxLoss < -1e6 ? 'Unlimited' : '−₹' + Math.abs(maxLoss).toLocaleString('en-IN'), color: maxLoss < 0 ? 'var(--loss)' : 'var(--text-primary)' },
+            { label: 'Breakeven', value: breakevens.length ? breakevens.map(b => (b).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})).join(' / ') : '—', color: 'var(--text-primary)' },
             { label: 'Reward : Risk', value: riskReward, color: 'var(--text-primary)' },
-            { label: 'Net premium', value: (netPrem >= 0 ? '+' : '−') + '₹' + Math.abs(Math.round(netPrem)).toLocaleString('en-IN'), color: netPrem >= 0 ? 'var(--profit)' : 'var(--loss)' },
+            { label: 'Net premium', value: (netPrem >= 0 ? '+' : '−') + '₹' + Math.abs(netPrem).toLocaleString('en-IN'), color: netPrem >= 0 ? 'var(--profit)' : 'var(--loss)' },
             { label: 'POP', value: pop !== null ? `${pop}%` : '—', color: pop > 50 ? 'var(--profit)' : pop < 50 ? 'var(--loss)' : 'var(--text-primary)' },
             { label: 'Intrinsic value', value: '₹' + Math.round(Math.abs(intrinsicValue)).toLocaleString('en-IN'), color: 'var(--text-primary)' },
-            { label: 'Time value', value: (timeValue >= 0 ? '+' : '−') + '₹' + Math.abs(Math.round(timeValue)).toLocaleString('en-IN'), color: timeValue >= 0 ? 'var(--profit)' : 'var(--loss)' },
+            { label: 'Time value', value: (timeValue >= 0 ? '+' : '−') + '₹' + Math.abs(timeValue).toLocaleString('en-IN'), color: timeValue >= 0 ? 'var(--profit)' : 'var(--loss)' },
           ].map(({ label, value, color }) => (
             <div key={label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}>
               <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 3 }}>{label}</div>
@@ -615,7 +656,7 @@ export default function StrategyBuilder() {
             {/* Standard deviation + Implied futures + DTE */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
               <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>Standard deviation</div>
-              {[['1 SD', Math.round(sd.sd1)], ['2 SD', Math.round(sd.sd2)]].map(([label, val]) => (
+              {[['1 SD', sd.sd1.toFixed(2)], ['2 SD', sd.sd2.toFixed(2)]].map(([label, val]) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
                   <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
                   <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{val}</span>
@@ -630,7 +671,7 @@ export default function StrategyBuilder() {
               </div>
               <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Implied futures</div>
-                <div style={{ fontSize: 18, fontWeight: 600 }}>{futuresPrice ? Math.round(futuresPrice).toLocaleString('en-IN') : '—'}</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{futuresPrice ? (futuresPrice).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—'}</div>
               </div>
             </div>
           </div>
@@ -647,8 +688,8 @@ export default function StrategyBuilder() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>
                   {chartHoverSpot
-                    ? <>At <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{Math.round(chartHoverSpot).toLocaleString('en-IN')}</span>: <span style={{ color: readPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{readPnl >= 0 ? '+' : '−'}₹{Math.abs(Math.round(readPnl)).toLocaleString('en-IN')}</span></>
-                    : <>Projected {curPnl >= 0 ? 'profit' : 'loss'}: <span style={{ color: curPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{curPnl >= 0 ? '+' : '−'}₹{Math.abs(Math.round(curPnl)).toLocaleString('en-IN')}</span></>
+                    ? <>At <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{(chartHoverSpot).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>: <span style={{ color: readPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{readPnl >= 0 ? '+' : '−'}₹{Math.abs(readPnl).toLocaleString('en-IN')}</span></>
+                    : <>Projected {curPnl >= 0 ? 'profit' : 'loss'}: <span style={{ color: curPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{curPnl >= 0 ? '+' : '−'}₹{Math.abs(curPnl).toLocaleString('en-IN')}</span></>
                   }
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, color: 'var(--text-muted)' }}>
@@ -739,7 +780,7 @@ export default function StrategyBuilder() {
                   const val = spotMin + (spotMax - spotMin) * frac;
                   return (
                     <text key={frac} x={xScale(val)} y={H - 6} fontSize="10" fill="var(--text-muted)" textAnchor="middle">
-                      {Math.round(val).toLocaleString('en-IN')}
+                      {(val).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
                     </text>
                   );
                 })}
@@ -747,30 +788,42 @@ export default function StrategyBuilder() {
             );
           })()}
 
-          {/* Spot price slider */}
+          {/* Spot price slider + direct input */}
           <div style={{ marginTop: 10, marginBottom: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>
               <span>Target spot price</span>
-              <span style={{ fontFamily: "'JetBrains Mono', monospace", color: 'var(--text-primary)' }}>{Math.round(currentSpot).toLocaleString('en-IN')}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input
+                  type="number"
+                  value={scenarioSpot ?? Math.round(spot ?? 0)}
+                  onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setScenarioSpot(v); }}
+                  style={{ width: 90, background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text-primary)', fontSize: 12, padding: '3px 6px', fontFamily: "'JetBrains Mono', monospace", textAlign: 'right' }}
+                />
+                {scenarioSpot !== null && (
+                  <button onClick={() => setScenarioSpot(null)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
+                )}
+              </div>
             </div>
-            <input type="range" min={spotMin} max={spotMax} step={10} value={currentSpot}
+            <input type="range" min={spotMin} max={spotMax} step={0.05} value={currentSpot}
               onChange={e => setScenarioSpot(parseFloat(e.target.value))}
               style={{ width: '100%', accentColor: 'var(--accent)' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+              <span>{spotMin.toLocaleString('en-IN')}</span>
+              <span>{spotMax.toLocaleString('en-IN')}</span>
+            </div>
           </div>
 
-          {/* Time slider — identical to OptionsAnalyzer */}
+          {/* Time slider — market hours only (Mon–Fri 09:15–15:30 IST) */}
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                Target date
-                {targetTimeMs !== null && Math.abs(targetTimeMs - nowMs) > 1000 && (
-                  <button onClick={() => setTargetTimeMs(null)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
-                )}
-              </span>
+              <span>Target date</span>
+              {clampedIdx > 0 && (
+                <button onClick={() => setSliderIdx(0)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
+              )}
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
               <button
-                onClick={() => setTargetTimeMs(t => Math.max((t ?? nowMs) - 24 * 60 * 60 * 1000, nowMs))}
+                onClick={() => setSliderIdx(i => Math.max(0, i - 1))}
                 style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}>‹</button>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>
@@ -779,21 +832,21 @@ export default function StrategyBuilder() {
                   {new Date(targetMs).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                  {targetDaysToExpiry < 1
+                  {clampedIdx === 0 ? 'Now' : targetDaysToExpiry < 1
                     ? `${Math.round(targetDaysToExpiry * 24)} hours to expiry`
                     : `${targetDaysToExpiry.toFixed(1)} days to expiry`}
                 </div>
               </div>
               <button
-                onClick={() => setTargetTimeMs(t => Math.min((t ?? nowMs) + 24 * 60 * 60 * 1000, expiryMs))}
+                onClick={() => setSliderIdx(i => Math.min(marketTimestamps.length - 1, i + 1))}
                 style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}>›</button>
             </div>
-            <input type="range" min={nowMs} max={expiryMs} step={60 * 60 * 1000} value={targetMs}
-              onChange={e => setTargetTimeMs(parseFloat(e.target.value))}
+            <input type="range" min={0} max={marketTimestamps.length - 1} step={1} value={clampedIdx}
+              onChange={e => setSliderIdx(parseInt(e.target.value, 10))}
               style={{ width: '100%', accentColor: '#FFA53D' }} />
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-              <span>{new Date(nowMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
-              <span>{new Date(expiryMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+              <span>Now · {new Date(nowMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+              <span>Expiry · {new Date(expiryMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
             </div>
           </div>
         </div>
