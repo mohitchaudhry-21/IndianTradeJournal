@@ -140,7 +140,23 @@ export default function StrategyBuilder() {
         }
         setChainError(null);
         setChainSource(result.source);
-        setChainRows(result.rows);
+        // Preserve LTP/OI from previous rows — the optionGreek API never
+        // returns LTP, so naively overwriting with result.rows would reset
+        // every LTP to 0 on each 10s poll, causing a visible flash before
+        // the backfill patches them back in.
+        setChainRows(prevRows => {
+          const prevByStrike = {};
+          prevRows.forEach(r => { prevByStrike[r.strike] = r; });
+          return result.rows.map(row => {
+            const prev = prevByStrike[row.strike];
+            if (!prev) return row;
+            return {
+              ...row,
+              CE: row.CE ? { ...row.CE, ltp: prev.CE?.ltp ?? row.CE.ltp, oi: prev.CE?.oi ?? row.CE.oi } : row.CE,
+              PE: row.PE ? { ...row.PE, ltp: prev.PE?.ltp ?? row.PE.ltp, oi: prev.PE?.oi ?? row.PE.oi } : row.PE,
+            };
+          });
+        });
         if (result.underlyingValue) setSpot(result.underlyingValue);
 
         // AngelOne's optionGreek API (the fallback used whenever NSE's
@@ -386,90 +402,135 @@ export default function StrategyBuilder() {
           <div style={{ maxHeight: 480, overflowY: 'auto' }}>
             <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
               <thead>
-                <tr style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase' }}>
-                  {pickerView === 'GREEKS' && <th style={{ textAlign: 'right', padding: '4px 6px' }}>Delta</th>}
-                  <th style={{ textAlign: 'right', padding: '4px 6px' }}>OI chg</th>
-                  <th style={{ textAlign: 'right', padding: '4px 6px' }}>Call OI</th>
-                  <th style={{ textAlign: 'right', padding: '4px 6px' }}>{pickerView === 'GREEKS' ? 'Call θ' : 'Call LTP'}</th>
-                  <th style={{ textAlign: 'center', padding: '4px 6px' }}>Strike</th>
-                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>{pickerView === 'GREEKS' ? 'Put θ' : 'Put LTP'}</th>
-                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>Put OI</th>
-                  <th style={{ textAlign: 'left', padding: '4px 6px' }}>OI chg</th>
-                  {pickerView === 'GREEKS' && <th style={{ textAlign: 'left', padding: '4px 6px' }}>Delta</th>}
+                {/* Section row: CALLS | — | — | PUTS */}
+                <tr style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase' }}>
+                  <th colSpan={pickerView === 'GREEKS' ? 4 : 3} style={{ textAlign: 'center', padding: '4px 6px 2px', color: 'var(--loss)', letterSpacing: 1 }}>Calls</th>
+                  <th style={{ padding: 0 }} />
+                  <th style={{ padding: 0 }} />
+                  <th colSpan={pickerView === 'GREEKS' ? 4 : 3} style={{ textAlign: 'center', padding: '4px 6px 2px', color: 'var(--profit)', letterSpacing: 1 }}>Puts</th>
+                </tr>
+                <tr style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>
+                  <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 400 }}>OI chg%</th>
+                  <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 400 }}>OI-lakh</th>
+                  {pickerView === 'GREEKS' && <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 400 }}>Delta</th>}
+                  <th style={{ textAlign: 'right', padding: '3px 6px', fontWeight: 400 }}>{pickerView === 'GREEKS' ? 'θ' : 'LTP'}</th>
+                  <th style={{ textAlign: 'center', padding: '3px 8px', fontWeight: 400 }}>Strike</th>
+                  <th style={{ textAlign: 'center', padding: '3px 6px', fontWeight: 400 }}>IV</th>
+                  <th style={{ textAlign: 'left', padding: '3px 6px', fontWeight: 400 }}>{pickerView === 'GREEKS' ? 'θ' : 'LTP'}</th>
+                  {pickerView === 'GREEKS' && <th style={{ textAlign: 'left', padding: '3px 6px', fontWeight: 400 }}>Delta</th>}
+                  <th style={{ textAlign: 'left', padding: '3px 6px', fontWeight: 400 }}>OI-lakh</th>
+                  <th style={{ textAlign: 'left', padding: '3px 6px', fontWeight: 400 }}>OI chg%</th>
                 </tr>
               </thead>
               <tbody ref={tableBodyRef}>
                 {chainRows.map(row => {
                   const isAtm = spot && Math.abs(row.strike - spot) === Math.min(...chainRows.map(r => Math.abs(r.strike - spot)));
-                  const showCeBtns = row.CE && (isAtm || hoveredStrike === row.strike);
-                  const showPeBtns = row.PE && (isAtm || hoveredStrike === row.strike);
+                  const showBtns = isAtm || hoveredStrike === row.strike;
                   const ceChg = oiChangePct(row.CE);
                   const peChg = oiChangePct(row.PE);
+                  const ceOiL = row.CE ? (row.CE.oi / 100000) : 0;
+                  const peOiL = row.PE ? (row.PE.oi / 100000) : 0;
+                  const ceOiPct = maxOi > 0 ? Math.min(100, (row.CE?.oi || 0) / maxOi * 100) : 0;
+                  const peOiPct = maxOi > 0 ? Math.min(100, (row.PE?.oi || 0) / maxOi * 100) : 0;
+                  const rowBg = isAtm ? 'rgba(59,130,246,0.06)' : hoveredStrike === row.strike ? 'var(--bg-card2)' : 'transparent';
                   return (
                     <tr key={row.strike}
                       ref={isAtm ? atmRowRef : null}
                       onMouseEnter={() => setHoveredStrike(row.strike)}
                       onMouseLeave={() => setHoveredStrike(prev => prev === row.strike ? null : prev)}
-                      style={{ background: isAtm ? 'var(--accent-dim)' : 'transparent', borderTop: isAtm ? '1px solid var(--accent)' : 'none', borderBottom: isAtm ? '1px solid var(--accent)' : 'none' }}>
+                      style={{ background: rowBg, borderTop: isAtm ? '1px solid rgba(59,130,246,0.35)' : 'none', borderBottom: isAtm ? '1px solid rgba(59,130,246,0.35)' : 'none' }}>
+
+                      {/* OI chg% — call */}
+                      <td style={{ textAlign: 'right', padding: '5px 6px', color: ceChg === null ? 'var(--text-muted)' : ceChg >= 0 ? 'var(--profit)' : 'var(--loss)', fontSize: 11 }}>
+                        {ceChg === null ? '—' : `${ceChg >= 0 ? '+' : ''}${Math.round(ceChg)}%`}
+                      </td>
+
+                      {/* OI-lakh + embedded bar — call (bar fills from right) */}
+                      <td style={{ padding: '5px 6px', textAlign: 'right', minWidth: 80 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 4 }}>
+                          <span style={{ fontSize: 11, color: 'var(--text-secondary)', minWidth: 28, textAlign: 'right' }}>
+                            {ceOiL > 0 ? ceOiL.toFixed(1) : '—'}
+                          </span>
+                          <div style={{ width: 40, height: 8, background: 'var(--bg-card2)', borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ marginLeft: 'auto', width: `${ceOiPct}%`, height: 8, background: 'rgba(239,68,68,0.55)', borderRadius: 2 }} />
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Delta — call (GREEKS only) */}
                       {pickerView === 'GREEKS' && (
                         <td style={{ textAlign: 'right', padding: '5px 6px', color: 'var(--text-secondary)' }}>{fmt(row.CE?.delta, 2)}</td>
                       )}
-                      <td style={{ textAlign: 'right', padding: '5px 6px', color: ceChg === null ? 'var(--text-muted)' : ceChg >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
-                        {ceChg === null ? '—' : `${ceChg >= 0 ? '+' : ''}${Math.round(ceChg)}%`}
-                      </td>
-                      <td style={{ textAlign: 'right', padding: '5px 6px' }}>
-                        {row.CE ? <OiBar value={row.CE.oi} max={maxOi} color="var(--loss)" /> : '—'}
-                      </td>
-                      <td style={{ textAlign: 'right', padding: '5px 6px' }}>
+
+                      {/* LTP / Theta — call */}
+                      <td style={{ textAlign: 'right', padding: '5px 6px', minWidth: 80 }}>
                         {row.CE ? (
-                          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4, minHeight: 18 }}>
-                            {showCeBtns && (
-                              <button onClick={() => addLeg(row.strike, 'CE', 'BUY')}
-                                title="Buy CE"
-                                style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer' }}>B</button>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
+                            {showBtns && (
+                              <button onClick={() => addLeg(row.strike, 'CE', 'BUY')} title="Buy CE"
+                                style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 3, padding: '1px 5px', fontSize: 10, cursor: 'pointer', lineHeight: 1.4 }}>B</button>
                             )}
-                            <span style={{ fontFamily: "'JetBrains Mono', monospace", minWidth: 50, textAlign: 'right' }}>
+                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: isAtm ? 'var(--accent)' : 'var(--text-primary)' }}>
                               {pickerView === 'GREEKS' ? fmt(row.CE.theta) : fmt(row.CE.ltp)}
                             </span>
-                            {showCeBtns && (
-                              <button onClick={() => addLeg(row.strike, 'CE', 'SELL')}
-                                title="Sell CE"
-                                style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer' }}>S</button>
+                            {showBtns && (
+                              <button onClick={() => addLeg(row.strike, 'CE', 'SELL')} title="Sell CE"
+                                style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 3, padding: '1px 5px', fontSize: 10, cursor: 'pointer', lineHeight: 1.4 }}>S</button>
                             )}
                           </div>
-                        ) : '—'}
+                        ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                       </td>
-                      <td style={{ textAlign: 'center', padding: '5px 6px', fontWeight: isAtm ? 600 : 400, fontFamily: "'JetBrains Mono', monospace" }}>
+
+                      {/* Strike */}
+                      <td style={{ textAlign: 'center', padding: '5px 8px', fontWeight: isAtm ? 600 : 400, fontFamily: "'JetBrains Mono', monospace", color: isAtm ? 'var(--text-primary)' : 'var(--text-secondary)', background: 'var(--bg-card2)', borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)' }}>
                         {row.strike.toLocaleString('en-IN')}
                       </td>
-                      <td style={{ textAlign: 'left', padding: '5px 6px' }}>
+
+                      {/* IV */}
+                      <td style={{ textAlign: 'center', padding: '5px 6px', color: 'var(--text-muted)', fontSize: 11, borderRight: '1px solid var(--border)' }}>
+                        {row.CE?.iv ? fmt(row.CE.iv, 1) : row.PE?.iv ? fmt(row.PE.iv, 1) : '—'}
+                      </td>
+
+                      {/* LTP / Theta — put */}
+                      <td style={{ textAlign: 'left', padding: '5px 6px', minWidth: 80 }}>
                         {row.PE ? (
-                          <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 4, minHeight: 18 }}>
-                            {showPeBtns && (
-                              <button onClick={() => addLeg(row.strike, 'PE', 'BUY')}
-                                title="Buy PE"
-                                style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer' }}>B</button>
+                          <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 4 }}>
+                            {showBtns && (
+                              <button onClick={() => addLeg(row.strike, 'PE', 'BUY')} title="Buy PE"
+                                style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 3, padding: '1px 5px', fontSize: 10, cursor: 'pointer', lineHeight: 1.4 }}>B</button>
                             )}
-                            <span style={{ fontFamily: "'JetBrains Mono', monospace", minWidth: 50 }}>
+                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: isAtm ? 'var(--accent)' : 'var(--text-primary)' }}>
                               {pickerView === 'GREEKS' ? fmt(row.PE.theta) : fmt(row.PE.ltp)}
                             </span>
-                            {showPeBtns && (
-                              <button onClick={() => addLeg(row.strike, 'PE', 'SELL')}
-                                title="Sell PE"
-                                style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 4, padding: '1px 5px', fontSize: 10, cursor: 'pointer' }}>S</button>
+                            {showBtns && (
+                              <button onClick={() => addLeg(row.strike, 'PE', 'SELL')} title="Sell PE"
+                                style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 3, padding: '1px 5px', fontSize: 10, cursor: 'pointer', lineHeight: 1.4 }}>S</button>
                             )}
                           </div>
-                        ) : '—'}
+                        ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
                       </td>
-                      <td style={{ textAlign: 'left', padding: '5px 6px' }}>
-                        {row.PE ? <OiBar value={row.PE.oi} max={maxOi} color="var(--profit)" /> : '—'}
-                      </td>
-                      <td style={{ textAlign: 'left', padding: '5px 6px', color: peChg === null ? 'var(--text-muted)' : peChg >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
-                        {peChg === null ? '—' : `${peChg >= 0 ? '+' : ''}${Math.round(peChg)}%`}
-                      </td>
+
+                      {/* Delta — put (GREEKS only) */}
                       {pickerView === 'GREEKS' && (
                         <td style={{ textAlign: 'left', padding: '5px 6px', color: 'var(--text-secondary)' }}>{fmt(row.PE?.delta, 2)}</td>
                       )}
+
+                      {/* OI-lakh + embedded bar — put (bar fills from left) */}
+                      <td style={{ padding: '5px 6px', minWidth: 80 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <div style={{ width: 40, height: 8, background: 'var(--bg-card2)', borderRadius: 2, overflow: 'hidden' }}>
+                            <div style={{ width: `${peOiPct}%`, height: 8, background: 'rgba(34,197,94,0.55)', borderRadius: 2 }} />
+                          </div>
+                          <span style={{ fontSize: 11, color: 'var(--text-secondary)', minWidth: 28 }}>
+                            {peOiL > 0 ? peOiL.toFixed(1) : '—'}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* OI chg% — put */}
+                      <td style={{ textAlign: 'left', padding: '5px 6px', color: peChg === null ? 'var(--text-muted)' : peChg >= 0 ? 'var(--profit)' : 'var(--loss)', fontSize: 11 }}>
+                        {peChg === null ? '—' : `${peChg >= 0 ? '+' : ''}${Math.round(peChg)}%`}
+                      </td>
                     </tr>
                   );
                 })}
