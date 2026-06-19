@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useJournal } from '../context/JournalContext';
 import { fetchOptionChain, fetchAngelOneLtp, angelOneLtpKey, toNseSymbol } from '../utils/optionChain';
+import { generateMarketTimestamps } from '../utils/marketHours';
 import { fetchTickerQuotes } from '../utils/tickerQuotes';
 import { isMarketOpen, saveAnalysisSnapshot, loadAnalysisSnapshot } from '../utils/marketHours';
 import {
@@ -50,6 +51,7 @@ export default function OptionsAnalyzer() {
   useEffect(() => { liveSpotRef.current = liveSpot; }, [liveSpot]);
   const [scenarioSpot, setScenarioSpot] = useState(null); // user-dragged target spot, null = follow live
   const [targetTimeMs, setTargetTimeMs] = useState(null); // target datetime, as ms since epoch
+  const [sliderIdx, setSliderIdx] = useState(0); // index into marketTimestamps array
 
   const position = openPositions.find(p => p.positionId === selectedPositionId) || openPositions[0];
 
@@ -62,6 +64,7 @@ export default function OptionsAnalyzer() {
     // target date at whatever moment the position was opened, silently
     // going stale (and the P&L with it) the longer the page stays open.
     setTargetTimeMs(null);
+    setSliderIdx(0);
     setScenarioSpot(null);
   }, [position?.positionId]); // eslint-disable-line
 
@@ -247,7 +250,12 @@ export default function OptionsAnalyzer() {
 
   const expiryMs = position.expiry ? new Date(position.expiry).getTime() : Date.now();
   const nowMs = nowTick;
-  const targetMs = targetTimeMs ?? nowMs;
+  const marketTimestamps = useMemo(
+    () => generateMarketTimestamps(nowMs, expiryMs),
+    [expiryMs] // eslint-disable-line
+  );
+  const clampedIdx = Math.min(sliderIdx, marketTimestamps.length - 1);
+  const targetMs = clampedIdx === 0 ? nowMs : marketTimestamps[clampedIdx];
   // Time remaining from the chosen target moment to expiry, in years —
   // hour-level precision rather than whole days, since theta decay is
   // continuous through the trading day, not a once-a-day step.
@@ -255,7 +263,7 @@ export default function OptionsAnalyzer() {
   // True only when neither slider has been moved away from "right now" —
   // in that exact state, P&L should use real quoted LTPs rather than a
   // Black-Scholes re-derivation, so it matches the live P&L shown elsewhere.
-  const isCurrentMoment = scenarioSpot === null && Math.abs(targetMs - nowMs) < 60 * 1000;
+  const isCurrentMoment = scenarioSpot === null && clampedIdx === 0;
   const allActiveLegsHaveLiveLtp = activeLegs.length > 0 && activeLegs.every(l => l.ltpIsLive);
   const useRealLtpForHeadline = isCurrentMoment && allActiveLegsHaveLiveLtp;
   const targetDaysToExpiry = Math.max(expiryMs - targetMs, 0) / (1000 * 60 * 60 * 24);
@@ -415,7 +423,7 @@ export default function OptionsAnalyzer() {
             const lossAreaPath = `${expiryPath} L${xScale(spotMax)},${zeroY} L${xScale(spotMin)},${zeroY} Z`;
 
             return (
-              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 280 }}>
+              <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 280 }}>
                 {[0.25, 0.5, 0.75].map(frac => (
                   <line key={frac} x1={padL} y1={padT + plotH * frac} x2={W - padR} y2={padT + plotH * frac} stroke="rgba(255,255,255,0.04)" />
                 ))}
@@ -508,14 +516,14 @@ export default function OptionsAnalyzer() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   Target date
-                  {targetTimeMs !== null && Math.abs(targetTimeMs - nowMs) > 1000 && (
-                    <button onClick={() => setTargetTimeMs(null)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
+                  {clampedIdx > 0 && (
+                    <button onClick={() => setSliderIdx(0)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
                   )}
                 </span>
               </div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
                 <button
-                  onClick={() => setTargetTimeMs(t => Math.max((t ?? nowMs) - 24 * 60 * 60 * 1000, nowMs))}
+                  onClick={() => setSliderIdx(i => Math.max(0, i - 1))}
                   style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}
                 >‹</button>
                 <div style={{ textAlign: 'center' }}>
@@ -525,22 +533,22 @@ export default function OptionsAnalyzer() {
                     {new Date(targetMs).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    {targetDaysToExpiry < 1
+                    {clampedIdx === 0 ? 'Now' : targetDaysToExpiry < 1
                       ? `${Math.round(targetDaysToExpiry * 24)} hours to expiry`
                       : `${targetDaysToExpiry.toFixed(1)} days to expiry`}
                   </div>
                 </div>
                 <button
-                  onClick={() => setTargetTimeMs(t => Math.min((t ?? nowMs) + 24 * 60 * 60 * 1000, expiryMs))}
+                  onClick={() => setSliderIdx(i => Math.min(marketTimestamps.length - 1, i + 1))}
                   style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', width: 28, height: 28, cursor: 'pointer', fontSize: 14 }}
                 >›</button>
               </div>
-              <input type="range" min={nowMs} max={expiryMs} step={60 * 60 * 1000} value={targetMs}
-                onChange={e => setTargetTimeMs(parseFloat(e.target.value))}
+              <input type="range" min={0} max={marketTimestamps.length - 1} step={1} value={clampedIdx}
+                onChange={e => setSliderIdx(parseInt(e.target.value, 10))}
                 style={{ width: '100%', accentColor: 'var(--accent)' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-                <span>{new Date(nowMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
-                <span>{new Date(expiryMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                <span>Now · {new Date(nowMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                <span>Expiry · {new Date(expiryMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
               </div>
             </div>
           </div>
