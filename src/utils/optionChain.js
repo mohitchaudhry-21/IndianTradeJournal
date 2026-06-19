@@ -163,20 +163,23 @@ function daysToExpiry(expiryDateStr) {
 const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 // Convert a stored ISO date (e.g. "2026-06-26" or full ISO timestamp) into
-// NSE's expiryDate format: "26-Jun-2026"
+// NSE's expiryDate format: "26-Jun-2026". Uses UTC accessors so UTC-midnight
+// dates don't roll back one day in IST (+5:30).
 export function toNseExpiryFormat(isoDate) {
   const d = new Date(isoDate);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = MONTH_ABBR[d.getMonth()];
-  return `${day}-${month}-${d.getFullYear()}`;
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = MONTH_ABBR[d.getUTCMonth()];
+  return `${day}-${month}-${d.getUTCFullYear()}`;
 }
 
 // Convert a stored ISO date into AngelOne's expirydate format: "26JUN2026"
+// Uses UTC accessors (getUTCDate etc) so a UTC-midnight date like
+// "2026-06-23T00:00:00Z" doesn't shift to June 22 in IST (+5:30).
 export function toAngelOneExpiryFormat(isoDate) {
   const d = new Date(isoDate);
-  const day = String(d.getDate()).padStart(2, '0');
-  const month = MONTH_ABBR[d.getMonth()].toUpperCase();
-  return `${day}${month}${d.getFullYear()}`;
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const month = MONTH_ABBR[d.getUTCMonth()].toUpperCase();
+  return `${day}${month}${d.getUTCFullYear()}`;
 }
 
 // Fetch every available expiry for an instrument (powers the Strategy
