@@ -479,7 +479,7 @@ export default function StrategyBuilder() {
           style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', padding: '6px 10px', fontSize: 13 }}>
           {KNOWN_SYMBOLS.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
         </select>
-        <span style={{ fontSize: 15, fontWeight: 600, fontFamily: "'JetBrains Mono', monospace" }}>
+        <span style={{ fontSize: 15, fontWeight: 600, fontFamily: "'Chivo Mono', monospace" }}>
           {currentSpot ? (currentSpot).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—'}
         </span>
         <span style={{ width: 1, height: 18, background: 'var(--border)' }} />
@@ -548,7 +548,7 @@ export default function StrategyBuilder() {
                   {(() => { const months2 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; const d=parseInt(exp.slice(0,2),10),m=months2[months[exp.slice(2,5).toUpperCase()]??0],y=parseInt(exp.slice(5),10); return `${d} ${m} ${y}`; })()}
                   <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>({Math.round(daysLeft)} days)</span>
                 </td>
-                <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}>
+                <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: "'Chivo Mono', monospace", fontSize: 13 }}>
                   {fwd?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '—'}
                 </td>
                 <td style={{ padding: '10px 10px' }}>
@@ -666,7 +666,7 @@ export default function StrategyBuilder() {
                               <button onClick={() => addLeg(row.strike, 'CE', 'BUY')} title="Buy CE"
                                 style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 3, padding: '1px 5px', fontSize: 10, cursor: 'pointer', lineHeight: 1.4 }}>B</button>
                             )}
-                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: isAtm ? 'var(--accent)' : 'var(--text-primary)' }}>
+                            <span style={{ fontFamily: "'Chivo Mono', monospace", fontSize: 12, color: isAtm ? 'var(--accent)' : 'var(--text-primary)' }}>
                               {pickerView === 'GREEKS' ? fmt(row.CE.theta) : fmt(row.CE.ltp)}
                             </span>
                             {showBtns && (
@@ -678,7 +678,7 @@ export default function StrategyBuilder() {
                       </td>
 
                       {/* Strike */}
-                      <td style={{ textAlign: 'center', padding: '5px 8px', fontWeight: isAtm ? 600 : 400, fontFamily: "'JetBrains Mono', monospace", color: isAtm ? 'var(--text-primary)' : 'var(--text-secondary)', background: 'var(--bg-card2)', borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)' }}>
+                      <td style={{ textAlign: 'center', padding: '5px 8px', fontWeight: isAtm ? 600 : 400, fontFamily: "'Chivo Mono', monospace", color: isAtm ? 'var(--text-primary)' : 'var(--text-secondary)', background: 'var(--bg-card2)', borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)' }}>
                         {row.strike.toLocaleString('en-IN')}
                       </td>
 
@@ -695,7 +695,7 @@ export default function StrategyBuilder() {
                               <button onClick={() => addLeg(row.strike, 'PE', 'BUY')} title="Buy PE"
                                 style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 3, padding: '1px 5px', fontSize: 10, cursor: 'pointer', lineHeight: 1.4 }}>B</button>
                             )}
-                            <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: isAtm ? 'var(--accent)' : 'var(--text-primary)' }}>
+                            <span style={{ fontFamily: "'Chivo Mono', monospace", fontSize: 12, color: isAtm ? 'var(--accent)' : 'var(--text-primary)' }}>
                               {pickerView === 'GREEKS' ? fmt(row.PE.theta) : fmt(row.PE.ltp)}
                             </span>
                             {showBtns && (
@@ -788,7 +788,7 @@ export default function StrategyBuilder() {
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontFamily: "'JetBrains Mono', monospace", color: 'var(--text-secondary)', fontSize: 11 }}>{fmt(leg.premium)}</span>
+                    <span style={{ fontFamily: "'Chivo Mono', monospace", color: 'var(--text-secondary)', fontSize: 11 }}>{fmt(leg.premium)}</span>
                     <button onClick={() => removeLeg(leg.id)} style={{ background: 'none', border: 'none', color: 'var(--loss)', cursor: 'pointer', fontSize: 14, padding: 0 }}>×</button>
                   </div>
                 </div>
@@ -801,7 +801,7 @@ export default function StrategyBuilder() {
               {[['Delta', fmt(greeks.delta, 2)], ['Gamma', fmt(greeks.gamma, 4)], ['Theta / day', fmt(greeks.theta, 2)], ['Vega', fmt(greeks.vega, 2)]].map(([label, val]) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
                   <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>{val}</span>
+                  <span style={{ fontFamily: "'Chivo Mono', monospace", fontWeight: 600 }}>{val}</span>
                 </div>
               ))}
             </div>
@@ -812,7 +812,7 @@ export default function StrategyBuilder() {
               {[['1 SD', sd.sd1.toFixed(2)], ['2 SD', sd.sd2.toFixed(2)]].map(([label, val]) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
                   <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                  <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{val}</span>
+                  <span style={{ fontFamily: "'Chivo Mono', monospace" }}>{val}</span>
                 </div>
               ))}
             </div>
@@ -856,9 +856,9 @@ export default function StrategyBuilder() {
             );
           })()}
 
-          {/* SVG payoff chart with mouse-tracking crosshair */}
+          {/* SVG payoff chart — identical structure to OptionsAnalyzer */}
           {(() => {
-            const W = 900, H = 260, padL = 54, padR = 16, padT = 12, padB = 28;
+            const W = 700, H = 280, padL = 46, padR = 16, padT = 16, padB = 30;
             const plotW = W - padL - padR;
             const plotH = H - padT - padB;
             const xScale = s => padL + ((s - spotMin) / (spotMax - spotMin)) * plotW;
@@ -871,72 +871,64 @@ export default function StrategyBuilder() {
             const hoverX = chartHoverSpot ? xScale(chartHoverSpot) : null;
             const hoverPnlExpiry = chartHoverSpot ? payoffAt(calibratedLegs, chartHoverSpot, 0) : null;
             const hoverPnlToday = chartHoverSpot ? payoffAt(calibratedLegs, chartHoverSpot, T_chart) : null;
-            // Y-axis labels
-            const pnlStep = maxAbsPnl > 50000 ? 25000 : maxAbsPnl > 10000 ? 10000 : maxAbsPnl > 2000 ? 2000 : 500;
-            const yLabels = [];
-            for (let v = -maxAbsPnl; v <= maxAbsPnl; v += pnlStep) {
-              if (Math.abs(v) <= maxAbsPnl * 1.05) yLabels.push(v);
-            }
             return (
-              <svg ref={chartSvgRef} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 260, cursor: 'crosshair' }}
+              <svg ref={chartSvgRef} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
+                style={{ width: '100%', height: 280, cursor: 'crosshair' }}
                 onMouseMove={e => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   const svgX = ((e.clientX - rect.left) / rect.width) * W;
                   if (svgX < padL || svgX > W - padR) { setChartHoverSpot(null); return; }
-                  const s = Math.max(spotMin, Math.min(spotMax, xToSpot(svgX)));
-                  setChartHoverSpot(Math.round(s / 10) * 10);
+                  setChartHoverSpot(Math.round(Math.max(spotMin, Math.min(spotMax, xToSpot(svgX))) / 10) * 10);
                 }}
                 onMouseLeave={() => setChartHoverSpot(null)}>
-                {/* Grid lines + Y labels */}
-                {yLabels.map(v => (
-                  <g key={v}>
-                    <line x1={padL} y1={yScale(v)} x2={W - padR} y2={yScale(v)} stroke="rgba(255,255,255,0.04)" />
-                    <text x={padL - 4} y={yScale(v) + 3} fontSize="9" fill={v === 0 ? 'rgba(255,255,255,0.25)' : 'var(--text-muted)'} textAnchor="end">
-                      {v === 0 ? '0' : (v > 0 ? '+' : '−') + Math.abs(v / 1000).toFixed(0) + 'k'}
-                    </text>
-                  </g>
+                {[0.25, 0.5, 0.75].map(frac => (
+                  <line key={frac} x1={padL} y1={padT + plotH * frac} x2={W - padR} y2={padT + plotH * frac} stroke="rgba(255,255,255,0.04)" />
                 ))}
-                {/* OI bars at bottom */}
                 {chainRows.map(row => {
-                  const x = xScale(row.strike);
-                  const barW = Math.max(plotW / chainRows.length * 0.55, 3);
-                  const ceH = ((row.CE?.oi || 0) / maxOi) * (plotH * 0.28);
-                  const peH = ((row.PE?.oi || 0) / maxOi) * (plotH * 0.28);
-                  return (
-                    <g key={row.strike} opacity={0.28}>
-                      <rect x={x - barW / 2} y={zeroY - ceH} width={barW} height={ceH} fill="var(--loss)" />
-                      <rect x={x - barW / 2} y={zeroY} width={barW} height={peH} fill="var(--profit)" />
-                    </g>
-                  );
+                  const barW = Math.max(plotW / Math.max(chainRows.length, 1) * 0.55, 3);
+                  const results = [];
+                  if (row.CE?.oi > 0) {
+                    const ceH = (row.CE.oi / maxOi) * (plotH * 0.42);
+                    results.push(<rect key={`ce-${row.strike}`} x={xScale(row.strike) - barW / 2} y={zeroY - ceH} width={barW} height={ceH} fill="var(--loss)" opacity={0.32} />);
+                  }
+                  if (row.PE?.oi > 0) {
+                    const peH = (row.PE.oi / maxOi) * (plotH * 0.42);
+                    results.push(<rect key={`pe-${row.strike}`} x={xScale(row.strike) - barW / 2} y={zeroY - peH} width={barW} height={peH} fill="var(--profit)" opacity={0.32} />);
+                  }
+                  return results;
                 })}
-                {/* Zero line */}
-                <line x1={padL} y1={zeroY} x2={W - padR} y2={zeroY} stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
-                {/* Loss fill */}
-                <path d={lossAreaPath} fill="var(--loss)" opacity={0.07} />
-                {/* Expiry path (dashed) */}
-                <path d={expiryPath} fill="none" stroke="rgba(228,235,248,0.35)" strokeWidth="1.5" strokeDasharray="4,4" />
-                {/* Today path */}
-                <path d={targetPath} fill="none" stroke="var(--profit)" strokeWidth="2.5" />
-                {/* Current spot line */}
-                <line x1={xScale(currentSpot)} y1={padT} x2={xScale(currentSpot)} y2={H - padB} stroke="var(--accent)" strokeWidth="1" strokeDasharray="3,3" />
-                {/* Hover crosshair */}
-                {hoverX && (
-                  <g>
-                    <line x1={hoverX} y1={padT} x2={hoverX} y2={H - padB} stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
-                    {hoverPnlToday !== null && (
-                      <circle cx={hoverX} cy={yScale(hoverPnlToday)} r={4} fill="var(--profit)" stroke="var(--bg-card)" strokeWidth="2" />
-                    )}
-                    {hoverPnlExpiry !== null && (
-                      <circle cx={hoverX} cy={yScale(hoverPnlExpiry)} r={3} fill="rgba(228,235,248,0.5)" stroke="var(--bg-card)" strokeWidth="2" />
-                    )}
-                  </g>
+                <line x1={padL} y1={zeroY} x2={W - padR} y2={zeroY} stroke="rgba(255,255,255,0.1)" />
+                <path d={lossAreaPath} fill="var(--loss)" opacity={0.08} />
+                {chartPoints.length > 1 && (
+                  <>
+                    <path d={expiryPath} fill="none" stroke="rgba(228,235,248,0.4)" strokeWidth="1.5" strokeDasharray="4,4" />
+                    <path d={targetPath} fill="none" stroke="var(--profit)" strokeWidth="2.5" />
+                  </>
                 )}
-                {/* X-axis labels */}
+                {(() => {
+                  const xPos = xScale(currentSpot);
+                  return (
+                    <>
+                      <line x1={xPos} y1={padT} x2={xPos} y2={H - padB} stroke="var(--accent)" strokeWidth="1" strokeDasharray="3,3" />
+                      <rect x={xPos - 58} y={2} width={116} height={18} rx={4} fill="var(--bg-card2)" stroke="var(--border)" />
+                      <text x={xPos} y={14} fontSize="10" fill="var(--text-primary)" textAnchor="middle" fontFamily="'Chivo Mono',monospace">
+                        Spot: {currentSpot.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </text>
+                    </>
+                  );
+                })()}
+                {hoverX && (
+                  <>
+                    <line x1={hoverX} y1={padT} x2={hoverX} y2={H - padB} stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
+                    {hoverPnlToday != null && <circle cx={hoverX} cy={yScale(hoverPnlToday)} r={4} fill="var(--profit)" stroke="var(--bg-card)" strokeWidth="2" />}
+                    {hoverPnlExpiry != null && <circle cx={hoverX} cy={yScale(hoverPnlExpiry)} r={3} fill="rgba(228,235,248,0.5)" stroke="var(--bg-card)" strokeWidth="2" />}
+                  </>
+                )}
                 {[0, 0.25, 0.5, 0.75, 1].map(frac => {
                   const val = spotMin + (spotMax - spotMin) * frac;
                   return (
-                    <text key={frac} x={xScale(val)} y={H - 6} fontSize="10" fill="var(--text-muted)" textAnchor="middle">
-                      {(val).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                    <text key={frac} x={xScale(val)} y={H - 8} fontSize="10" fill="var(--text-muted)" textAnchor="middle">
+                      {val.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </text>
                   );
                 })}
@@ -953,7 +945,7 @@ export default function StrategyBuilder() {
                   type="number"
                   value={scenarioSpot ?? Math.round(spot ?? 0)}
                   onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setScenarioSpot(v); }}
-                  style={{ width: 90, background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text-primary)', fontSize: 12, padding: '3px 6px', fontFamily: "'JetBrains Mono', monospace", textAlign: 'right' }}
+                  style={{ width: 90, background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text-primary)', fontSize: 12, padding: '3px 6px', fontFamily: "'Chivo Mono', monospace", textAlign: 'right' }}
                 />
                 {scenarioSpot !== null && (
                   <button onClick={() => setScenarioSpot(null)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
