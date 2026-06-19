@@ -479,7 +479,7 @@ export default function StrategyBuilder() {
           style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', padding: '6px 10px', fontSize: 13 }}>
           {KNOWN_SYMBOLS.map(s => <option key={s.name} value={s.name}>{s.name}</option>)}
         </select>
-        <span style={{ fontSize: 15, fontWeight: 600, fontFamily: "'Chivo Mono', monospace" }}>
+        <span style={{ fontSize: 15, fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
           {currentSpot ? (currentSpot).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—'}
         </span>
         <span style={{ width: 1, height: 18, background: 'var(--border)' }} />
@@ -548,7 +548,7 @@ export default function StrategyBuilder() {
                   {(() => { const months2 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; const d=parseInt(exp.slice(0,2),10),m=months2[months[exp.slice(2,5).toUpperCase()]??0],y=parseInt(exp.slice(5),10); return `${d} ${m} ${y}`; })()}
                   <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>({Math.round(daysLeft)} days)</span>
                 </td>
-                <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: "'Chivo Mono', monospace", fontSize: 13 }}>
+                <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 13 }}>
                   {fwd?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '—'}
                 </td>
                 <td style={{ padding: '10px 10px' }}>
@@ -628,7 +628,28 @@ export default function StrategyBuilder() {
                   const peOiL = row.PE ? (row.PE.oi / 100000) : 0;
                   const ceOiPct = maxOi > 0 ? Math.min(100, (row.CE?.oi || 0) / maxOi * 100) : 0;
                   const peOiPct = maxOi > 0 ? Math.min(100, (row.PE?.oi || 0) / maxOi * 100) : 0;
-                  const rowBg = isAtm ? 'rgba(59,130,246,0.06)' : hoveredStrike === row.strike ? 'var(--bg-card2)' : 'transparent';
+
+                  // Find legs at this strike — one per optionType/transactionType combo
+                  const ceBuyLeg  = legs.find(l => l.strike === row.strike && l.optionType === 'CE' && l.transactionType === 'BUY');
+                  const ceSellLeg = legs.find(l => l.strike === row.strike && l.optionType === 'CE' && l.transactionType === 'SELL');
+                  const peBuyLeg  = legs.find(l => l.strike === row.strike && l.optionType === 'PE' && l.transactionType === 'BUY');
+                  const peSellLeg = legs.find(l => l.strike === row.strike && l.optionType === 'PE' && l.transactionType === 'SELL');
+                  const hasAnyCeLeg = ceBuyLeg || ceSellLeg;
+                  const hasAnyPeLeg = peBuyLeg || peSellLeg;
+
+                  const LegBadge = ({ leg, side }) => leg ? (
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: '1px 5px', borderRadius: 3, lineHeight: 1.5,
+                      background: side === 'BUY' ? 'var(--profit-dim)' : 'var(--loss-dim)',
+                      color: side === 'BUY' ? 'var(--profit)' : 'var(--loss)',
+                      border: `1px solid ${side === 'BUY' ? 'rgba(16,217,160,0.3)' : 'rgba(240,86,110,0.3)'}`,
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {side === 'BUY' ? 'B' : 'S'} {leg.quantity > 1 ? `${leg.quantity}×` : ''}
+                    </span>
+                  ) : null;
+
+                  const rowBg = isAtm ? 'rgba(59,130,246,0.06)' : (hasAnyCeLeg || hasAnyPeLeg) ? 'rgba(59,130,246,0.03)' : hoveredStrike === row.strike ? 'var(--bg-card2)' : 'transparent';
                   return (
                     <tr key={row.strike}
                       ref={isAtm ? atmRowRef : null}
@@ -659,16 +680,18 @@ export default function StrategyBuilder() {
                       )}
 
                       {/* LTP / Theta — call */}
-                      <td style={{ textAlign: 'right', padding: '5px 6px', minWidth: 80 }}>
+                      <td style={{ textAlign: 'right', padding: '5px 6px', minWidth: 90 }}>
                         {row.CE ? (
                           <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: 4 }}>
                             {showBtns && (
                               <button onClick={() => addLeg(row.strike, 'CE', 'BUY')} title="Buy CE"
                                 style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 3, padding: '1px 5px', fontSize: 10, cursor: 'pointer', lineHeight: 1.4 }}>B</button>
                             )}
-                            <span style={{ fontFamily: "'Chivo Mono', monospace", fontSize: 12, color: isAtm ? 'var(--accent)' : 'var(--text-primary)' }}>
+                            {!showBtns && <LegBadge leg={ceBuyLeg} side="BUY" />}
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: isAtm ? 'var(--accent)' : 'var(--text-primary)' }}>
                               {pickerView === 'GREEKS' ? fmt(row.CE.theta) : fmt(row.CE.ltp)}
                             </span>
+                            {!showBtns && <LegBadge leg={ceSellLeg} side="SELL" />}
                             {showBtns && (
                               <button onClick={() => addLeg(row.strike, 'CE', 'SELL')} title="Sell CE"
                                 style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 3, padding: '1px 5px', fontSize: 10, cursor: 'pointer', lineHeight: 1.4 }}>S</button>
@@ -678,7 +701,7 @@ export default function StrategyBuilder() {
                       </td>
 
                       {/* Strike */}
-                      <td style={{ textAlign: 'center', padding: '5px 8px', fontWeight: isAtm ? 600 : 400, fontFamily: "'Chivo Mono', monospace", color: isAtm ? 'var(--text-primary)' : 'var(--text-secondary)', background: 'var(--bg-card2)', borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)' }}>
+                      <td style={{ textAlign: 'center', padding: '5px 8px', fontWeight: isAtm ? 600 : 400, fontFamily: 'var(--font-mono)', color: isAtm ? 'var(--text-primary)' : 'var(--text-secondary)', background: 'var(--bg-card2)', borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)' }}>
                         {row.strike.toLocaleString('en-IN')}
                       </td>
 
@@ -688,16 +711,18 @@ export default function StrategyBuilder() {
                       </td>
 
                       {/* LTP / Theta — put */}
-                      <td style={{ textAlign: 'left', padding: '5px 6px', minWidth: 80 }}>
+                      <td style={{ textAlign: 'left', padding: '5px 6px', minWidth: 90 }}>
                         {row.PE ? (
                           <div style={{ display: 'flex', justifyContent: 'flex-start', alignItems: 'center', gap: 4 }}>
                             {showBtns && (
                               <button onClick={() => addLeg(row.strike, 'PE', 'BUY')} title="Buy PE"
                                 style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 3, padding: '1px 5px', fontSize: 10, cursor: 'pointer', lineHeight: 1.4 }}>B</button>
                             )}
-                            <span style={{ fontFamily: "'Chivo Mono', monospace", fontSize: 12, color: isAtm ? 'var(--accent)' : 'var(--text-primary)' }}>
+                            {!showBtns && <LegBadge leg={peBuyLeg} side="BUY" />}
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: isAtm ? 'var(--accent)' : 'var(--text-primary)' }}>
                               {pickerView === 'GREEKS' ? fmt(row.PE.theta) : fmt(row.PE.ltp)}
                             </span>
+                            {!showBtns && <LegBadge leg={peSellLeg} side="SELL" />}
                             {showBtns && (
                               <button onClick={() => addLeg(row.strike, 'PE', 'SELL')} title="Sell PE"
                                 style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 3, padding: '1px 5px', fontSize: 10, cursor: 'pointer', lineHeight: 1.4 }}>S</button>
@@ -788,7 +813,7 @@ export default function StrategyBuilder() {
                     </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontFamily: "'Chivo Mono', monospace", color: 'var(--text-secondary)', fontSize: 11 }}>{fmt(leg.premium)}</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', fontSize: 11 }}>{fmt(leg.premium)}</span>
                     <button onClick={() => removeLeg(leg.id)} style={{ background: 'none', border: 'none', color: 'var(--loss)', cursor: 'pointer', fontSize: 14, padding: 0 }}>×</button>
                   </div>
                 </div>
@@ -801,7 +826,7 @@ export default function StrategyBuilder() {
               {[['Delta', fmt(greeks.delta, 2)], ['Gamma', fmt(greeks.gamma, 4)], ['Theta / day', fmt(greeks.theta, 2)], ['Vega', fmt(greeks.vega, 2)]].map(([label, val]) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
                   <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                  <span style={{ fontFamily: "'Chivo Mono', monospace", fontWeight: 600 }}>{val}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{val}</span>
                 </div>
               ))}
             </div>
@@ -812,7 +837,7 @@ export default function StrategyBuilder() {
               {[['1 SD', sd.sd1.toFixed(2)], ['2 SD', sd.sd2.toFixed(2)]].map(([label, val]) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
                   <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                  <span style={{ fontFamily: "'Chivo Mono', monospace" }}>{val}</span>
+                  <span style={{ fontFamily: 'var(--font-mono)' }}>{val}</span>
                 </div>
               ))}
             </div>
@@ -911,7 +936,7 @@ export default function StrategyBuilder() {
                     <>
                       <line x1={xPos} y1={padT} x2={xPos} y2={H - padB} stroke="var(--accent)" strokeWidth="1" strokeDasharray="3,3" />
                       <rect x={xPos - 58} y={2} width={116} height={18} rx={4} fill="var(--bg-card2)" stroke="var(--border)" />
-                      <text x={xPos} y={14} fontSize="10" fill="var(--text-primary)" textAnchor="middle" fontFamily="'Chivo Mono',monospace">
+                      <text x={xPos} y={14} fontSize="10" fill="var(--text-primary)" textAnchor="middle" fontFamily="inherit">
                         Spot: {currentSpot.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </text>
                     </>
@@ -945,7 +970,7 @@ export default function StrategyBuilder() {
                   type="number"
                   value={scenarioSpot ?? Math.round(spot ?? 0)}
                   onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setScenarioSpot(v); }}
-                  style={{ width: 90, background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text-primary)', fontSize: 12, padding: '3px 6px', fontFamily: "'Chivo Mono', monospace", textAlign: 'right' }}
+                  style={{ width: 90, background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text-primary)', fontSize: 12, padding: '3px 6px', fontFamily: 'var(--font-mono)', textAlign: 'right' }}
                 />
                 {scenarioSpot !== null && (
                   <button onClick={() => setScenarioSpot(null)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer', padding: 0 }}>reset</button>
