@@ -69,6 +69,9 @@ export default function StrategyBuilder() {
   const [hoveredStrike, setHoveredStrike] = useState(null); // strike currently hovered, reveals B/S buttons
   const atmRowRef = React.useRef(null);   // attached to the ATM row so we can scroll to it
   const tableBodyRef = React.useRef(null);
+  const chartSvgRef = React.useRef(null);
+  const [chartHoverSpot, setChartHoverSpot] = React.useState(null); // spot under mouse in payoff chart
+  const [daysFromNow, setDaysFromNow] = React.useState(0); // 0 = today, daysToExpiry = expiry
 
   // Fetch available expiries whenever the instrument changes
   useEffect(() => {
@@ -297,6 +300,10 @@ export default function StrategyBuilder() {
   const T = expiryDate ? Math.max(expiryDate.getTime() - Date.now(), 0) / (1000 * 60 * 60 * 24 * 365) : 0;
   const daysToExpiry = expiryDate ? Math.max(expiryDate.getTime() - Date.now(), 0) / (1000 * 60 * 60 * 24) : 0;
 
+  // T_chart: time fraction used for the "today" payoff line, controlled by the time slider.
+  // 0 = at expiry (time value = 0), T = full time remaining (right now).
+  const T_chart = daysToExpiry > 0 ? Math.max(0, (daysToExpiry - Math.min(daysFromNow, daysToExpiry))) / 365 : 0;
+
   const curPnl = legs.length ? payoffAt(legs, currentSpot, T, RISK_FREE_RATE, true) : null;
   const { maxProfit, maxLoss } = legs.length ? maxProfitLoss(legs, spotMin, spotMax) : { maxProfit: null, maxLoss: null };
   const breakevens = legs.length ? findBreakevens(legs, spotMin, spotMax) : [];
@@ -304,17 +311,34 @@ export default function StrategyBuilder() {
   const netPrem = legs.length ? netPremium(legs) : 0;
   const sd = legs.length && currentSpot ? standardDeviation(legs, currentSpot, T) : { sd1: 0, sd2: 0 };
   const futuresPrice = currentSpot ? impliedFuturesPrice(currentSpot, T) : 0;
-  const riskReward = (maxLoss < 0 && maxProfit > 0) ? `${(Math.abs(maxLoss) / maxProfit).toFixed(2)} : 1` : '—';
+  const riskReward = (maxLoss !== null && maxLoss < 0 && maxProfit !== null && maxProfit > 0) ? `${(maxProfit / Math.abs(maxLoss)).toFixed(2)} : 1` : '—';
+
+  // Probability of Profit: fraction of spot range where expiry payoff > 0
+  const pop = useMemo(() => {
+    if (!legs.length || !chainRows.length) return null;
+    const step = Math.round((spotMax - spotMin) / 200 / 10) * 10 || 5;
+    let wins = 0, total = 0;
+    for (let s = spotMin; s <= spotMax; s += step) {
+      if (payoffAt(legs, s, 0) > 0) wins++;
+      total++;
+    }
+    return total > 0 ? Math.round((wins / total) * 100) : null;
+  }, [legs, spotMin, spotMax]); // eslint-disable-line
+
+  // Intrinsic value = payoff at expiry at current spot
+  const intrinsicValue = legs.length && currentSpot ? payoffAt(legs, currentSpot, 0) : 0;
+  // Time value = difference between current (with time) vs expiry payoff
+  const timeValue = legs.length && currentSpot ? (payoffAt(legs, currentSpot, T, RISK_FREE_RATE, true) - intrinsicValue) : 0;
 
   const chartPoints = useMemo(() => {
     if (!legs.length || !chainRows.length) return [];
     const step = Math.round((spotMax - spotMin) / 50 / 10) * 10 || 10;
     const pts = [];
     for (let s = spotMin; s <= spotMax; s += step) {
-      pts.push({ spot: s, onExpiry: payoffAt(legs, s, 0), onTarget: payoffAt(legs, s, T) });
+      pts.push({ spot: s, onExpiry: payoffAt(legs, s, 0), onTarget: payoffAt(legs, s, T_chart) });
     }
     return pts;
-  }, [legs, spotMin, spotMax, T]);
+  }, [legs, spotMin, spotMax, T_chart]); // eslint-disable-line
 
   const maxAbsPnl = chartPoints.length ? Math.max(...chartPoints.map(p => Math.max(Math.abs(p.onExpiry), Math.abs(p.onTarget))), 1) : 1;
   const maxOi = chainRows.length ? Math.max(...chainRows.map(r => Math.max(r.CE?.oi || 0, r.PE?.oi || 0)), 1) : 1;
@@ -348,37 +372,22 @@ export default function StrategyBuilder() {
       </div>
 
       {legs.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 16 }}>
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Max profit</div>
-            <div style={{ fontSize: 17, fontWeight: 600, color: maxProfit > 0 ? 'var(--profit)' : 'var(--text-primary)' }}>
-              {maxProfit === null ? '—' : (maxProfit > 0 ? '+' : '') + '₹' + Math.round(maxProfit).toLocaleString('en-IN')}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 16 }}>
+          {[
+            { label: 'Max profit', value: maxProfit === null ? '—' : maxProfit > 1e6 ? 'Unlimited' : (maxProfit > 0 ? '+' : '') + '₹' + Math.round(maxProfit).toLocaleString('en-IN'), color: maxProfit > 0 ? 'var(--profit)' : 'var(--text-primary)' },
+            { label: 'Max loss', value: maxLoss === null ? '—' : maxLoss < -1e6 ? 'Unlimited' : '−₹' + Math.abs(Math.round(maxLoss)).toLocaleString('en-IN'), color: maxLoss < 0 ? 'var(--loss)' : 'var(--text-primary)' },
+            { label: 'Breakeven', value: breakevens.length ? breakevens.map(b => Math.round(b).toLocaleString('en-IN')).join(' / ') : '—', color: 'var(--text-primary)' },
+            { label: 'Reward : Risk', value: riskReward, color: 'var(--text-primary)' },
+            { label: 'Net premium', value: (netPrem >= 0 ? '+' : '−') + '₹' + Math.abs(Math.round(netPrem)).toLocaleString('en-IN'), color: netPrem >= 0 ? 'var(--profit)' : 'var(--loss)' },
+            { label: 'POP', value: pop !== null ? `${pop}%` : '—', color: pop > 50 ? 'var(--profit)' : pop < 50 ? 'var(--loss)' : 'var(--text-primary)' },
+            { label: 'Intrinsic value', value: '₹' + Math.round(Math.abs(intrinsicValue)).toLocaleString('en-IN'), color: 'var(--text-primary)' },
+            { label: 'Time value', value: (timeValue >= 0 ? '+' : '−') + '₹' + Math.abs(Math.round(timeValue)).toLocaleString('en-IN'), color: timeValue >= 0 ? 'var(--profit)' : 'var(--loss)' },
+          ].map(({ label, value, color }) => (
+            <div key={label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 12px' }}>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 3 }}>{label}</div>
+              <div style={{ fontSize: 15, fontWeight: 600, color }}>{value}</div>
             </div>
-          </div>
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Max loss</div>
-            <div style={{ fontSize: 17, fontWeight: 600, color: maxLoss < 0 ? 'var(--loss)' : 'var(--text-primary)' }}>
-              {maxLoss === null ? '—' : '−₹' + Math.abs(Math.round(maxLoss)).toLocaleString('en-IN')}
-            </div>
-          </div>
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Risk:reward</div>
-            <div style={{ fontSize: 17, fontWeight: 600 }}>{riskReward}</div>
-          </div>
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Breakeven</div>
-            <div style={{ fontSize: 17, fontWeight: 600 }}>{breakevens.length ? breakevens.map(b => Math.round(b).toLocaleString('en-IN')).join(', ') : '—'}</div>
-          </div>
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Net premium</div>
-            <div style={{ fontSize: 17, fontWeight: 600, color: netPrem >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
-              {netPrem >= 0 ? '+' : '−'}₹{Math.abs(Math.round(netPrem)).toLocaleString('en-IN')}
-            </div>
-          </div>
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Days to expiry</div>
-            <div style={{ fontSize: 17, fontWeight: 600 }}>{daysToExpiry.toFixed(1)}</div>
-          </div>
+          ))}
         </div>
       )}
 
@@ -400,8 +409,8 @@ export default function StrategyBuilder() {
           </div>
 
           <div style={{ maxHeight: 480, overflowY: 'auto' }}>
-            <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
-              <thead>
+            <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
+              <thead style={{ position: 'sticky', top: 0, background: 'var(--bg-card)', zIndex: 1 }}>
                 {/* Section row: CALLS | — | — | PUTS */}
                 <tr style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase' }}>
                   <th colSpan={pickerView === 'GREEKS' ? 4 : 3} style={{ textAlign: 'center', padding: '4px 6px 2px', color: 'var(--loss)', letterSpacing: 1 }}>Calls</th>
@@ -541,6 +550,7 @@ export default function StrategyBuilder() {
 
         {legs.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Legs */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Legs ({legs.length})</div>
@@ -557,41 +567,50 @@ export default function StrategyBuilder() {
                     }}>{leg.transactionType === 'SELL' ? 'S' : 'B'}</span>
                     <input type="number" min={1} value={leg.quantity} onChange={e => updateLegQty(leg.id, parseInt(e.target.value, 10) || 1)}
                       style={{ width: 36, background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 4, color: 'var(--text-primary)', fontSize: 12, padding: '2px 4px' }} />
-                    <span>× {leg.strike} {leg.optionType}</span>
+                    <span style={{ color: 'var(--text-primary)' }}>× {leg.strike} {leg.optionType}</span>
+                    <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-card2)', borderRadius: 4, padding: '1px 5px' }}>
+                      {selectedExpiry ? formatAngelExpiry(selectedExpiry) : '—'}
+                    </span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontFamily: "'JetBrains Mono', monospace", color: 'var(--text-secondary)' }}>{fmt(leg.premium)}</span>
+                    <span style={{ fontFamily: "'JetBrains Mono', monospace", color: 'var(--text-secondary)', fontSize: 11 }}>{fmt(leg.premium)}</span>
                     <button onClick={() => removeLeg(leg.id)} style={{ background: 'none', border: 'none', color: 'var(--loss)', cursor: 'pointer', fontSize: 14, padding: 0 }}>×</button>
                   </div>
                 </div>
               ))}
             </div>
 
+            {/* Greeks */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
               <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>Greeks</div>
-              {[['Delta', fmt(greeks.delta, 1)], ['Gamma', fmt(greeks.gamma, 3)], ['Theta / day', fmt(greeks.theta)], ['Vega', fmt(greeks.vega)]].map(([label, val]) => (
-                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontSize: 13 }}>
+              {[['Delta', fmt(greeks.delta, 2)], ['Gamma', fmt(greeks.gamma, 4)], ['Theta / day', fmt(greeks.theta, 2)], ['Vega', fmt(greeks.vega, 2)]].map(([label, val]) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
                   <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
                   <span style={{ fontFamily: "'JetBrains Mono', monospace", fontWeight: 600 }}>{val}</span>
                 </div>
               ))}
             </div>
 
+            {/* Standard deviation + Implied futures + DTE */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 8 }}>Standard deviation</div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>1 SD</span>
-                <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{Math.round(sd.sd1)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>2 SD</span>
-                <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{Math.round(sd.sd2)}</span>
-              </div>
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 10 }}>Standard deviation</div>
+              {[['1 SD', Math.round(sd.sd1)], ['2 SD', Math.round(sd.sd2)]].map(([label, val]) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderTop: '1px solid var(--border)', fontSize: 13 }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{val}</span>
+                </div>
+              ))}
             </div>
 
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 6 }}>Implied futures</div>
-              <div style={{ fontSize: 18, fontWeight: 600 }}>{futuresPrice ? Math.round(futuresPrice).toLocaleString('en-IN') : '—'}</div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Days to expiry</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{daysToExpiry.toFixed(1)}</div>
+              </div>
+              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 4 }}>Implied futures</div>
+                <div style={{ fontSize: 18, fontWeight: 600 }}>{futuresPrice ? Math.round(futuresPrice).toLocaleString('en-IN') : '—'}</div>
+              </div>
             </div>
           </div>
         )}
@@ -599,49 +618,106 @@ export default function StrategyBuilder() {
 
       {legs.length > 0 && chartPoints.length > 1 && (
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', marginTop: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>
-              Projected {curPnl >= 0 ? 'profit' : 'loss'}: <span style={{ color: curPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
-                {curPnl >= 0 ? '+' : '−'}₹{Math.abs(Math.round(curPnl)).toLocaleString('en-IN')}
-              </span>
-            </div>
-          </div>
+          {/* Header row: P&L readout */}
           {(() => {
-            const W = 900, H = 280, padL = 50, padR = 16, padT = 16, padB = 30;
+            const readSpot = chartHoverSpot ?? currentSpot;
+            const readPnl = readSpot ? payoffAt(legs, readSpot, T_chart, RISK_FREE_RATE, true) : null;
+            return (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>
+                  {chartHoverSpot
+                    ? <>At <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{Math.round(chartHoverSpot).toLocaleString('en-IN')}</span>: <span style={{ color: readPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{readPnl >= 0 ? '+' : '−'}₹{Math.abs(Math.round(readPnl)).toLocaleString('en-IN')}</span></>
+                    : <>Projected {curPnl >= 0 ? 'profit' : 'loss'}: <span style={{ color: curPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{curPnl >= 0 ? '+' : '−'}₹{Math.abs(Math.round(curPnl)).toLocaleString('en-IN')}</span></>
+                  }
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, color: 'var(--text-muted)' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ display: 'inline-block', width: 20, height: 2, background: 'var(--profit)' }} /> Today</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ display: 'inline-block', width: 20, height: 2, borderTop: '2px dashed rgba(228,235,248,0.4)' }} /> At expiry</span>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* SVG payoff chart with mouse-tracking crosshair */}
+          {(() => {
+            const W = 900, H = 260, padL = 54, padR = 16, padT = 12, padB = 28;
             const plotW = W - padL - padR;
             const plotH = H - padT - padB;
             const xScale = s => padL + ((s - spotMin) / (spotMax - spotMin)) * plotW;
+            const xToSpot = x => spotMin + ((x - padL) / plotW) * (spotMax - spotMin);
             const yScale = v => padT + plotH / 2 - (v / maxAbsPnl) * (plotH / 2);
             const zeroY = yScale(0);
             const expiryPath = chartPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(p.spot)},${yScale(p.onExpiry)}`).join(' ');
             const targetPath = chartPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(p.spot)},${yScale(p.onTarget)}`).join(' ');
             const lossAreaPath = `${expiryPath} L${xScale(spotMax)},${zeroY} L${xScale(spotMin)},${zeroY} Z`;
+            const hoverX = chartHoverSpot ? xScale(chartHoverSpot) : null;
+            const hoverPnlExpiry = chartHoverSpot ? payoffAt(legs, chartHoverSpot, 0) : null;
+            const hoverPnlToday = chartHoverSpot ? payoffAt(legs, chartHoverSpot, T_chart) : null;
+            // Y-axis labels
+            const pnlStep = maxAbsPnl > 50000 ? 25000 : maxAbsPnl > 10000 ? 10000 : maxAbsPnl > 2000 ? 2000 : 500;
+            const yLabels = [];
+            for (let v = -maxAbsPnl; v <= maxAbsPnl; v += pnlStep) {
+              if (Math.abs(v) <= maxAbsPnl * 1.05) yLabels.push(v);
+            }
             return (
-              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 280 }}>
-                {[0.25, 0.5, 0.75].map(frac => (
-                  <line key={frac} x1={padL} y1={padT + plotH * frac} x2={W - padR} y2={padT + plotH * frac} stroke="rgba(255,255,255,0.04)" />
+              <svg ref={chartSvgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 260, cursor: 'crosshair' }}
+                onMouseMove={e => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  const svgX = ((e.clientX - rect.left) / rect.width) * W;
+                  if (svgX < padL || svgX > W - padR) { setChartHoverSpot(null); return; }
+                  const s = Math.max(spotMin, Math.min(spotMax, xToSpot(svgX)));
+                  setChartHoverSpot(Math.round(s / 10) * 10);
+                }}
+                onMouseLeave={() => setChartHoverSpot(null)}>
+                {/* Grid lines + Y labels */}
+                {yLabels.map(v => (
+                  <g key={v}>
+                    <line x1={padL} y1={yScale(v)} x2={W - padR} y2={yScale(v)} stroke="rgba(255,255,255,0.04)" />
+                    <text x={padL - 4} y={yScale(v) + 3} fontSize="9" fill={v === 0 ? 'rgba(255,255,255,0.25)' : 'var(--text-muted)'} textAnchor="end">
+                      {v === 0 ? '0' : (v > 0 ? '+' : '−') + Math.abs(v / 1000).toFixed(0) + 'k'}
+                    </text>
+                  </g>
                 ))}
+                {/* OI bars at bottom */}
                 {chainRows.map(row => {
                   const x = xScale(row.strike);
-                  const barW = Math.max(plotW / chainRows.length * 0.6, 3);
-                  const ceH = ((row.CE?.oi || 0) / maxOi) * (plotH * 0.32);
-                  const peH = ((row.PE?.oi || 0) / maxOi) * (plotH * 0.32);
+                  const barW = Math.max(plotW / chainRows.length * 0.55, 3);
+                  const ceH = ((row.CE?.oi || 0) / maxOi) * (plotH * 0.28);
+                  const peH = ((row.PE?.oi || 0) / maxOi) * (plotH * 0.28);
                   return (
-                    <g key={row.strike} opacity={0.3}>
+                    <g key={row.strike} opacity={0.28}>
                       <rect x={x - barW / 2} y={zeroY - ceH} width={barW} height={ceH} fill="var(--loss)" />
-                      <rect x={x - barW / 2} y={zeroY - peH} width={barW} height={peH} fill="var(--profit)" />
+                      <rect x={x - barW / 2} y={zeroY} width={barW} height={peH} fill="var(--profit)" />
                     </g>
                   );
                 })}
-                <line x1={padL} y1={zeroY} x2={W - padR} y2={zeroY} stroke="rgba(255,255,255,0.1)" />
-                <path d={lossAreaPath} fill="var(--loss)" opacity={0.08} />
-                <path d={expiryPath} fill="none" stroke="rgba(228,235,248,0.4)" strokeWidth="1.5" strokeDasharray="4,4" />
+                {/* Zero line */}
+                <line x1={padL} y1={zeroY} x2={W - padR} y2={zeroY} stroke="rgba(255,255,255,0.12)" strokeWidth="1" />
+                {/* Loss fill */}
+                <path d={lossAreaPath} fill="var(--loss)" opacity={0.07} />
+                {/* Expiry path (dashed) */}
+                <path d={expiryPath} fill="none" stroke="rgba(228,235,248,0.35)" strokeWidth="1.5" strokeDasharray="4,4" />
+                {/* Today path */}
                 <path d={targetPath} fill="none" stroke="var(--profit)" strokeWidth="2.5" />
+                {/* Current spot line */}
                 <line x1={xScale(currentSpot)} y1={padT} x2={xScale(currentSpot)} y2={H - padB} stroke="var(--accent)" strokeWidth="1" strokeDasharray="3,3" />
+                {/* Hover crosshair */}
+                {hoverX && (
+                  <g>
+                    <line x1={hoverX} y1={padT} x2={hoverX} y2={H - padB} stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
+                    {hoverPnlToday !== null && (
+                      <circle cx={hoverX} cy={yScale(hoverPnlToday)} r={4} fill="var(--profit)" stroke="var(--bg-card)" strokeWidth="2" />
+                    )}
+                    {hoverPnlExpiry !== null && (
+                      <circle cx={hoverX} cy={yScale(hoverPnlExpiry)} r={3} fill="rgba(228,235,248,0.5)" stroke="var(--bg-card)" strokeWidth="2" />
+                    )}
+                  </g>
+                )}
+                {/* X-axis labels */}
                 {[0, 0.25, 0.5, 0.75, 1].map(frac => {
                   const val = spotMin + (spotMax - spotMin) * frac;
                   return (
-                    <text key={frac} x={xScale(val)} y={H - 8} fontSize="10" fill="var(--text-muted)" textAnchor="middle">
+                    <text key={frac} x={xScale(val)} y={H - 6} fontSize="10" fill="var(--text-muted)" textAnchor="middle">
                       {Math.round(val).toLocaleString('en-IN')}
                     </text>
                   );
@@ -649,14 +725,33 @@ export default function StrategyBuilder() {
               </svg>
             );
           })()}
-          <div style={{ marginTop: 14 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text-secondary)', marginBottom: 4 }}>
+
+          {/* Spot price slider */}
+          <div style={{ marginTop: 10, marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
               <span>Target spot price</span>
               <span style={{ fontFamily: "'JetBrains Mono', monospace", color: 'var(--text-primary)' }}>{Math.round(currentSpot).toLocaleString('en-IN')}</span>
             </div>
             <input type="range" min={spotMin} max={spotMax} step={10} value={currentSpot}
               onChange={e => setScenarioSpot(parseFloat(e.target.value))}
               style={{ width: '100%', accentColor: 'var(--accent)' }} />
+          </div>
+
+          {/* Time slider */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text-secondary)', marginBottom: 4 }}>
+              <span>Days from now</span>
+              <span style={{ fontFamily: "'JetBrains Mono', monospace", color: daysFromNow === 0 ? 'var(--accent)' : daysFromNow >= Math.floor(daysToExpiry) ? 'var(--loss)' : 'var(--text-primary)' }}>
+                {daysFromNow === 0 ? 'Today' : daysFromNow >= Math.floor(daysToExpiry) ? 'At expiry' : `+${daysFromNow}d`}
+              </span>
+            </div>
+            <input type="range" min={0} max={Math.max(1, Math.ceil(daysToExpiry))} step={1} value={daysFromNow}
+              onChange={e => setDaysFromNow(parseInt(e.target.value, 10))}
+              style={{ width: '100%', accentColor: '#FFA53D' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+              <span>Today</span>
+              <span>Expiry ({daysToExpiry.toFixed(1)}d)</span>
+            </div>
           </div>
         </div>
       )}
