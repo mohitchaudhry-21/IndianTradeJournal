@@ -910,15 +910,15 @@ export default function StrategyBuilder() {
                   <line key={frac} x1={padL} y1={padT + plotH * frac} x2={W - padR} y2={padT + plotH * frac} stroke="rgba(255,255,255,0.04)" />
                 ))}
                 {chainRows.map(row => {
-                  const barW = Math.max(plotW / Math.max(chainRows.length, 1) * 0.55, 3);
+                  const barW = Math.max(plotW / Math.max(chainRows.length, 1) * 0.5, 2);
                   const results = [];
-                  if (row.CE?.oi > 0) {
-                    const ceH = (row.CE.oi / maxOi) * (plotH * 0.42);
-                    results.push(<rect key={`ce-${row.strike}`} x={xScale(row.strike) - barW / 2} y={zeroY - ceH} width={barW} height={ceH} fill="var(--loss)" opacity={0.32} />);
+                  if (row.CE?.oi > 0 && maxOi > 0) {
+                    const ceH = Math.min((row.CE.oi / maxOi) * (plotH * 0.28), plotH * 0.28);
+                    results.push(<rect key={`ce-${row.strike}`} x={xScale(row.strike) - barW} y={zeroY - ceH} width={barW} height={ceH} fill="rgba(240,86,110,0.45)" />);
                   }
-                  if (row.PE?.oi > 0) {
-                    const peH = (row.PE.oi / maxOi) * (plotH * 0.42);
-                    results.push(<rect key={`pe-${row.strike}`} x={xScale(row.strike) - barW / 2} y={zeroY - peH} width={barW} height={peH} fill="var(--profit)" opacity={0.32} />);
+                  if (row.PE?.oi > 0 && maxOi > 0) {
+                    const peH = Math.min((row.PE.oi / maxOi) * (plotH * 0.28), plotH * 0.28);
+                    results.push(<rect key={`pe-${row.strike}`} x={xScale(row.strike)} y={zeroY - peH} width={barW} height={peH} fill="rgba(16,217,160,0.45)" />);
                   }
                   return results;
                 })}
