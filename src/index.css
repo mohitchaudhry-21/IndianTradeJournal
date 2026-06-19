@@ -26,6 +26,9 @@
   --sidebar-w:     230px;
   --radius:        10px;
   --radius-sm:     6px;
+
+  /* ── Mono font — change this one line to swap the number font everywhere ── */
+  --font-mono: 'Chivo Mono', monospace;
 }
 
 /* ── Light theme ─────────────────────────────────────────────────────────── */
@@ -66,7 +69,7 @@ body {
   font-size:14px;
   -webkit-font-smoothing:antialiased;
 }
-.mono { font-family:'Chivo Mono',monospace; }
+.mono { font-family:var(--font-mono); }
 ::-webkit-scrollbar { width:5px; height:5px; }
 ::-webkit-scrollbar-track { background:transparent; }
 ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.08); border-radius:3px; }
@@ -90,7 +93,7 @@ body {
 
 .stat-card { background:var(--bg-card); border:1px solid var(--border); border-radius:var(--radius); padding:18px 20px; }
 .stat-card .label { font-size:11px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--text-muted); margin-bottom:10px; }
-.stat-card .value { font-family:'Chivo Mono',monospace; font-size:24px; font-weight:500; color:var(--text-primary); line-height:1; }
+.stat-card .value { font-family:var(--font-mono); font-size:24px; font-weight:500; color:var(--text-primary); line-height:1; }
 .stat-card .subval { font-size:12px; color:var(--text-muted); margin-top:6px; }
 .stat-card .value.profit{color:var(--profit);}
 .stat-card .value.loss{color:var(--loss);}
@@ -137,9 +140,9 @@ tbody tr:last-child { border-bottom:none; }
 tbody tr:hover { background:var(--bg-hover); }
 tbody td { padding:12px 14px; color:var(--text-secondary); }
 tbody td.text-primary{color:var(--text-primary);font-weight:500;}
-tbody td.profit{color:var(--profit);font-family:'Chivo Mono',monospace;}
-tbody td.loss{color:var(--loss);font-family:'Chivo Mono',monospace;}
-tbody td.mono{font-family:'Chivo Mono',monospace;}
+tbody td.profit{color:var(--profit);font-family:var(--font-mono);}
+tbody td.loss{color:var(--loss);font-family:var(--font-mono);}
+tbody td.mono{font-family:var(--font-mono);}
 
 /* Forms */
 .form-group { margin-bottom:16px; }
@@ -155,9 +158,9 @@ tbody td.mono{font-family:'Chivo Mono',monospace;}
 .divider { height:1px; background:var(--border); margin:20px 0; }
 
 /* P&L */
-.pnl-positive{color:var(--profit);font-family:'Chivo Mono',monospace;}
-.pnl-negative{color:var(--loss);font-family:'Chivo Mono',monospace;}
-.pnl-zero{color:var(--text-muted);font-family:'Chivo Mono',monospace;}
+.pnl-positive{color:var(--profit);font-family:var(--font-mono);}
+.pnl-negative{color:var(--loss);font-family:var(--font-mono);}
+.pnl-zero{color:var(--text-muted);font-family:var(--font-mono);}
 
 /* Empty state */
 .empty-state { text-align:center; padding:60px 20px; color:var(--text-muted); }
@@ -244,3 +247,14 @@ tbody td.mono{font-family:'Chivo Mono',monospace;}
 .table-scroll-container::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 4px; }
 .table-scroll-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.22); border-radius: 4px; }
 .table-scroll-container::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.38); }
+
+/* ── Global mono font override ───────────────────────────────────────────────
+   Any element whose computed font-family is monospace (set via inline style
+   or a class) gets overridden to use --font-mono. Change --font-mono in
+   :root to swap the number font everywhere with zero JS file changes. */
+* { font-family: inherit; }
+[style*="monospace"],
+[style*="Mono"],
+[style*="mono"] {
+  font-family: var(--font-mono) !important;
+}
