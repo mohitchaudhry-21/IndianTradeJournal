@@ -15,34 +15,7 @@ function fmt(value, decimals = 2) {
   return Number.isFinite(n) ? n.toFixed(decimals) : '—';
 }
 
-// Generate the array of valid NSE market timestamps between fromMs and toMs.
-// NSE trades Mon–Fri, 09:15–15:30 IST (UTC+05:30), at 15-minute granularity.
-// The slider uses indices into this array so non-market hours simply don't exist.
-function generateMarketTimestamps(fromMs, toMs) {
-  const IST = 5.5 * 60 * 60 * 1000; // IST offset from UTC
-  const OPEN  = 9 * 60 + 15;        // 09:15 in minutes from midnight IST
-  const CLOSE = 15 * 60 + 30;       // 15:30 in minutes from midnight IST
-  const STEP  = 15;                  // 15-minute steps
-  const result = [fromMs];
-  // Advance to the next 15-min boundary at or after fromMs
-  let cur = new Date(fromMs);
-  const rem = cur.getMinutes() % STEP;
-  if (rem !== 0) cur.setMinutes(cur.getMinutes() + (STEP - rem), 0, 0);
-  else cur.setSeconds(0, 0);
-  while (cur.getTime() <= toMs) {
-    const istMs = cur.getTime() + IST;
-    const d = new Date(istMs);
-    const dow = d.getUTCDay();           // 0=Sun,6=Sat
-    const mins = d.getUTCHours() * 60 + d.getUTCMinutes();
-    if (dow >= 1 && dow <= 5 && mins >= OPEN && mins <= CLOSE) {
-      const t = cur.getTime();
-      if (t > fromMs && t < toMs) result.push(t);
-    }
-    cur = new Date(cur.getTime() + STEP * 60 * 1000);
-  }
-  result.push(toMs);
-  return [...new Set(result)].sort((a, b) => a - b);
-}
+import { generateMarketTimestamps, isMonthlyExpiry } from '../utils/marketHours';
 
 // OI change is stored as an absolute delta (changeInOi), not a percentage —
 // derive the percentage from the implied previous OI. Returns null rather
@@ -83,9 +56,13 @@ function nextLegId() {
 }
 
 export default function StrategyBuilder() {
-  const [instrument, setInstrument] = useState('NIFTY');
+  const [instrument, setInstrument] = useState(() => {
+    try { return sessionStorage.getItem('sb_instrument') || 'NIFTY'; } catch { return 'NIFTY'; }
+  });
   const [expiries, setExpiries] = useState([]);
-  const [selectedExpiry, setSelectedExpiry] = useState(null); // AngelOne format e.g. "26JUN2026"
+  const [selectedExpiry, setSelectedExpiry] = useState(() => {
+    try { return sessionStorage.getItem('sb_expiry') || null; } catch { return null; }
+  });
   const [chainRows, setChainRows] = useState([]);
   const [chainSource, setChainSource] = useState(null);
   const [loadingChain, setLoadingChain] = useState(false);
@@ -105,8 +82,9 @@ export default function StrategyBuilder() {
     try { return JSON.parse(localStorage.getItem('sb_drafts') || '[]'); } catch { return []; }
   });
   const [showDrafts, setShowDrafts] = useState(false);
-  const atmRowRef = React.useRef(null);   // attached to the ATM row so we can scroll to it
+  const atmRowRef = React.useRef(null);
   const tableBodyRef = React.useRef(null);
+  const hasScrolledToAtm = React.useRef(false); // only auto-scroll ATM on first load
   const chartSvgRef = React.useRef(null);
   const [chartHoverSpot, setChartHoverSpot] = React.useState(null); // spot under mouse in payoff chart
   const [targetTimeMs, setTargetTimeMs] = React.useState(null); // null = right now
@@ -282,23 +260,33 @@ export default function StrategyBuilder() {
     return () => { cancelled = true; clearInterval(intervalId); };
   }, [instrument, selectedExpiry]);
 
-  // Scroll the ATM row into the centre of the table whenever the chain
-  // first loads or spot changes. A 200ms delay lets React finish painting
-  // the rows before the ref is valid.
+  // Scroll ATM row into view only on the first chain load for this instrument/expiry.
+  // Subsequent 10s poll updates must NOT re-trigger this — that's what causes the
+  // page to jump every 10 seconds.
   useEffect(() => {
-    if (!atmRowRef.current || !tableBodyRef.current) return;
+    if (hasScrolledToAtm.current || !chainRows.length || !atmRowRef.current) return;
+    hasScrolledToAtm.current = true;
     const timer = setTimeout(() => {
       if (atmRowRef.current) {
         atmRowRef.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
       }
-    }, 200);
+    }, 150);
     return () => clearTimeout(timer);
-  }, [chainRows.length, spot]);
+  }, [chainRows.length]); // intentionally NOT watching spot — spot changes on every poll
 
-  // Persist current legs to sessionStorage so a page reload restores the strategy
+  // Reset the scroll guard when the user changes instrument or expiry
   useEffect(() => {
-    try { sessionStorage.setItem('sb_legs', JSON.stringify(legs)); } catch {}
-  }, [legs]);
+    hasScrolledToAtm.current = false;
+  }, [instrument, selectedExpiry]);
+
+  // Persist current strategy state to sessionStorage so navigating away and back restores it
+  useEffect(() => {
+    try {
+      sessionStorage.setItem('sb_legs', JSON.stringify(legs));
+      if (instrument) sessionStorage.setItem('sb_instrument', instrument);
+      if (selectedExpiry) sessionStorage.setItem('sb_expiry', selectedExpiry);
+    } catch {}
+  }, [legs, instrument, selectedExpiry]);
 
   // Persist drafts to localStorage whenever they change
   useEffect(() => {
@@ -539,57 +527,73 @@ export default function StrategyBuilder() {
             {chainError && <span style={{ fontSize: 11, color: 'var(--loss)' }}>{chainError}</span>}
           </div>
 
-          {pickerView === 'FUTURES' && (
-            <div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
-                Synthetic futures — implied forward price computed from spot + carry cost for each expiry.
+          {pickerView === 'FUTURES' && (() => {
+            const months = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
+            const expiryRows = expiries.map(exp => {
+              const day = parseInt(exp.slice(0,2),10), mo = months[exp.slice(2,5).toUpperCase()??0], yr = parseInt(exp.slice(5),10);
+              const expDate = new Date(yr, mo, day, 15, 30);
+              const expMs = expDate.getTime();
+              const daysLeft = Math.max(0, (expMs - Date.now()) / 864e5);
+              const T_exp = daysLeft / 365;
+              const fwd = currentSpot ? +(currentSpot * Math.exp(RISK_FREE_RATE * T_exp)).toFixed(2) : null;
+              const monthly = isMonthlyExpiry(expDate);
+              return { exp, expDate, daysLeft, fwd, monthly };
+            });
+            const monthlyRows = expiryRows.filter(r => r.monthly);
+            const syntheticRows = expiryRows;
+
+            const FutRow = ({ exp, daysLeft, fwd }) => (
+              <tr style={{ borderTop: '1px solid var(--border)' }}>
+                <td style={{ padding: '10px 10px', fontSize: 13 }}>
+                  {(() => { const months2 = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; const d=parseInt(exp.slice(0,2),10),m=months2[months[exp.slice(2,5).toUpperCase()]??0],y=parseInt(exp.slice(5),10); return `${d} ${m} ${y}`; })()}
+                  <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--text-muted)' }}>({Math.round(daysLeft)} days)</span>
+                </td>
+                <td style={{ padding: '10px 10px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", fontSize: 13 }}>
+                  {fwd?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) ?? '—'}
+                </td>
+                <td style={{ padding: '10px 10px' }}>
+                  {fwd && (
+                    <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                      <button onClick={() => addFuturesLeg(exp, fwd, 'BUY')}
+                        style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 5, padding: '3px 14px', fontSize: 12, cursor: 'pointer' }}>B</button>
+                      <button onClick={() => addFuturesLeg(exp, fwd, 'SELL')}
+                        style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 5, padding: '3px 14px', fontSize: 12, cursor: 'pointer' }}>S</button>
+                    </div>
+                  )}
+                </td>
+              </tr>
+            );
+
+            return (
+              <div>
+                {monthlyRows.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', padding: '8px 10px', background: 'var(--bg-card2)', borderRadius: 6, marginBottom: 4 }}>Futures</div>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 16 }}>
+                      <thead><tr style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>
+                        <th style={{ textAlign: 'left', padding: '4px 10px', fontWeight: 400 }}>Expiry</th>
+                        <th style={{ textAlign: 'right', padding: '4px 10px', fontWeight: 400 }}>Price</th>
+                        <th />
+                      </tr></thead>
+                      <tbody>{monthlyRows.map(r => <FutRow key={r.exp} {...r} />)}</tbody>
+                    </table>
+                  </>
+                )}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--bg-card2)', borderRadius: 6, marginBottom: 4 }}>
+                  <span style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Synthetic futures</span>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', background: 'var(--bg-card)', borderRadius: 10, padding: '1px 7px' }}>ⓘ spot · e^(r·T)</span>
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead><tr style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>
+                    <th style={{ textAlign: 'left', padding: '4px 10px', fontWeight: 400 }}>Expiry</th>
+                    <th style={{ textAlign: 'right', padding: '4px 10px', fontWeight: 400 }}>Price</th>
+                    <th />
+                  </tr></thead>
+                  <tbody>{syntheticRows.map(r => <FutRow key={r.exp} {...r} />)}</tbody>
+                </table>
               </div>
-              <table style={{ width: '100%', fontSize: 13, borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ color: 'var(--text-muted)', fontSize: 10, textTransform: 'uppercase', borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ textAlign: 'left', padding: '4px 8px', fontWeight: 400 }}>Expiry</th>
-                    <th style={{ textAlign: 'center', padding: '4px 8px', fontWeight: 400 }}>Days</th>
-                    <th style={{ textAlign: 'right', padding: '4px 8px', fontWeight: 400 }}>Forward price</th>
-                    <th style={{ padding: '4px 8px' }} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {expiries.map(exp => {
-                    const day = parseInt(exp.slice(0, 2), 10);
-                    const monthAbbr = exp.slice(2, 5).toUpperCase();
-                    const year = parseInt(exp.slice(5), 10);
-                    const months = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
-                    const expMs = new Date(year, months[monthAbbr] ?? 0, day, 15, 30).getTime();
-                    const daysLeft = Math.max(0, (expMs - Date.now()) / (1000 * 60 * 60 * 24));
-                    const T_exp = daysLeft / 365;
-                    const fwd = currentSpot ? (currentSpot * Math.exp(RISK_FREE_RATE * T_exp)) : null;
-                    const isSelected = exp === selectedExpiry;
-                    return (
-                      <tr key={exp} style={{ borderTop: '1px solid var(--border)', background: isSelected ? 'var(--accent-dim)' : 'transparent' }}>
-                        <td style={{ padding: '8px 8px', fontWeight: isSelected ? 600 : 400 }}>
-                          {new Date(year, months[monthAbbr] ?? 0, day).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                        </td>
-                        <td style={{ padding: '8px 8px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 12 }}>{daysLeft.toFixed(0)}</td>
-                        <td style={{ padding: '8px 8px', textAlign: 'right', fontFamily: "'JetBrains Mono', monospace", color: 'var(--text-primary)' }}>
-                          {fwd ? fwd.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
-                        </td>
-                        <td style={{ padding: '8px 8px' }}>
-                          {fwd && (
-                            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                              <button onClick={() => addFuturesLeg(exp, fwd, 'BUY')}
-                                style={{ background: 'none', border: '1px solid var(--profit)', color: 'var(--profit)', borderRadius: 4, padding: '2px 10px', fontSize: 12, cursor: 'pointer' }}>B</button>
-                              <button onClick={() => addFuturesLeg(exp, fwd, 'SELL')}
-                                style={{ background: 'none', border: '1px solid var(--loss)', color: 'var(--loss)', borderRadius: 4, padding: '2px 10px', fontSize: 12, cursor: 'pointer' }}>S</button>
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+            );
+          })()}
           {pickerView !== 'FUTURES' && (
             <div style={{ maxHeight: 480, overflowY: 'auto' }}>
             <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', tableLayout: 'fixed' }}>
@@ -829,17 +833,20 @@ export default function StrategyBuilder() {
 
       {legs.length > 0 && chartPoints.length > 1 && (
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', marginTop: 16 }}>
-          {/* Header row: P&L readout */}
+          {/* Header row: P&L readout — same format as OptionsAnalyzer */}
           {(() => {
             const readSpot = chartHoverSpot ?? currentSpot;
-            const readPnl = readSpot ? payoffAt(calibratedLegs, readSpot, T_chart, RISK_FREE_RATE, true) : null;
+            const readPnl = readSpot != null ? payoffAt(calibratedLegs, readSpot, T_chart, RISK_FREE_RATE, isCurrentMoment && !chartHoverSpot) : null;
+            const pnlText = readPnl != null
+              ? `${readPnl >= 0 ? '+' : '−'}₹${Math.abs(readPnl).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+              : '—';
+            const label = chartHoverSpot
+              ? `At ${readSpot.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}: `
+              : (readPnl == null || readPnl >= 0 ? 'Projected profit: ' : 'Projected loss: ');
             return (
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>
-                  {chartHoverSpot
-                    ? <>At <span style={{ fontFamily: "'JetBrains Mono', monospace" }}>{(chartHoverSpot).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>: <span style={{ color: readPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{readPnl >= 0 ? '+' : '−'}₹{Math.abs(readPnl).toLocaleString('en-IN')}</span></>
-                    : <>Projected {curPnl >= 0 ? 'profit' : 'loss'}: <span style={{ color: curPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{curPnl >= 0 ? '+' : '−'}₹{Math.abs(curPnl).toLocaleString('en-IN')}</span></>
-                  }
+                  {label}<span style={{ color: readPnl == null ? 'var(--text-muted)' : readPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{pnlText}</span>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, color: 'var(--text-muted)' }}>
                   <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ display: 'inline-block', width: 20, height: 2, background: 'var(--profit)' }} /> Today</span>
@@ -871,7 +878,7 @@ export default function StrategyBuilder() {
               if (Math.abs(v) <= maxAbsPnl * 1.05) yLabels.push(v);
             }
             return (
-              <svg ref={chartSvgRef} viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 260, cursor: 'crosshair' }}
+              <svg ref={chartSvgRef} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 260, cursor: 'crosshair' }}
                 onMouseMove={e => {
                   const rect = e.currentTarget.getBoundingClientRect();
                   const svgX = ((e.clientX - rect.left) / rect.width) * W;
