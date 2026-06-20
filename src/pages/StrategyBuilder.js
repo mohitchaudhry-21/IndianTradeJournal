@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { fetchOptionChain, fetchExpiryList, fetchAngelOneLtp, angelOneLtpKey } from '../utils/optionChain';
+import { fetchOptionChain, fetchExpiryList, fetchAngelOneLtp, angelOneLtpKey, fetchEodChain } from '../utils/optionChain';
 import { fetchTickerQuotes } from '../utils/tickerQuotes';
 import { payoffAt, netPremium, findBreakevens, positionGreeks, maxProfitLoss, impliedFuturesPrice, standardDeviation, calibrateLegsIV } from '../utils/optionsAnalysis';
 import { KNOWN_SYMBOLS } from '../utils/tickerSymbols';
@@ -256,10 +256,33 @@ export default function StrategyBuilder() {
       });
     };
 
+    // When market is closed, skip the optionGreek API (returns AB9019 outside
+    // market hours) and instead fetch last-close LTPs via the market quote API
+    // which returns Friday 3:30 PM prices on weekends. Do this once — prices
+    // won't change until the market reopens.
+    if (!isMarketOpen()) {
+      if (chainRows.length > 0) {
+        // Already have data from a previous load — keep it, don't re-fetch.
+        return () => { cancelled = true; };
+      }
+      setLoadingChain(true);
+      fetchEodChain(instrument, selectedExpiry, RISK_FREE_RATE).then(result => {
+        if (cancelled) return;
+        setLoadingChain(false);
+        if (!result.ok) {
+          setChainError('Could not fetch closing data. Check that AngelOne is connected.');
+          return;
+        }
+        setChainError(null);
+        setChainSource('angelone-eod');
+        setChainRows(result.rows);
+      });
+      return () => { cancelled = true; };
+    }
+
     fetchChain(true);
-    // Only poll during market hours — outside hours, one EOD fetch is enough
-    const intervalId = isMarketOpen() ? setInterval(() => fetchChain(false), 10000) : null;
-    return () => { cancelled = true; if (intervalId) clearInterval(intervalId); };
+    const intervalId = setInterval(() => fetchChain(false), 10000);
+    return () => { cancelled = true; clearInterval(intervalId); };
   }, [instrument, selectedExpiry]);
 
   // Scroll ATM row into view only on the first chain load for this instrument/expiry.
@@ -468,10 +491,16 @@ export default function StrategyBuilder() {
     <div style={{ padding: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <div className="page-title">Strategy builder</div>
-        {chainSource && (
+        {chainSource && isMarketOpen() && (
           <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: isMarketOpen() ? 'var(--profit)' : '#FFA53D', display: 'inline-block' }} />
-            {isMarketOpen() ? 'live' : 'EOD'} from {chainSource === 'nse' ? 'NSE' : 'AngelOne'}
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--profit)', display: 'inline-block' }} />
+            live from {chainSource === 'nse' ? 'NSE' : 'AngelOne'}
+          </span>
+        )}
+        {chainSource && !isMarketOpen() && (
+          <span style={{ fontSize: 11, color: '#FFA53D', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#FFA53D', display: 'inline-block' }} />
+            market closed · last close prices
           </span>
         )}
       </div>
