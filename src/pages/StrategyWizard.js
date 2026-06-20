@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { payoffAt, positionGreeks, findBreakevens, calibrateLegsIV } from '../utils/optionsAnalysis';
+import { payoffAt, positionGreeks, findBreakevens, calibrateLegsIV, maxProfitLoss } from '../utils/optionsAnalysis';
 import { fetchOptionChain, fetchExpiryList, fetchEodChain } from '../utils/optionChain';
 import { STRATEGY_TEMPLATES, getBadge } from '../utils/strategyTemplates';
 import { isMarketOpen } from '../utils/marketHours';
@@ -56,30 +56,65 @@ const UNHEG_KEY = {
   'Long Straddle':'straddle','Long Strangle':'strangle',
 };
 
+// ── Probability of Profit ─────────────────────────────────────────────────
+// Approximation of standard normal CDF (Abramowitz & Stegun 26.2.17)
+function normalCDF(x) {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const p = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
+  const cdf = 1 - (1/Math.sqrt(2*Math.PI)) * Math.exp(-x*x/2) * p;
+  return x >= 0 ? cdf : 1 - cdf;
+}
+
+// Compute probability of profit at expiry using lognormal spot distribution.
+// Scans payoff at T=0 across a strike range, weighted by the risk-neutral
+// lognormal density — same probabilistic model as Black-Scholes.
+function computePOP(calib, spot, T, R, beLow, beHigh, step) {
+  if (!calib.length || T <= 0) return null;
+  const avgIv = calib.reduce((s,l)=>s+(l.iv||15),0) / calib.length / 100;
+  if (avgIv <= 0) return null;
+  const sigma = avgIv * Math.sqrt(T);
+  const muLog = Math.log(spot) + (R - avgIv*avgIv/2) * T;
+  let profitWeight = 0, totalWeight = 0;
+  for (let s = beLow; s <= beHigh; s += step) {
+    const z = (Math.log(Math.max(s, 1)) - muLog) / sigma;
+    const density = Math.exp(-z*z/2) / (sigma * s * Math.sqrt(2*Math.PI));
+    totalWeight += density;
+    if (payoffAt(calib, s, 0, R, false) > 0) profitWeight += density;
+  }
+  return totalWeight > 0 ? Math.round((profitWeight/totalWeight)*100) : null;
+}
+
 // ── Core computation ──────────────────────────────────────────────────────
-// Compute AT-EXPIRY payoff (T=0) at the target price.
-// This matches Sensibull: "profit = X" means profit if the index is at
-// exactly targetSpot on expiry day, which is pure intrinsic value.
+// Mirrors OptionsAnalyzer pipeline exactly:
+//   calibrateLegsIV  → back-solve IV from real LTPs (Newton-Raphson)
+//   payoffAt(T=0)    → at-expiry intrinsic payoff at target spot
+//   findBreakevens   → scans T=0 payoff across strike range (correct signature)
+//   maxProfitLoss    → same utility as OptionsAnalyzer uses
+//   positionGreeks   → current-time Greeks with calibrated IV
 function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiryMs,
     enabledHedgeKeys, enabledUnhegKeys, spreadGaps, minProfit, maxLoss }) {
-  if (!chain.length || !spot || !targetSpot) return [];
+  if (!chain.length || !targetSpot) return [];
 
   const lotSize = getLot(instrument);
   const sorted = chain.map(r=>r.strike).sort((a,b)=>a-b);
-  const atmIdx = sorted.indexOf(sorted.reduce((b,s)=>Math.abs(s-spot)<Math.abs(b-spot)?s:b, sorted[0]));
-  // Time remaining for Greeks / calibration (days to expiry from now)
-  const T_live = Math.max((expiryMs - Date.now()) / (365*86400000), 0.001);
+  // Fallback to middle strike if spot unavailable (market closed)
+  const effectiveSpot = spot || sorted[Math.floor(sorted.length/2)];
+  const atmIdx = sorted.indexOf(sorted.reduce((b,s)=>Math.abs(s-effectiveSpot)<Math.abs(b-effectiveSpot)?s:b, sorted[0]));
+  // Minimum 1 day so impliedVolatility solver doesn't blow up for near-expiry options
+  const T_live = Math.max((expiryMs - Date.now()) / (365*86400000), 1/365);
   const off = n => sorted[Math.max(0, Math.min(sorted.length-1, atmIdx+n))];
+  // Breakeven scan bounds and step size (match OptionsAnalyzer approach)
+  const step = sorted.length > 1 ? Math.abs(sorted[1]-sorted[0]) : 50;
+  const beLow  = sorted[0] * 0.85;
+  const beHigh = sorted[sorted.length-1] * 1.15;
 
   const results = [];
 
   STRATEGY_TEMPLATES.forEach(tmpl => {
-    // Hedge/unheg filter
     const hk = HEDGE_KEY[tmpl.name], uk = UNHEG_KEY[tmpl.name];
     if (hk && !enabledHedgeKeys[hk]) return;
     if (uk && !enabledUnhegKeys[uk]) return;
 
-    // Try each strategy at several ATM offsets so we surface multiple strike combos
     for (let base=-4; base<=4; base++) {
       const legTemplates = tmpl.legs(off);
       const legs = legTemplates.map(t => {
@@ -95,61 +130,63 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
       });
       if (legs.some(l=>!l)) continue;
 
-      // Spread gap filter (only for multi-leg strategies)
       const strikes = [...new Set(legs.map(l=>l.strike))].sort((a,b)=>a-b);
       if (strikes.length>1 && spreadGaps.length>0) {
         const gap = strikes[1]-strikes[0];
         if (!spreadGaps.includes(gap)) continue;
       }
 
-      // Calibrate IV from LTP so BS matches market at current spot
-      const calib = calibrateLegsIV(legs, spot, T_live, R);
+      // ── Same pipeline as OptionsAnalyzer ──────────────────────────────
+      // Step 1: calibrate IV from real LTPs
+      const calib = calibrateLegsIV(legs, effectiveSpot, T_live, R);
 
-      // ★ Key: compute payoff AT EXPIRY (T=0) at target price
-      // This is what Sensibull shows: "profit if index is at this price on expiry"
+      // Step 2: at-expiry P&L at target (T=0 = pure intrinsic, no BS needed)
       const pnl = payoffAt(calib, targetSpot, 0, R, false);
-
-      // Prediction direction filter
       if (pnl <= 0) continue;
       if (Number.isFinite(minProfit) && pnl < minProfit) continue;
 
-      // Approximate capital requirement
-      const netPremium = legs.reduce((s,l) => s+(l.transactionType==='SELL'?1:-1)*l.premium*l.quantity*l.lotSize, 0);
+      // Capital
+      const netPrem = legs.reduce((s,l)=>s+(l.transactionType==='SELL'?1:-1)*l.premium*l.quantity*l.lotSize, 0);
       const naked = tmpl.type === 'unhedged';
       const approxCap = naked
         ? legs.filter(l=>l.transactionType==='SELL').reduce((s,l)=>s+150000*l.quantity,0)
-        : Math.abs(netPremium) || 5000;
+        : Math.max(Math.abs(netPrem), 1000);
       if (Number.isFinite(maxLoss) && approxCap > maxLoss) continue;
 
-      // Greeks at current spot with time remaining
-      const greeks = positionGreeks(calib, spot, T_live, R);
+      // Step 3: Greeks at current time (same as OptionsAnalyzer)
+      const greeks = positionGreeks(calib, effectiveSpot, T_live, R);
 
-      // Breakeven: at expiry (T=0)
-      const beLow  = sorted[0]*0.85;
-      const beHigh = sorted[sorted.length-1]*1.15;
-      const bes = findBreakevens(calib, beLow, beHigh, 0, R);
+      // Step 4: breakevens at expiry — findBreakevens(legs, min, max, step)
+      // NOTE: 3rd param is spotMax, 4th is step (NOT T or R)
+      const bes = findBreakevens(calib, beLow, beHigh, step);
 
-      // Max profit / max loss at expiry across full range
-      const scanN = 300;
-      const scanPnls = Array.from({length:scanN},(_,i)=>{
-        const s = beLow + (beHigh-beLow)*i/(scanN-1);
-        return payoffAt(calib, s, 0, R, false);
+      // Step 5: max profit / max loss at expiry — same utility as OptionsAnalyzer
+      const { maxProfit, maxLoss: maxLossV } = maxProfitLoss(calib, beLow, beHigh);
+      // Naked sells have unlimited theoretical max loss beyond our scan range
+      const isNakedSell = naked && legs.some(l=>l.transactionType==='SELL');
+      const maxLossDisplay = isNakedSell ? null : maxLossV; // null = "Unlimited"
+
+      // Step 6: POP using lognormal distribution
+      const pop = computePOP(calib, effectiveSpot, T_live, R, beLow, beHigh, step);
+
+      // Target price per leg = intrinsic value at target spot at expiry
+      const legTargetPrices = calib.map(l => {
+        const intrinsic = l.optionType === 'CE' ? Math.max(targetSpot - l.strike, 0) : Math.max(l.strike - targetSpot, 0);
+        return intrinsic;
       });
-      const maxProfit = Math.max(...scanPnls);
-      const maxLossV  = Math.min(...scanPnls);
+
       const returnPct = approxCap>0 ? (pnl/approxCap)*100 : 0;
 
       results.push({
         id:`${tmpl.name}::${base}`, name:tmpl.name, category:tmpl.category, type:tmpl.type, desc:tmpl.desc,
-        legs:calib, pnl, breakevens:bes, approxCap, returnPct, netPremium,
-        maxProfit, maxLoss:maxLossV, greeks,
+        legs:calib, pnl, breakevens:bes, approxCap, returnPct, netPrem,
+        maxProfit, maxLoss:maxLossDisplay, greeks, pop, legTargetPrices,
         daysLeft:Math.round(Math.max(0,(expiryMs-Date.now())/86400000)),
         hKey:hk, uKey:uk,
       });
     }
   });
 
-  // Keep best pnl per strategy name
   const best = {};
   results.forEach(r=>{ if(!best[r.name]||r.pnl>best[r.name].pnl) best[r.name]=r; });
   return Object.values(best);
@@ -498,35 +535,62 @@ export default function StrategyWizard() {
                             <div style={{ fontSize:13, fontWeight:600, color:'var(--text-secondary)', marginBottom:4 }}>How does this trade work?</div>
                             <div style={{ fontSize:13, color:'var(--text-muted)', maxWidth:540 }}>{row.desc}</div>
                           </div>
-                          {/* Per-leg LTP + quantity */}
+                          {/* Per-leg LTP / target price / quantity — matching Sensibull */}
                           <div style={{ display:'flex', gap:16, marginLeft:24 }}>
-                            {row.legs.map((l,i)=>(
-                              <div key={i} style={{ textAlign:'center', minWidth:70 }}>
-                                <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:3 }}>LTP</div>
-                                <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16 }}>{l.ltp?.toFixed(2)??'—'}</div>
-                                <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:2 }}>{l.transactionType==='BUY'?'B':'S'} {l.strike} {l.optionType}</div>
+                            <div style={{ textAlign:'center' }}>
+                              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>LTP ⓘ</div>
+                              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16 }}>
+                                {row.legs.map(l=>l.ltp?.toFixed(2)).join(' / ')}
                               </div>
-                            ))}
+                            </div>
+                            <div style={{ textAlign:'center' }}>
+                              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>Target price</div>
+                              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16 }}>
+                                {(row.legTargetPrices||[]).map(p=>p.toFixed(2)).join(' / ')}
+                              </div>
+                            </div>
                             <div style={{ textAlign:'center', minWidth:70 }}>
-                              <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:3 }}>Quantity</div>
-                              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16 }}>1 Lot</div>
-                              <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:2 }}>{getLot(instrument)} units</div>
+                              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>Quantity (1 Lot)</div>
+                              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16 }}>{getLot(instrument)}</div>
                             </div>
                           </div>
                         </div>
 
-                        {/* Stats */}
-                        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:16 }}>
-                          {[
-                            ['Max profit', row.maxProfit>1e8?'Unlimited':fmtMoney(row.maxProfit,true), row.maxProfit>=0?'var(--profit)':'var(--loss)'],
-                            ['Max loss', row.maxLoss<-1e8?'Unlimited':fmtMoney(Math.abs(row.maxLoss),true), 'var(--loss)'],
-                            ['Profit at target', fmtMoney(row.pnl,true), row.pnl>=0?'var(--profit)':'var(--loss)'],
-                          ].map(([lbl,val,col])=>(
-                            <div key={lbl} style={{ background:'var(--bg-card2)', borderRadius:8, padding:'10px 14px' }}>
-                              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:4 }}>{lbl}</div>
-                              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16, color:col }}>{val}</div>
+                        {/* Stats — matches Sensibull: Max profit | Max loss | POP */}
+                        <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:14 }}>
+                          <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:'10px 14px' }}>
+                            <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:4 }}>Max profit</div>
+                            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16, color:'var(--profit)' }}>
+                              {row.maxProfit > 1e6 ? 'Unlimited' : fmtMoney(row.maxProfit,true)}
                             </div>
-                          ))}
+                          </div>
+                          <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:'10px 14px' }}>
+                            <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:4 }}>Max loss</div>
+                            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16, color:'var(--loss)' }}>
+                              {row.maxLoss === null ? 'Unlimited' : fmtMoney(Math.abs(row.maxLoss),true)}
+                            </div>
+                          </div>
+                          <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:'10px 14px' }}>
+                            <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:4 }}>Probability of profit</div>
+                            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16, color:'var(--text-primary)' }}>
+                              {row.pop != null ? `${row.pop}%` : '—'}
+                            </div>
+                          </div>
+                        </div>
+                        {/* Profit at target + return on margin */}
+                        <div style={{ display:'flex', gap:10, marginBottom:14 }}>
+                          <div style={{ background:'rgba(16,217,160,0.07)', border:'1px solid rgba(16,217,160,0.2)', borderRadius:8, padding:'8px 14px', flex:1 }}>
+                            <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>Profit at target ({parseFloat(targetInput).toLocaleString('en-IN')})</div>
+                            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:14, color: row.pnl>=0?'var(--profit)':'var(--loss)' }}>
+                              {fmtMoney(row.pnl,true)} <span style={{ fontSize:12, fontWeight:400, color:'var(--text-muted)' }}>({fmtPct(row.returnPct)} on margin)</span>
+                            </div>
+                          </div>
+                          <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:'8px 14px', flex:1 }}>
+                            <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>Approx. margin required</div>
+                            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:14, color:'var(--text-primary)' }}>
+                              {fmtCap(row.approxCap)}
+                            </div>
+                          </div>
                         </div>
 
                         {/* Greeks */}
