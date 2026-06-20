@@ -174,6 +174,17 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
           if (!spreadGaps.includes(gap)) continue;
         }
 
+        // ── OTM-only filter (matches Sensibull exactly) ───────────────────
+        // Only generate strategies where ALL option legs are currently OTM.
+        // CE is OTM when strike ≥ spot; PE is OTM when strike ≤ spot.
+        // This eliminates ITM Bear Put Spreads, ITM butterflies, etc. from
+        // appearing for a "below" prediction where market is already below target.
+        const allOTM = legs.every(l =>
+          l.optionType === 'CE' ? l.strike >= effectiveSpot :
+          l.optionType === 'PE' ? l.strike <= effectiveSpot : true
+        );
+        if (!allOTM) continue;
+
         // ── Same pipeline as OptionsAnalyzer ────────────────────────
         const calib = calibrateLegsIV(legs, effectiveSpot, T_live, R);
         const pnl = payoffAt(calib, targetSpot, 0, R, false);
@@ -199,7 +210,10 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
         if (Number.isFinite(maxLoss) && approxCap > maxLoss) continue;
 
         const greeks = positionGreeks(calib, effectiveSpot, T_live, R);
-        const bes = findBreakevens(calib, beLow, beHigh, step);
+        // Use step=1 for accurate breakeven (Sensibull shows exact point e.g. 24322 not 24370)
+        const beFrom = Math.max(beLow, Math.min(...legs.map(l=>l.strike)) - 200);
+        const beTo   = Math.min(beHigh, Math.max(...legs.map(l=>l.strike)) + 200);
+        const bes = findBreakevens(calib, beFrom, beTo, 1);
         const { maxProfit, maxLoss: maxLossV } = maxProfitLoss(calib, beLow, beHigh);
         const isNakedSell = naked && legs.some(l=>l.transactionType==='SELL');
         const maxLossDisplay = isNakedSell ? null : maxLossV;
@@ -254,7 +268,7 @@ export default function StrategyWizard() {
   const [computing, setComputing] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const [sortField, setSortField] = useState('pnl');
-  const [sortAsc, setSortAsc] = useState(false);
+  const [sortAsc, setSortAsc] = useState(false); // false = descending = highest profit first
 
   // Filters
   const [enabledHedge, setEnabledHedge] = useState({buyCall:true,buyPut:true,callSpread:true,putSpread:true,ironCondor:true,ironButterfly:true});
@@ -360,6 +374,31 @@ export default function StrategyWizard() {
           spreadGaps, minProfit:minProfitOn?minProfitV:null, maxLoss:maxLossOn?maxLossV:null,
         });
         setResults(r); setSearched(true);
+
+        // Fetch real SPAN margins from AngelOne in the background
+        // (replaces the hardcoded 1.5L approximation with actual margin)
+        if (r.length > 0) {
+          const strategies = r.map(row => ({
+            id: row.id,
+            instrument, expiry: selectedExpiry,
+            legs: row.legs.map(l => ({
+              strike: l.strike, optionType: l.optionType,
+              transactionType: l.transactionType,
+              quantity: l.quantity, lotSize: l.lotSize,
+            })),
+          }));
+          fetch('http://localhost:5001/margin/calculate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ strategies }),
+          }).then(res => res.json()).then(data => {
+            if (!data.ok || !data.margins) return;
+            setResults(prev => prev.map(row => {
+              const m = data.margins.find(x => x.id === row.id);
+              return (m && m.margin > 0) ? { ...row, approxCap: m.margin } : row;
+            }));
+          }).catch(() => { /* silently fall back to approximation */ });
+        }
       } catch(err) {
         console.error('[Wizard] compute error:', err);
         setChainErr('Compute error: ' + err.message);
