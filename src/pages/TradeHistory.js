@@ -45,7 +45,7 @@ function PartialExitPopup({ leg, positionId, onClose, onSave }) {
           <div style={{ marginBottom:12, padding:'8px 10px', background:'var(--bg-primary)', borderRadius:6, fontSize:11 }}>
             <div style={{ color:'var(--text-muted)', marginBottom:4 }}>Previous exits:</div>
             {(leg.exits||[]).map((e,i) => (
-              <div key={i} style={{ fontFamily:"'JetBrains Mono',monospace", color:'var(--text-secondary)' }}>
+              <div key={i} style={{ fontFamily:'var(--font-mono)', color:'var(--text-secondary)' }}>
                 {e.quantity}L @ ₹{e.exitPremium?.toFixed(2)} on {e.exitDate}
               </div>
             ))}
@@ -77,8 +77,17 @@ function PartialExitPopup({ leg, positionId, onClose, onSave }) {
   );
 }
 
-function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditLeg }) {
-  if (!legs?.length) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
+function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditLeg, liveLtps }) {
+  // liveLtps: { "NIFTY_24200_CE_2026-06-23": 66.5, ... } — same format as liveQuotes in context
+  const getLiveLtp = (leg) => {
+    if (!liveLtps) return null;
+    const key = `${leg.instrument}_${leg.strike}_${leg.optionType}_${(leg.expiry||'').slice(0,10)}`;
+    return liveLtps[key] ?? null;
+  };
+
+  // Position-level booked + running totals across all legs
+  let totalBooked = 0, totalRunning = 0, hasRunning = false;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {legs.map((leg, i) => {
@@ -90,31 +99,42 @@ function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditL
         const totalExited = exits.reduce((s,e) => s+(e.quantity||0), 0);
         const remaining = (leg.quantity||1) - totalExited;
         const isPartial = exits.length > 0 && remaining > 0;
+        const sign = leg.transactionType === 'SELL' ? 1 : -1; // SELL collects premium, profit when price falls
 
-        // Realized P&L on exited portion
+        // Realized P&L on exited portion — per tranche
         const realizedPnl = exits.length > 0
           ? exits.reduce((s,e) => {
-              const pnl = (leg.transactionType === 'SELL' ? (entry - e.exitPremium) : (e.exitPremium - entry)) * e.quantity * lotSize;
+              const pnl = sign * (entry - e.exitPremium) * e.quantity * lotSize;
               return s + pnl;
             }, 0)
           : (exit !== undefined && exit !== null
-              ? (leg.transactionType === 'SELL' ? (entry - exit) : (exit - entry)) * leg.quantity * lotSize
+              ? sign * (entry - exit) * leg.quantity * lotSize
               : null);
 
+        // Running (unrealized) P&L on open portion
+        const ltp = getLiveLtp(leg);
+        const runningQty = isPartial ? remaining : (isOpen && !hasExits ? (leg.quantity||1) : 0);
+        const runningPnl = ltp !== null && runningQty > 0
+          ? sign * (entry - ltp) * runningQty * lotSize
+          : null;
+
+        if (realizedPnl !== null) totalBooked += realizedPnl;
+        if (runningPnl !== null) { totalRunning += runningPnl; hasRunning = true; }
+
         return (
-          <div key={leg.id || i} style={{ paddingBottom: i < legs.length-1 ? 6 : 0, borderBottom: i < legs.length-1 ? '1px solid var(--border)' : 'none' }}>
+          <div key={leg.id || i} style={{ paddingBottom: i < legs.length-1 ? 8 : 0, borderBottom: i < legs.length-1 ? '1px solid var(--border)' : 'none' }}>
             <div style={{ display:'grid', gridTemplateColumns:'auto auto auto 1fr auto', alignItems:'center', gap:5 }}>
               <div style={{ display:'flex', gap:3 }}>
                 <span className={`badge ${leg.optionType?.toLowerCase()}`} style={{ fontSize:10, padding:'2px 6px' }}>{leg.optionType}</span>
                 <span className={`badge ${leg.transactionType?.toLowerCase()}`} style={{ fontSize:10, padding:'2px 6px' }}>{leg.transactionType}</span>
               </div>
-              <span style={{ fontFamily:"'JetBrains Mono',monospace", fontWeight:700, fontSize:13, color:'var(--text-primary)', minWidth:50 }}>
+              <span style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:13, color:'var(--text-primary)', minWidth:50 }}>
                 {leg.strike?.toLocaleString('en-IN')}
               </span>
               <span style={{ fontSize:11, color: isPartial ? 'var(--accent)' : 'var(--text-muted)' }}>
                 {leg.quantity}L{isPartial ? ` (${remaining}L open)` : ''}
               </span>
-              <div style={{ display:'flex', alignItems:'center', gap:5, fontFamily:"'JetBrains Mono',monospace", fontSize:11 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:5, fontFamily:'var(--font-mono)', fontSize:11 }}>
                 <span style={{ color:'var(--text-muted)', background:'rgba(255,255,255,0.05)', padding:'1px 5px', borderRadius:3 }}>₹{entry?.toFixed(2) ?? '—'}</span>
                 <span style={{ color:'var(--border-hover)', fontSize:10 }}>→</span>
                 <span style={{ color: hasExits ? (leg.transactionType==='SELL' ? 'var(--profit)' : 'var(--text-secondary)') : 'var(--text-muted)', background: hasExits ? 'rgba(16,217,160,0.07)' : 'transparent', padding: hasExits ? '1px 5px' : '0', borderRadius:3 }}>
@@ -122,7 +142,7 @@ function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditL
                 </span>
               </div>
               <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:11, fontWeight:600, textAlign:'right', minWidth:60, color: realizedPnl===null ? 'var(--text-muted)' : realizedPnl>=0 ? 'var(--profit)' : 'var(--loss)' }}>
+                <span style={{ fontFamily:'var(--font-mono)', fontSize:11, fontWeight:600, textAlign:'right', minWidth:60, color: realizedPnl===null ? 'var(--text-muted)' : realizedPnl>=0 ? 'var(--profit)' : 'var(--loss)' }}>
                   {realizedPnl===null ? '—' : fmtMoney(realizedPnl)}
                 </span>
                 {isOpen && onAddExit && remaining > 0 && (
@@ -139,23 +159,73 @@ function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditL
                 )}
               </div>
             </div>
-            {/* Show individual exit tranches */}
-            {exits.length > 1 && (
-              <div style={{ marginTop:4, paddingLeft:8, display:'flex', flexDirection:'column', gap:2 }}>
-                {exits.map((e,ei) => (
-                  <div key={ei} style={{ display:'flex', alignItems:'center', gap:6, fontSize:10, color:'var(--text-muted)' }}>
-                    <span style={{ fontFamily:"'JetBrains Mono',monospace" }}>{e.quantity}L @ ₹{e.exitPremium?.toFixed(2)} · {e.exitDate}</span>
-                    {isOpen && onRemoveExit && (
-                      <button onClick={() => onRemoveExit(positionId, leg.id, ei)}
-                        style={{ background:'none', border:'none', color:'var(--loss)', cursor:'pointer', fontSize:10, padding:'0 2px', opacity:0.6 }}>✕</button>
-                    )}
+
+            {/* Per-tranche exit breakdown with individual P&L */}
+            {exits.length > 0 && (
+              <div style={{ marginTop:5, paddingLeft:10, display:'flex', flexDirection:'column', gap:3 }}>
+                {exits.map((e,ei) => {
+                  const tranchePnl = sign * (entry - e.exitPremium) * e.quantity * lotSize;
+                  return (
+                    <div key={ei} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:11, color:'var(--text-muted)', background:'rgba(255,255,255,0.03)', borderRadius:5, padding:'3px 7px' }}>
+                      <span style={{ display:'flex', alignItems:'center', gap:6 }}>
+                        <span style={{ fontFamily:'var(--font-mono)' }}>{e.quantity}L @ ₹{e.exitPremium?.toFixed(2)}</span>
+                        <span style={{ opacity:0.5 }}>·</span>
+                        <span>{e.exitDate}</span>
+                        {isOpen && onRemoveExit && (
+                          <button onClick={() => onRemoveExit(positionId, leg.id, ei)}
+                            style={{ background:'none', border:'none', color:'var(--loss)', cursor:'pointer', fontSize:10, padding:'0 2px', opacity:0.6 }}>✕</button>
+                        )}
+                      </span>
+                      <span style={{ fontFamily:'var(--font-mono)', fontWeight:600, color: tranchePnl>=0 ? 'var(--profit)' : 'var(--loss)' }}>
+                        {tranchePnl>=0?'+':'−'}₹{Math.abs(tranchePnl).toLocaleString('en-IN', {minimumFractionDigits:2,maximumFractionDigits:2})}
+                      </span>
+                    </div>
+                  );
+                })}
+                {/* Running P&L for remaining open lots */}
+                {isPartial && runningPnl !== null && (
+                  <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:11, background:'rgba(59,130,246,0.06)', borderRadius:5, padding:'3px 7px', border:'1px solid rgba(59,130,246,0.15)' }}>
+                    <span style={{ color:'var(--accent)', display:'flex', alignItems:'center', gap:6 }}>
+                      <span style={{ fontFamily:'var(--font-mono)' }}>{remaining}L open @ ₹{ltp?.toFixed(2)} (live)</span>
+                    </span>
+                    <span style={{ fontFamily:'var(--font-mono)', fontWeight:600, color: runningPnl>=0 ? 'var(--profit)' : 'var(--loss)' }}>
+                      {runningPnl>=0?'+':'−'}₹{Math.abs(runningPnl).toLocaleString('en-IN', {minimumFractionDigits:2,maximumFractionDigits:2})}
+                    </span>
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>
         );
       })}
+
+      {/* Position-level booked + running summary — shown when there are partial exits */}
+      {(totalBooked !== 0 || hasRunning) && legs.some(l => (l.exits||[]).length > 0) && (
+        <div style={{ display:'flex', gap:8, marginTop:4 }}>
+          <div style={{ flex:1, background:'rgba(16,217,160,0.07)', border:'1px solid rgba(16,217,160,0.15)', borderRadius:6, padding:'6px 10px' }}>
+            <div style={{ fontSize:10, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:2 }}>Booked</div>
+            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:13, color: totalBooked>=0 ? 'var(--profit)' : 'var(--loss)' }}>
+              {totalBooked>=0?'+':'−'}₹{Math.abs(totalBooked).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+            </div>
+          </div>
+          {hasRunning && (
+            <div style={{ flex:1, background:'rgba(59,130,246,0.07)', border:'1px solid rgba(59,130,246,0.15)', borderRadius:6, padding:'6px 10px' }}>
+              <div style={{ fontSize:10, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:2 }}>Running</div>
+              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:13, color: totalRunning>=0 ? 'var(--profit)' : 'var(--loss)' }}>
+                {totalRunning>=0?'+':'−'}₹{Math.abs(totalRunning).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+              </div>
+            </div>
+          )}
+          {hasRunning && (
+            <div style={{ flex:1, background:'rgba(255,255,255,0.04)', border:'1px solid var(--border)', borderRadius:6, padding:'6px 10px' }}>
+              <div style={{ fontSize:10, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:2 }}>Total P&L</div>
+              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:13, color: (totalBooked+totalRunning)>=0 ? 'var(--profit)' : 'var(--loss)' }}>
+                {(totalBooked+totalRunning)>=0?'+':'−'}₹{Math.abs(totalBooked+totalRunning).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -206,7 +276,7 @@ function MarginCell({ value, onSave, position }) {
       <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>₹</span>
       <input autoFocus value={draft} onChange={e => setDraft(e.target.value)} type="number"
         onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
-        style={{ background: 'var(--bg-primary)', border: '1px solid var(--accent)', borderRadius: 4, color: 'var(--text-primary)', fontFamily: "'JetBrains Mono', monospace", fontSize: 12, padding: '3px 6px', width: 80, outline: 'none' }} />
+        style={{ background: 'var(--bg-primary)', border: '1px solid var(--accent)', borderRadius: 4, color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontSize: 12, padding: '3px 6px', width: 80, outline: 'none' }} />
       <button onClick={save} style={{ background: 'none', border: 'none', color: 'var(--profit)', cursor: 'pointer', fontSize: 14 }}>✓</button>
     </div>
   );
@@ -216,7 +286,7 @@ function MarginCell({ value, onSave, position }) {
         style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
         title="Click to set margin used">
         {value
-          ? <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-secondary)' }}>
+          ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>
               {value >= 100000 ? '₹' + (value / 100000).toFixed(1) + 'L' : value >= 1000 ? '₹' + (value / 1000).toFixed(0) + 'K' : '₹' + value}
             </span>
           : <span style={{ fontSize: 11, color: 'var(--text-muted)', borderBottom: '1px dashed var(--text-muted)' }}>+ add</span>}
@@ -255,7 +325,7 @@ function ChargesCell({ value, onSave, position }) {
       <span style={{ fontSize:11, color:'var(--text-muted)' }}>₹</span>
       <input autoFocus value={draft} onChange={e => setDraft(e.target.value)} type="number"
         onKeyDown={e => { if (e.key==='Enter') save(); if (e.key==='Escape') setEditing(false); }}
-        style={{ background:'var(--bg-primary)', border:'1px solid var(--accent)', borderRadius:4, color:'var(--text-primary)', fontFamily:"'JetBrains Mono',monospace", fontSize:12, padding:'3px 6px', width:80, outline:'none' }} />
+        style={{ background:'var(--bg-primary)', border:'1px solid var(--accent)', borderRadius:4, color:'var(--text-primary)', fontFamily:'var(--font-mono)', fontSize:12, padding:'3px 6px', width:80, outline:'none' }} />
       <button onClick={save} style={{ background:'none', border:'none', color:'var(--profit)', cursor:'pointer', fontSize:14 }}>✓</button>
     </div>
   );
@@ -264,7 +334,7 @@ function ChargesCell({ value, onSave, position }) {
       <div onClick={() => { setDraft(value ? String(value) : ''); setEditing(true); }}
         style={{ cursor:'pointer', display:'flex', alignItems:'center', gap:4 }} title="Click to set charges">
         {value
-          ? <span style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:12, color:'var(--loss)' }}>-{fmt(value)}</span>
+          ? <span style={{ fontFamily:'var(--font-mono)', fontSize:12, color:'var(--loss)' }}>-{fmt(value)}</span>
           : <span style={{ fontSize:11, color:'var(--text-muted)', borderBottom:'1px dashed var(--text-muted)' }}>+ add</span>}
       </div>
       {hasBrokerLegs && (
@@ -470,7 +540,7 @@ function NotesPanel({ position, onClose, onSave }) {
           ].map(s => (
             <div key={s.label} style={{ background: 'var(--bg-primary)', borderRadius: 8, padding: '10px 12px', border: '1px solid var(--border)' }}>
               <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4 }}>{s.label}</div>
-              <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, fontWeight: 700, color: s.color }}>{s.value}</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 700, color: s.color }}>{s.value}</div>
             </div>
           ))}
         </div>
@@ -520,7 +590,7 @@ function NotesPanel({ position, onClose, onSave }) {
             placeholder="e.g. 2500"
           />
           {chargesVal && pnl !== null && (
-            <div style={{ marginTop:6, fontSize:12, fontFamily:"'JetBrains Mono',monospace", color:'var(--text-muted)' }}>
+            <div style={{ marginTop:6, fontSize:12, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>
               Net P&L: <span style={{ color: (pnl-chargesVal)>=0?'var(--profit)':'var(--loss)', fontWeight:600 }}>
                 {fmtMoney(pnl - chargesVal)}
               </span>
@@ -554,7 +624,7 @@ function NotesPanel({ position, onClose, onSave }) {
             placeholder="e.g. 150000"
           />
           {marginVal && pnl !== null && (
-            <div style={{ marginTop: 6, fontSize: 12, color: retOnMargin >= 0 ? 'var(--profit)' : 'var(--loss)', fontFamily: "'JetBrains Mono', monospace" }}>
+            <div style={{ marginTop: 6, fontSize: 12, color: retOnMargin >= 0 ? 'var(--profit)' : 'var(--loss)', fontFamily: 'var(--font-mono)' }}>
               Return on margin: {retOnMargin >= 0 ? '+' : ''}{retOnMargin.toFixed(2)}%
             </div>
           )}
@@ -567,6 +637,7 @@ function NotesPanel({ position, onClose, onSave }) {
             legs={position.legs}
             positionId={position.positionId}
             isOpen={position.status === 'OPEN'}
+            liveLtps={liveQuotes}
             onAddExit={leg => { onClose(); setTimeout(() => document.dispatchEvent(new CustomEvent('openPartialExit', { detail: { leg, positionId: position.positionId } })), 50); }}
             onRemoveExit={(posId, legId, idx) => {
               if (window.confirm('Remove this exit tranche?')) {
@@ -866,7 +937,7 @@ export default function TradeHistory() {
         </div>
         <div className="page-subtitle">
           {all.length} positions · {closed.length} closed · Win rate: {winRate}% · P&amp;L:{' '}
-          <span style={{ color: totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)', fontFamily: "'JetBrains Mono', monospace" }}>{fmtMoney(totalPnL)}</span>
+          <span style={{ color: totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)', fontFamily: 'var(--font-mono)' }}>{fmtMoney(totalPnL)}</span>
         </div>
       </div>
 
@@ -976,6 +1047,7 @@ export default function TradeHistory() {
                         legs={p.legs}
                         positionId={p.positionId}
                         isOpen={isOpen}
+                        liveLtps={liveQuotes}
                         onAddExit={leg => setPartialExitLeg({ leg, positionId: p.positionId })}
                         onRemoveExit={(posId, legId, idx) => removeLegExit(posId, legId, idx)}
                         onEditLeg={leg => setEditLegData(leg)}
@@ -983,15 +1055,15 @@ export default function TradeHistory() {
                       { minWidth: 220 }
                     )}
 
-                    {td(fmtDate(p.expiry), { fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' })}
+                    {td(fmtDate(p.expiry), { fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)', whiteSpace: 'nowrap' })}
 
-                    {td(fmtMoney(maxProfit), { fontFamily: "'JetBrains Mono', monospace", color: 'var(--profit)', fontWeight: 500, whiteSpace: 'nowrap' })}
+                    {td(fmtMoney(maxProfit), { fontFamily: 'var(--font-mono)', color: 'var(--profit)', fontWeight: 500, whiteSpace: 'nowrap' })}
 
                     {td(
                       maxLoss !== null
                         ? <span style={{ color: 'var(--loss)', fontWeight: 500 }}>{fmtMoney(-Math.abs(maxLoss))}</span>
                         : <span style={{ color: 'var(--text-muted)', fontSize: 16 }}>∞</span>,
-                      { fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }
+                      { fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }
                     )}
 
                     {td(
@@ -1001,13 +1073,13 @@ export default function TradeHistory() {
                         const color = rr >= 1 ? 'var(--profit)' : rr >= 0.5 ? 'var(--accent)' : 'var(--loss)';
                         return (
                           <div>
-                            <span style={{ fontFamily:"'JetBrains Mono',monospace", fontWeight:600, color }}>
+                            <span style={{ fontFamily:'var(--font-mono)', fontWeight:600, color }}>
                               {rr.toFixed(2)} : 1
                             </span>
                           </div>
                         );
                       })(),
-                      { fontFamily:"'JetBrains Mono',monospace", whiteSpace:'nowrap' }
+                      { fontFamily:'var(--font-mono)', whiteSpace:'nowrap' }
                     )}
 
                     {/* Margin — editable inline */}
@@ -1031,7 +1103,7 @@ export default function TradeHistory() {
                           </div>
                         );
                       })(),
-                      { fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }
+                      { fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }
                     )}
 
                     {/* Charges */}
@@ -1046,7 +1118,7 @@ export default function TradeHistory() {
                       isOpen
                         ? <span style={{ color: 'var(--text-muted)' }}>—</span>
                         : <div>
-                            <span style={{ color: netPnl > 0 ? 'var(--profit)' : netPnl < 0 ? 'var(--loss)' : 'var(--text-muted)', fontWeight: 700, fontFamily:"'JetBrains Mono',monospace" }}>{fmtMoney(netPnl)}</span>
+                            <span style={{ color: netPnl > 0 ? 'var(--profit)' : netPnl < 0 ? 'var(--loss)' : 'var(--text-muted)', fontWeight: 700, fontFamily:'var(--font-mono)' }}>{fmtMoney(netPnl)}</span>
                             {charges && <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:1 }}>after charges</div>}
                           </div>,
                       { whiteSpace: 'nowrap' }
@@ -1062,7 +1134,7 @@ export default function TradeHistory() {
                             </span>
                             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 1 }}>{retLabel}</div>
                           </div>,
-                      { fontFamily: "'JetBrains Mono', monospace", whiteSpace: 'nowrap' }
+                      { fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap' }
                     )}
 
                     {td(
@@ -1082,7 +1154,7 @@ export default function TradeHistory() {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
                         {isOpen
                           ? <span style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 600 }}>● Active</span>
-                          : <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(p.closeDate)}</span>
+                          : <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(p.closeDate)}</span>
                         }
                         {!isOpen && p.closeDate && p.expiry && (
                           <span style={{
