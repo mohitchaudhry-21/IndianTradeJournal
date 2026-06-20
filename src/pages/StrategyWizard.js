@@ -4,10 +4,12 @@ import { payoffAt, positionGreeks, findBreakevens, calibrateLegsIV, maxProfitLos
 import { fetchOptionChain, fetchExpiryList, fetchEodChain } from '../utils/optionChain';
 import { STRATEGY_TEMPLATES, getBadge } from '../utils/strategyTemplates';
 import { isMarketOpen } from '../utils/marketHours';
+import { getLotSize } from '../utils/lotSizes';
+import { impliedVolatility } from '../utils/blackscholes';
 
 const R = 0.065;
-const LOT = { NIFTY:75, BANKNIFTY:30, FINNIFTY:65, MIDCPNIFTY:120, SENSEX:20, BANKEX:30 };
-const getLot = i => LOT[i?.toUpperCase()] || 75;
+// Use the same getLotSize as StrategyBuilder — single source of truth
+const getLot = i => getLotSize(i);
 
 const M_IDX = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
 function angelToDate(exp) {
@@ -110,7 +112,21 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
 
   const results = [];
 
+  // Map prediction → allowed strategy categories (matches Sensibull exactly)
+  // "below" → bearish strategies only (Sell Call, Bear Spread, Buy Put, etc.)
+  // "above" → bullish strategies only (Buy Call, Bull Spread, Sell Put, etc.)
+  // "between" → neutral/range strategies (Iron Condor, Straddle, etc.)
+  const ALLOWED_CATEGORIES = {
+    below:   ['Bearish'],
+    above:   ['Bullish'],
+    between: ['Neutral', 'Others'],
+  };
+  const allowedCats = ALLOWED_CATEGORIES[prediction] || ['Bearish','Bullish','Neutral','Others'];
+
   STRATEGY_TEMPLATES.forEach(tmpl => {
+    // ── Category gate — primary filter matching Sensibull's categorisation ──
+    if (!allowedCats.includes(tmpl.category)) return;
+
     const hk = HEDGE_KEY[tmpl.name], uk = UNHEG_KEY[tmpl.name];
     if (hk && !enabledHedgeKeys[hk]) return;
     if (uk && !enabledUnhegKeys[uk]) return;
@@ -276,8 +292,53 @@ export default function StrategyWizard() {
     return () => { cancelled = true; };
   }, [selectedExpiry, instrument]);
 
+  // When chain loads, compute ATM IV for the selected expiry and pre-populate
+  // the ivAdj filter (matching Sensibull's "ATM IV on target" defaults).
+  // Source priority: IV from AngelOne optionGreek API (stored in chain.iv field)
+  //                 → back-solve from LTP using Black-Scholes inverse
+  //                 → 0 for very near expiry (< 3 days), 10% default otherwise
+  useEffect(() => {
+    if (!chain.length || !selectedExpiry) return;
+    const sorted = chain.map(r=>r.strike).sort((a,b)=>a-b);
+    const sp = spot || sorted[Math.floor(sorted.length/2)];
+    const atmStrike = sorted.reduce((b,s)=>Math.abs(s-sp)<Math.abs(b-sp)?s:b, sorted[0]);
+    const atmRow = chain.find(r=>r.strike===atmStrike);
+    if (!atmRow) return;
+
+    // Prefer IV from the chain (set by optionGreek API), fallback to calibrating from LTP
+    const ceIv = atmRow.CE?.iv || 0;
+    const peIv = atmRow.PE?.iv || 0;
+    let atmIv = ceIv && peIv ? (ceIv + peIv) / 2 : ceIv || peIv;
+
+    // If no IV from chain (EOD chain), back-solve from LTP using BS
+    if (!atmIv && sp && atmRow.CE?.ltp) {
+      const T = Math.max(daysUntil(selectedExpiry) / 365, 0.001);
+      try {
+        const sigma = impliedVolatility(atmRow.CE.ltp, sp, atmStrike, T, R, 'CE');
+        atmIv = sigma ? sigma * 100 : 0;
+      } catch { atmIv = 0; }
+    }
+
+    const days = daysUntil(selectedExpiry);
+    // Very near expiry (< 3 trading days): Sensibull shows 0
+    const displayIv = days <= 3 ? 0 : Math.round((atmIv || 10) * 10) / 10;
+
+    setIvAdj(prev => {
+      const next = { ...prev };
+      next[selectedExpiry] = displayIv;
+      // For other expiries not loaded, extrapolate using typical NIFTY term structure:
+      // longer-dated options have slightly higher ATM IV (term structure premium ~0.5%/month)
+      expiries.forEach(e => {
+        if (e === selectedExpiry || prev[e] !== undefined) return;
+        const eDays = daysUntil(e);
+        const termPremium = Math.max(0, (eDays - days) / 30) * 0.5;
+        next[e] = Math.round((displayIv + termPremium) * 10) / 10;
+      });
+      return next;
+    });
+  }, [chain, spot, selectedExpiry]); // eslint-disable-line
+
   function go() {
-    const tgt = parseFloat(targetInput);
     if (!chain.length || !tgt) return;
     setComputing(true);
     const expiryMs = angelToDate(selectedExpiry).getTime();
@@ -316,6 +377,10 @@ export default function StrategyWizard() {
   function sort(f) { if(sortField===f) setSortAsc(a=>!a); else { setSortField(f); setSortAsc(false); } }
 
   function loadIntoBuilder(row) {
+    // Dispatch a browser event so the always-mounted StrategyBuilderKeepAlive
+    // picks up the new legs without needing to remount.
+    const detail = { legs: row.legs, instrument, expiry: selectedExpiry };
+    window.dispatchEvent(new CustomEvent('wizardLoadStrategy', { detail }));
     sessionStorage.setItem('sb_wizard_legs', JSON.stringify(row.legs));
     sessionStorage.setItem('sb_instrument', instrument);
     sessionStorage.setItem('sb_expiry', selectedExpiry);
@@ -560,23 +625,24 @@ export default function StrategyWizard() {
                             <div style={{ fontSize:13, fontWeight:600, color:'var(--text-secondary)', marginBottom:4 }}>How does this trade work?</div>
                             <div style={{ fontSize:13, color:'var(--text-muted)', maxWidth:540 }}>{row.desc}</div>
                           </div>
-                          {/* Per-leg LTP / target price / quantity — matching Sensibull */}
-                          <div style={{ display:'flex', gap:16, marginLeft:24 }}>
-                            <div style={{ textAlign:'center' }}>
-                              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>LTP ⓘ</div>
-                              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16 }}>
-                                {row.legs.map(l=>l.ltp?.toFixed(2)).join(' / ')}
+                          {/* Per-leg details — proper grid like Sensibull */}
+                          <div style={{ display:'flex', gap:14, marginLeft:16, flexWrap:'wrap' }}>
+                            {row.legs.map((l,i)=>(
+                              <div key={i} style={{ textAlign:'center', minWidth:68 }}>
+                                <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:3 }}>
+                                  {l.transactionType==='BUY'?'B':'S'} {l.strike} {l.optionType}
+                                </div>
+                                <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:15 }}>
+                                  {l.ltp?.toFixed(2)??'—'}
+                                </div>
+                                <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:2 }}>
+                                  → {(row.legTargetPrices?.[i]||0).toFixed(2)}
+                                </div>
                               </div>
-                            </div>
-                            <div style={{ textAlign:'center' }}>
-                              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>Target price</div>
-                              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16 }}>
-                                {(row.legTargetPrices||[]).map(p=>p.toFixed(2)).join(' / ')}
-                              </div>
-                            </div>
-                            <div style={{ textAlign:'center', minWidth:70 }}>
-                              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>Quantity (1 Lot)</div>
-                              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16 }}>{getLot(instrument)}</div>
+                            ))}
+                            <div style={{ textAlign:'center', minWidth:68 }}>
+                              <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:3 }}>Qty (1 Lot)</div>
+                              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:15 }}>{getLot(instrument)}</div>
                             </div>
                           </div>
                         </div>
@@ -592,7 +658,7 @@ export default function StrategyWizard() {
                           <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:'10px 14px' }}>
                             <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:4 }}>Max loss</div>
                             <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16, color:'var(--loss)' }}>
-                              {row.maxLoss === null ? 'Unlimited' : fmtMoney(Math.abs(row.maxLoss),true)}
+                              {row.maxLoss === null ? 'Unlimited' : '−₹' + Math.abs(row.maxLoss).toLocaleString('en-IN', {maximumFractionDigits:0})}
                             </div>
                           </div>
                           <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:'10px 14px' }}>
