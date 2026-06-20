@@ -11,7 +11,7 @@ import StrategyBuilder from './pages/StrategyBuilder';
 import TradeHistory from './pages/TradeHistory';
 import Analytics from './pages/Analytics';
 import ManualEntry from './pages/ManualEntry';
-import BrokerConnect from './pages/BrokerConnect';
+import StrategyWizard from './pages/StrategyWizard';
 import Settings from './pages/Settings';
 import ScreenshotImport from './pages/ScreenshotImport';
 import Calendar from './pages/Calendar';
@@ -100,6 +100,7 @@ export default function App() {
               <Route path="/"           element={<Dashboard />} />
               <Route path="/positions"  element={<Positions />} />
               <Route path="/analyzer"   element={<OptionsAnalyzer />} />
+              <Route path="/wizard"     element={<StrategyWizard />} />
               <Route path="/strategy-builder" element={null} />
               <Route path="/history"    element={<TradeHistory />} />
               <Route path="/analytics"  element={<Analytics />} />
