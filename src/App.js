@@ -11,6 +11,7 @@ import StrategyBuilder from './pages/StrategyBuilder';
 import TradeHistory from './pages/TradeHistory';
 import Analytics from './pages/Analytics';
 import ManualEntry from './pages/ManualEntry';
+import BrokerConnect from './pages/BrokerConnect';
 import StrategyWizard from './pages/StrategyWizard';
 import Settings from './pages/Settings';
 import ScreenshotImport from './pages/ScreenshotImport';
