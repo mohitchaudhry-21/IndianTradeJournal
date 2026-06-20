@@ -131,93 +131,94 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
     if (hk && !enabledHedgeKeys[hk]) return;
     if (uk && !enabledUnhegKeys[uk]) return;
 
-    for (let base=-4; base<=4; base++) {
-      const legTemplates = tmpl.legs(off);
-      const legs = legTemplates.map(t => {
-        const strike = off(t.stepsFromAtm + base);
-        const row = chain.find(r=>r.strike===strike);
-        const side = row?.[t.optionType];
-        if (!side?.ltp || side.ltp <= 0) return null;
-        return {
-          id:`${tmpl.name}_${base}_${t.stepsFromAtm}`,
-          strike, optionType:t.optionType, transactionType:t.transactionType,
-          quantity:t.qty||1, lotSize, iv:side.iv||15, premium:side.ltp, ltp:side.ltp,
-        };
-      });
-      if (legs.some(l=>!l)) continue;
+    // Cover strikes within 300 points of the target in each direction.
+    const RANGE_POINTS = 300;
+    const baseMin = Math.round((targetSpot - RANGE_POINTS - effectiveSpot) / step);
+    const baseMax = Math.round((targetSpot + RANGE_POINTS - effectiveSpot) / step);
+    const bases = Array.from({ length: Math.max(0, baseMax - baseMin + 1) }, (_, i) => baseMin + i);
 
-      const strikes = [...new Set(legs.map(l=>l.strike))].sort((a,b)=>a-b);
-      if (strikes.length>1 && spreadGaps.length>0) {
-        const gap = strikes[1]-strikes[0];
-        if (!spreadGaps.includes(gap)) continue;
-      }
+    // Spread width variation: for multi-leg strategies, try widths from 50 to 400
+    // points (1..8 steps for NIFTY). Single-leg templates use width=1 (no scaling).
+    const rawOffsets = tmpl.legs(n => n).map(t => t.stepsFromAtm);
+    const absOffsets = rawOffsets.filter(o => o !== 0).map(Math.abs);
+    const baseWidth = absOffsets.length ? Math.min(...absOffsets) : 0; // smallest non-zero step
+    const maxWidthSteps = Math.round(400 / step); // 8 for NIFTY
+    const widths = baseWidth > 0
+      ? Array.from({ length: maxWidthSteps }, (_, i) => i + 1) // 1..8 steps
+      : [1]; // single-leg: no width scaling
 
+    for (const base of bases) {
+      for (const widthSteps of widths) {
+        const scale = baseWidth > 0 ? widthSteps / baseWidth : 1;
 
-      // ── Same pipeline as OptionsAnalyzer ──────────────────────────────
-      // Step 1: calibrate IV from real LTPs
-      const calib = calibrateLegsIV(legs, effectiveSpot, T_live, R);
+        const legTemplates = tmpl.legs(off);
+        const legs = legTemplates.map(t => {
+          // Scale the relative offset by spread width, then shift by base
+          const scaledStep = Math.round(t.stepsFromAtm * scale);
+          const strike = off(scaledStep + base);
+          const row = chain.find(r=>r.strike===strike);
+          const side = row?.[t.optionType];
+          if (!side?.ltp || side.ltp <= 0) return null;
+          return {
+            id:`${tmpl.name}_${base}_${widthSteps}_${t.stepsFromAtm}`,
+            strike, optionType:t.optionType, transactionType:t.transactionType,
+            quantity:t.qty||1, lotSize, iv:side.iv||15, premium:side.ltp, ltp:side.ltp,
+          };
+        });
+        if (legs.some(l=>!l)) continue;
 
-      // Step 2: at-expiry P&L at target (T=0 = pure intrinsic, no BS needed)
-      const pnl = payoffAt(calib, targetSpot, 0, R, false);
-      if (pnl <= 0) continue;
-      if (Number.isFinite(minProfit) && pnl < minProfit) continue;
+        // Spread gap filter — gap = distance between the two closest different strikes
+        const strikesSorted = [...new Set(legs.map(l=>l.strike))].sort((a,b)=>a-b);
+        if (strikesSorted.length>1 && spreadGaps.length>0) {
+          const gap = strikesSorted[1]-strikesSorted[0];
+          if (!spreadGaps.includes(gap)) continue;
+        }
 
-      // ── Direction consistency ─────────────────────────────────────────
-      // Strategy must ALSO profit if spot moves FURTHER in the predicted direction
-      // (not just at the target exactly). This eliminates bullish strategies from
-      // "below" predictions and bearish strategies from "above" predictions.
-      // e.g. "NIFTY below 24300": Sell Call 24300 profits at 24000, 23500, 23000 ✓
-      //                            Buy Call 23550 loses at 23500 ✗ → filtered out
-      if (prediction === 'below') {
-        const farDown = Math.min(targetSpot * 0.93, effectiveSpot * 0.93);
-        if (payoffAt(calib, farDown, 0, R, false) < 0) continue;
-        if (payoffAt(calib, targetSpot * 0.80, 0, R, false) < 0) continue;
-      } else if (prediction === 'above') {
-        const farUp = Math.max(targetSpot * 1.07, effectiveSpot * 1.07);
-        if (payoffAt(calib, farUp, 0, R, false) < 0) continue;
-        if (payoffAt(calib, targetSpot * 1.20, 0, R, false) < 0) continue;
-      }
+        // ── Same pipeline as OptionsAnalyzer ────────────────────────
+        const calib = calibrateLegsIV(legs, effectiveSpot, T_live, R);
+        const pnl = payoffAt(calib, targetSpot, 0, R, false);
+        if (pnl <= 0) continue;
+        if (Number.isFinite(minProfit) && pnl < minProfit) continue;
 
-      // Capital
-      const netPrem = legs.reduce((s,l)=>s+(l.transactionType==='SELL'?1:-1)*l.premium*l.quantity*l.lotSize, 0);
-      const naked = tmpl.type === 'unhedged';
-      const approxCap = naked
-        ? legs.filter(l=>l.transactionType==='SELL').reduce((s,l)=>s+150000*l.quantity,0)
-        : Math.max(Math.abs(netPrem), 1000);
-      if (Number.isFinite(maxLoss) && approxCap > maxLoss) continue;
+        // Direction consistency
+        if (prediction === 'below') {
+          const farDown = Math.min(targetSpot * 0.93, effectiveSpot * 0.93);
+          if (payoffAt(calib, farDown, 0, R, false) < 0) continue;
+          if (payoffAt(calib, targetSpot * 0.80, 0, R, false) < 0) continue;
+        } else if (prediction === 'above') {
+          const farUp = Math.max(targetSpot * 1.07, effectiveSpot * 1.07);
+          if (payoffAt(calib, farUp, 0, R, false) < 0) continue;
+          if (payoffAt(calib, targetSpot * 1.20, 0, R, false) < 0) continue;
+        }
 
-      // Step 3: Greeks at current time (same as OptionsAnalyzer)
-      const greeks = positionGreeks(calib, effectiveSpot, T_live, R);
+        const netPrem = legs.reduce((s,l)=>s+(l.transactionType==='SELL'?1:-1)*l.premium*l.quantity*l.lotSize, 0);
+        const naked = tmpl.type === 'unhedged';
+        const approxCap = naked
+          ? legs.filter(l=>l.transactionType==='SELL').reduce((s,l)=>s+150000*l.quantity,0)
+          : Math.max(Math.abs(netPrem), 1000);
+        if (Number.isFinite(maxLoss) && approxCap > maxLoss) continue;
 
-      // Step 4: breakevens at expiry — findBreakevens(legs, min, max, step)
-      const bes = findBreakevens(calib, beLow, beHigh, step);
+        const greeks = positionGreeks(calib, effectiveSpot, T_live, R);
+        const bes = findBreakevens(calib, beLow, beHigh, step);
+        const { maxProfit, maxLoss: maxLossV } = maxProfitLoss(calib, beLow, beHigh);
+        const isNakedSell = naked && legs.some(l=>l.transactionType==='SELL');
+        const maxLossDisplay = isNakedSell ? null : maxLossV;
+        const pop = computePOP(calib, effectiveSpot, T_live, R, beLow, beHigh, step);
+        const legTargetPrices = calib.map(l =>
+          l.optionType === 'CE' ? Math.max(targetSpot - l.strike, 0) : Math.max(l.strike - targetSpot, 0)
+        );
+        const returnPct = approxCap>0 ? (pnl/approxCap)*100 : 0;
+        const strikeKey = calib.map(l=>`${l.transactionType[0]}${l.optionType}${l.strike}`).sort().join('_');
 
-      // Step 5: max profit / max loss — same utility as OptionsAnalyzer
-      const { maxProfit, maxLoss: maxLossV } = maxProfitLoss(calib, beLow, beHigh);
-      const isNakedSell = naked && legs.some(l=>l.transactionType==='SELL');
-      const maxLossDisplay = isNakedSell ? null : maxLossV;
-
-      // Step 6: POP using lognormal distribution
-      const pop = computePOP(calib, effectiveSpot, T_live, R, beLow, beHigh, step);
-
-      // Target price per leg = option's intrinsic value at the target spot
-      const legTargetPrices = calib.map(l =>
-        l.optionType === 'CE' ? Math.max(targetSpot - l.strike, 0) : Math.max(l.strike - targetSpot, 0)
-      );
-
-      const returnPct = approxCap>0 ? (pnl/approxCap)*100 : 0;
-
-      // Strike-combo key for deduplication (same strikes = same trade, different name/template)
-      const strikeKey = calib.map(l=>`${l.transactionType[0]}${l.optionType}${l.strike}`).sort().join('_');
-
-      results.push({
-        id:`${strikeKey}::${tmpl.name}`, name:tmpl.name, category:tmpl.category, type:tmpl.type, desc:tmpl.desc,
-        strikeKey, legs:calib, pnl, breakevens:bes, approxCap, returnPct, netPrem,
-        maxProfit, maxLoss:maxLossDisplay, greeks, pop, legTargetPrices,
-        daysLeft:Math.round(Math.max(0,(expiryMs-Date.now())/86400000)),
-        hKey:hk, uKey:uk,
-      });
-    }
+        results.push({
+          id:`${strikeKey}::${tmpl.name}`, name:tmpl.name, category:tmpl.category, type:tmpl.type, desc:tmpl.desc,
+          strikeKey, legs:calib, pnl, breakevens:bes, approxCap, returnPct, netPrem,
+          maxProfit, maxLoss:maxLossDisplay, greeks, pop, legTargetPrices,
+          daysLeft:Math.round(Math.max(0,(expiryMs-Date.now())/86400000)),
+          hKey:hk, uKey:uk,
+        });
+      } // end widthSteps
+    } // end base
   });
 
   // Deduplicate by exact strike combination (same trade = same strikes, same types)
@@ -292,54 +293,58 @@ export default function StrategyWizard() {
     return () => { cancelled = true; };
   }, [selectedExpiry, instrument]);
 
-  // When chain loads, compute ATM IV for the selected expiry and pre-populate
-  // the ivAdj filter (matching Sensibull's "ATM IV on target" defaults).
-  // Source priority: IV from AngelOne optionGreek API (stored in chain.iv field)
-  //                 → back-solve from LTP using Black-Scholes inverse
-  //                 → 0 for very near expiry (< 3 days), 10% default otherwise
+  // Compute ATM IV for each expiry and populate the "ATM IV on target" filter,
+  // matching Sensibull's approach:
+  // - Estimate underlying spot via put-call parity (forward ≈ strike + CE − PE)
+  //   so we don't need a separate API call for the underlying price
+  // - Back-solve IV from ATM option LTP using Black-Scholes inverse
+  // - Show real IV for all expiries (Sensibull shows 8.7% even for 3-day expiry)
+  // - Extrapolate other expiries using NIFTY term structure (+0.5%/30 days)
   useEffect(() => {
     if (!chain.length || !selectedExpiry) return;
-    const sorted = chain.map(r=>r.strike).sort((a,b)=>a-b);
-    const sp = spot || sorted[Math.floor(sorted.length/2)];
-    const atmStrike = sorted.reduce((b,s)=>Math.abs(s-sp)<Math.abs(b-sp)?s:b, sorted[0]);
-    const atmRow = chain.find(r=>r.strike===atmStrike);
+
+    // Estimate underlying spot from put-call parity: forward ≈ strike + CE − PE
+    const validRows = chain.filter(r => r.CE?.ltp > 0 && r.PE?.ltp > 0);
+    const estimatedSpot = validRows.length
+      ? validRows.reduce((s, r) => s + r.strike + r.CE.ltp - r.PE.ltp, 0) / validRows.length
+      : null;
+    const sp = spot || estimatedSpot || chain[Math.floor(chain.length / 2)]?.strike;
+    if (!sp) return;
+
+    // Find ATM strike
+    const sorted = chain.map(r => r.strike).sort((a, b) => a - b);
+    const atmStrike = sorted.reduce((b, s) => Math.abs(s - sp) < Math.abs(b - sp) ? s : b, sorted[0]);
+    const atmRow = chain.find(r => r.strike === atmStrike);
     if (!atmRow) return;
 
-    // Prefer IV from the chain (set by optionGreek API), fallback to calibrating from LTP
-    const ceIv = atmRow.CE?.iv || 0;
-    const peIv = atmRow.PE?.iv || 0;
+    // IV from optionGreek API if available, otherwise back-solve from LTP
+    const ceIv = atmRow.CE?.iv || 0, peIv = atmRow.PE?.iv || 0;
     let atmIv = ceIv && peIv ? (ceIv + peIv) / 2 : ceIv || peIv;
-
-    // If no IV from chain (EOD chain), back-solve from LTP using BS
-    if (!atmIv && sp && atmRow.CE?.ltp) {
-      const T = Math.max(daysUntil(selectedExpiry) / 365, 0.001);
+    if (!atmIv) {
+      const T = Math.max(daysUntil(selectedExpiry) / 365, 1 / 365);
       try {
-        const sigma = impliedVolatility(atmRow.CE.ltp, sp, atmStrike, T, R, 'CE');
-        atmIv = sigma ? sigma * 100 : 0;
+        const s1 = atmRow.CE?.ltp > 0 ? impliedVolatility(atmRow.CE.ltp, sp, atmStrike, T, R, 'CE') : null;
+        const s2 = atmRow.PE?.ltp > 0 ? impliedVolatility(atmRow.PE.ltp, sp, atmStrike, T, R, 'PE') : null;
+        const valid = [s1, s2].filter(s => s && s > 0.01 && s < 5);
+        if (valid.length) atmIv = (valid.reduce((a, b) => a + b, 0) / valid.length) * 100;
       } catch { atmIv = 0; }
     }
-
-    const days = daysUntil(selectedExpiry);
-    // Very near expiry (< 3 trading days): Sensibull shows 0
-    const displayIv = days <= 3 ? 0 : Math.round((atmIv || 10) * 10) / 10;
+    const displayIv = Math.round((atmIv || 10) * 10) / 10;
 
     setIvAdj(prev => {
-      const next = { ...prev };
-      next[selectedExpiry] = displayIv;
-      // For other expiries not yet loaded, extrapolate from a realistic base.
-      // If the loaded expiry is near-expiry (shows 0), use 10% as the base for
-      // longer-dated extrapolation — same ballpark as NIFTY's typical ATM IV.
-      const baseForExtrapolation = displayIv > 0 ? displayIv : 10.0;
+      const next = { ...prev, [selectedExpiry]: displayIv };
       expiries.forEach(e => {
         if (e === selectedExpiry || prev[e] !== undefined) return;
-        const eDays = daysUntil(e);
-        // Longer-dated options: +0.5% per additional 30 days (typical term structure)
-        const termPremium = Math.max(0, (eDays - Math.max(days, 7)) / 30) * 0.5;
-        next[e] = Math.round((baseForExtrapolation + termPremium) * 10) / 10;
+        const extra = Math.max(0, (daysUntil(e) - daysUntil(selectedExpiry)) / 30) * 0.5;
+        next[e] = Math.round((displayIv + extra) * 10) / 10;
       });
       return next;
     });
-  }, [chain, spot, selectedExpiry]); // eslint-disable-line
+
+    // Store estimated spot so computeWizard can use it for Greeks/POP
+    if (!spot && estimatedSpot) setSpot(Math.round(estimatedSpot * 100) / 100);
+  }, [chain, selectedExpiry]); // eslint-disable-line
+
 
   function go() {
     const tgt = parseFloat(targetInput);
