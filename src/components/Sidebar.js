@@ -19,6 +19,7 @@ const SECTIONS = [
       { to: '/history',    label: 'Trade History',    icon: '☰' },
       { to: '/analytics',  label: 'Analytics',        icon: '⟋' },
       { to: '/analyzer',   label: 'Options Analyzer', icon: '⌖' },
+      { to: '/wizard',     label: 'Strategy Wizard',  icon: '✦' },
       { to: '/strategy-builder', label: 'Strategy Builder', icon: '✦' },
     ],
   },
@@ -91,13 +92,13 @@ export default function Sidebar() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>This Month</div>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, color: stats.thisMonthPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: stats.thisMonthPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
               {stats.thisMonthPnL >= 0 ? '+' : ''}{fmtSidebar(stats.thisMonthPnL)}
             </div>
           </div>
           <div style={{ textAlign: 'right' }}>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>Total P&L</div>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 16, fontWeight: 600, color: stats.totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: stats.totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
               {stats.totalPnL >= 0 ? '+' : ''}{fmtSidebar(stats.totalPnL)}
             </div>
           </div>
@@ -110,7 +111,7 @@ export default function Sidebar() {
                 Live P&L{activeAccountId ? '' : ' (All)'}
               </span>
             </div>
-            <div style={{ fontFamily:"'JetBrains Mono',monospace", fontSize:14, fontWeight:600, color: liveUnrealizedPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+            <div style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:600, color: liveUnrealizedPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
               {liveUnrealizedPnL >= 0 ? '+' : ''}{fmtSidebar(liveUnrealizedPnL)}
             </div>
           </div>
@@ -125,7 +126,7 @@ export default function Sidebar() {
               {i > 0 && <div style={{ width: 1, background: 'var(--border)', margin: '0 8px' }} />}
               <div style={{ flex: 1, textAlign: 'center' }}>
                 <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>{st.label}</div>
-                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 13, fontWeight: 500, color: st.color }}>{st.val}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 500, color: st.color }}>{st.val}</div>
               </div>
             </React.Fragment>
           ))}
@@ -271,7 +272,7 @@ const s = {
   stat:      { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 },
   statDiv:   { width: 1, height: 26, background: 'var(--border)' },
   statLabel: { fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase' },
-  statVal:   { fontFamily: "'JetBrains Mono',monospace", fontSize: 15, fontWeight: 500, color: 'var(--text-primary)' },
+  statVal:   { fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 500, color: 'var(--text-primary)' },
   nav: { display: 'flex', flexDirection: 'column', padding: '10px 8px', gap: 1 },
   sectionLabel: {
     fontSize: 10, fontWeight: 700, letterSpacing: '0.10em',
