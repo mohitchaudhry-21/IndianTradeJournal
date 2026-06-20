@@ -9,7 +9,7 @@ const STORAGE_KEY = 'optionsdesk_data';
 
 const DEFAULT_SETTINGS = {
   lotSizes: {
-    NIFTY: 75,
+    NIFTY: 65,
     BANKNIFTY: 30,
     FINNIFTY: 65,
     MIDCPNIFTY: 120,
