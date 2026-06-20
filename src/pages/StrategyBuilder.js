@@ -320,6 +320,25 @@ export default function StrategyBuilder() {
     } catch {}
   }, [legs, instrument, selectedExpiry]);
 
+  // Listen for wizard "load this strategy" events.
+  // Because StrategyBuilderKeepAlive keeps us always-mounted, the useState init
+  // only runs once — we need this event to pick up legs loaded by the Wizard.
+  useEffect(() => {
+    function handleWizardLoad(e) {
+      const { legs: wLegs, instrument: wInst, expiry: wExp } = e.detail || {};
+      if (wInst) setInstrument(wInst);
+      if (wExp)  setSelectedExpiry(wExp);
+      if (wLegs?.length) {
+        setLegs(wLegs);
+        setPickerView('CHAIN');
+        setScenarioSpot(null);
+        setSliderIdx(0);
+      }
+    }
+    window.addEventListener('wizardLoadStrategy', handleWizardLoad);
+    return () => window.removeEventListener('wizardLoadStrategy', handleWizardLoad);
+  }, []);
+
   // Persist drafts to localStorage whenever they change
   useEffect(() => {
     try { localStorage.setItem('sb_drafts', JSON.stringify(drafts)); } catch {}
