@@ -15,7 +15,7 @@ function fmt(value, decimals = 2) {
   return Number.isFinite(n) ? n.toFixed(decimals) : '—';
 }
 
-import { generateMarketTimestamps, isMonthlyExpiry, isMarketOpen } from '../utils/marketHours';
+import { STRATEGY_TEMPLATES, STRATEGY_CATEGORIES } from '../utils/strategyTemplates';
 
 // OI change is stored as an absolute delta (changeInOi), not a percentage —
 // derive the percentage from the implied previous OI. Returns null rather
@@ -70,11 +70,17 @@ export default function StrategyBuilder() {
   const [spot, setSpot] = useState(null);
 
   const [legs, setLegs] = useState(() => {
-    // Restore legs from sessionStorage on reload
-    try { const saved = sessionStorage.getItem('sb_legs'); return saved ? JSON.parse(saved) : []; } catch { return []; }
+    try {
+      // Check if Strategy Wizard pushed legs for us to load
+      const wizardLegs = sessionStorage.getItem('sb_wizard_legs');
+      if (wizardLegs) { sessionStorage.removeItem('sb_wizard_legs'); return JSON.parse(wizardLegs); }
+      const saved = sessionStorage.getItem('sb_legs');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
   });
   const [scenarioSpot, setScenarioSpot] = useState(null);
-  const [pickerView, setPickerView] = useState('CHAIN'); // 'CHAIN' | 'GREEKS' | 'FUTURES'
+  const [pickerView, setPickerView] = useState('CHAIN'); // 'CHAIN' | 'GREEKS' | 'FUTURES' | 'STRATEGIES'
+  const [stratCategory, setStratCategory] = useState('Bullish');
   const [hoveredStrike, setHoveredStrike] = useState(null);
 
   // Drafts — persisted in localStorage
@@ -360,6 +366,39 @@ export default function StrategyBuilder() {
     setLegs([]);
   }
 
+  // Load a ready-made strategy template into the leg builder.
+  // Resolves each leg's strike using the chain's sorted strike list
+  // relative to ATM (stepsFromAtm = 0 is ATM, +1 is one step above, etc.)
+  function loadReadyMadeStrategy(template) {
+    if (!chainRows.length) { alert('Load the option chain first by selecting an instrument and expiry.'); return; }
+    const sortedStrikes = chainRows.map(r => r.strike).sort((a, b) => a - b);
+    const atmStrike = currentSpot
+      ? sortedStrikes.reduce((best, s) => Math.abs(s - currentSpot) < Math.abs(best - currentSpot) ? s : best, sortedStrikes[0])
+      : sortedStrikes[Math.floor(sortedStrikes.length / 2)];
+    const atmIdx = sortedStrikes.indexOf(atmStrike);
+    const off = (n) => sortedStrikes[Math.max(0, Math.min(sortedStrikes.length - 1, atmIdx + n))];
+
+    const newLegs = template.legs(off).map(t => {
+      const strike = off(t.stepsFromAtm);
+      const row = chainRows.find(r => r.strike === strike);
+      const side = row?.[t.optionType];
+      return {
+        id: nextLegId(),
+        strike,
+        optionType: t.optionType,
+        transactionType: t.transactionType,
+        quantity: t.qty || 1,
+        lotSize,
+        iv: side?.iv || 15,
+        premium: side?.ltp || 0,
+        ltp: side?.ltp || null,
+        ltpIsLive: !!side?.ltp,
+      };
+    });
+    setLegs(newLegs);
+    setPickerView('CHAIN'); // switch back to chain view after loading
+  }
+
   function saveDraft() {
     if (!legs.length) return;
     const name = `${instrument} ${selectedExpiry ? formatAngelExpiry(selectedExpiry) : ''} · ${new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
@@ -544,14 +583,14 @@ export default function StrategyBuilder() {
       <div style={{ display: 'grid', gridTemplateColumns: legs.length ? '1.4fr 1fr' : '1fr', gap: 16 }}>
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: chainCollapsed ? 0 : 10 }}>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {!chainCollapsed && ['CHAIN', 'GREEKS', 'FUTURES'].map(v => (
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {!chainCollapsed && ['CHAIN', 'GREEKS', 'FUTURES', 'STRATEGIES'].map(v => (
                 <button key={v} onClick={() => setPickerView(v)}
                   style={{
-                    background: pickerView === v ? 'var(--accent)' : 'var(--bg-card2)',
+                    background: pickerView === v ? (v === 'STRATEGIES' ? 'linear-gradient(135deg,#6366F1,#A78BFA)' : 'var(--accent)') : 'var(--bg-card2)',
                     color: pickerView === v ? '#fff' : 'var(--text-secondary)',
-                    border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer',
-                  }}>{v}</button>
+                    border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer', fontWeight: v === 'STRATEGIES' ? 600 : 400,
+                  }}>{v === 'STRATEGIES' ? '✦ STRATEGIES' : v}</button>
               ))}
               {chainCollapsed && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Option chain</span>}
             </div>
@@ -566,6 +605,58 @@ export default function StrategyBuilder() {
           </div>
 
           {!chainCollapsed && <>
+
+          {pickerView === 'STRATEGIES' && (
+            <div>
+              {/* Category filter pills */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                {STRATEGY_CATEGORIES.map(cat => (
+                  <button key={cat} onClick={() => setStratCategory(cat)}
+                    style={{
+                      padding: '5px 16px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: 'none',
+                      background: stratCategory === cat
+                        ? cat === 'Bullish' ? 'var(--profit)' : cat === 'Bearish' ? 'var(--loss)' : cat === 'Neutral' ? 'var(--accent)' : '#A78BFA'
+                        : 'var(--bg-card2)',
+                      color: stratCategory === cat ? '#fff' : 'var(--text-secondary)',
+                    }}>{cat}</button>
+                ))}
+              </div>
+              {/* Strategy grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: 10 }}>
+                {STRATEGY_TEMPLATES.filter(s => s.category === stratCategory).map(strat => (
+                  <button key={strat.name} onClick={() => loadReadyMadeStrategy(strat)}
+                    title={strat.desc}
+                    style={{
+                      background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 10,
+                      padding: '12px 8px 10px', cursor: 'pointer', display: 'flex', flexDirection: 'column',
+                      alignItems: 'center', gap: 8, transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.background = 'var(--accent-dim)'; }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--bg-card2)'; }}>
+                    {/* Payoff thumbnail SVG */}
+                    <svg viewBox="0 0 80 50" width={72} height={45} style={{ overflow: 'visible' }}>
+                      {/* Zero line */}
+                      <line x1="5" y1="30" x2="75" y2="30" stroke="rgba(255,255,255,0.1)" strokeWidth="1" />
+                      {/* Profit zone fill */}
+                      <path d={`${strat.path} L75,30 L5,30 Z`} fill="rgba(16,217,160,0.07)" />
+                      {/* Payoff curve */}
+                      <path d={strat.path} fill="none"
+                        stroke={stratCategory === 'Bullish' ? '#10D9A0' : stratCategory === 'Bearish' ? '#F0566E' : stratCategory === 'Neutral' ? '#60A5FA' : '#A78BFA'}
+                        strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                      {/* Dashed zero-crossing indicator */}
+                      <line x1="40" y1="5" x2="40" y2="45" stroke="rgba(255,255,255,0.06)" strokeWidth="1" strokeDasharray="2,2" />
+                    </svg>
+                    <span style={{ fontSize: 11, color: 'var(--text-primary)', textAlign: 'center', lineHeight: 1.3, fontWeight: 500 }}>
+                      {strat.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div style={{ marginTop: 14, fontSize: 11, color: 'var(--text-muted)', textAlign: 'center' }}>
+                Click a strategy to auto-load it at ATM strikes · Hover for description
+              </div>
+            </div>
+          )}
 
           {pickerView === 'FUTURES' && (() => {
             const months = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
