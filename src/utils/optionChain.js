@@ -207,3 +207,32 @@ export async function fetchExpiryList(instrument) {
 export function toNseSymbol(instrument) {
   return (instrument || '').toUpperCase();
 }
+
+// Fetch last-close (EOD) option chain for an instrument/expiry using
+// AngelOne's market quote API. Works on weekends and after hours — returns
+// Friday 3:30 PM closing LTPs since market quote API returns last traded price.
+// instrument: "NIFTY", expiry: AngelOne format e.g. "23JUN2026"
+// Returns rows in the same normalised format as fetchOptionChain.
+export async function fetchEodChain(instrument, expiry, r = 0.065) {
+  try {
+    const res = await fetch(`${SYNC_SERVER}/optionchain/angelone-eod`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ instrument, expiry }),
+    });
+    const data = await res.json();
+    if (!data.success) return { ok: false, rows: [], error: data.error };
+
+    // Server returns { strike, CE: {ltp, oi}, PE: {ltp, oi} } per row
+    // Normalise to the same structure as fetchOptionChain produces so
+    // StrategyBuilder can use it unchanged.
+    const rows = data.chain.map(row => ({
+      strike: row.strike,
+      CE: row.CE ? { ltp: row.CE.ltp, oi: row.CE.oi, iv: 0, delta: 0, gamma: 0, theta: 0, vega: 0, changeInOi: 0 } : null,
+      PE: row.PE ? { ltp: row.PE.ltp, oi: row.PE.oi, iv: 0, delta: 0, gamma: 0, theta: 0, vega: 0, changeInOi: 0 } : null,
+    }));
+    return { ok: true, rows, source: 'angelone-eod', underlyingValue: null };
+  } catch (e) {
+    return { ok: false, rows: [], error: e.message };
+  }
+}
