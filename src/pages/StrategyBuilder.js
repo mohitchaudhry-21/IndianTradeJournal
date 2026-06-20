@@ -16,6 +16,7 @@ function fmt(value, decimals = 2) {
 }
 
 import { STRATEGY_TEMPLATES, STRATEGY_CATEGORIES } from '../utils/strategyTemplates';
+import { generateMarketTimestamps, isMonthlyExpiry, isMarketOpen } from '../utils/marketHours';
 
 // OI change is stored as an absolute delta (changeInOi), not a percentage —
 // derive the percentage from the implied previous OI. Returns null rather
