@@ -326,13 +326,16 @@ export default function StrategyWizard() {
     setIvAdj(prev => {
       const next = { ...prev };
       next[selectedExpiry] = displayIv;
-      // For other expiries not loaded, extrapolate using typical NIFTY term structure:
-      // longer-dated options have slightly higher ATM IV (term structure premium ~0.5%/month)
+      // For other expiries not yet loaded, extrapolate from a realistic base.
+      // If the loaded expiry is near-expiry (shows 0), use 10% as the base for
+      // longer-dated extrapolation — same ballpark as NIFTY's typical ATM IV.
+      const baseForExtrapolation = displayIv > 0 ? displayIv : 10.0;
       expiries.forEach(e => {
         if (e === selectedExpiry || prev[e] !== undefined) return;
         const eDays = daysUntil(e);
-        const termPremium = Math.max(0, (eDays - days) / 30) * 0.5;
-        next[e] = Math.round((displayIv + termPremium) * 10) / 10;
+        // Longer-dated options: +0.5% per additional 30 days (typical term structure)
+        const termPremium = Math.max(0, (eDays - Math.max(days, 7)) / 30) * 0.5;
+        next[e] = Math.round((baseForExtrapolation + termPremium) * 10) / 10;
       });
       return next;
     });
@@ -498,7 +501,7 @@ export default function StrategyWizard() {
                   <span style={{ minWidth:65, fontSize:11 }}>{fmtExp(e)} opts</span>
                   <button onClick={()=>setIvAdj(p=>({...p,[e]:Math.max(1,(p[e]||15)-0.5)},''))}
                     style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:4, color:'var(--text-primary)', width:22, height:22, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
-                  <span style={{ fontFamily:'var(--font-mono)', width:32, textAlign:'center' }}>{(ivAdj[e]||15).toFixed(1)}</span>
+                  <span style={{ fontFamily:'var(--font-mono)', width:32, textAlign:'center' }}>{(ivAdj[e] ?? 15).toFixed(1)}</span>
                   <button onClick={()=>setIvAdj(p=>({...p,[e]:(p[e]||15)+0.5}))}
                     style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:4, color:'var(--text-primary)', width:22, height:22, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>+</button>
                 </div>
