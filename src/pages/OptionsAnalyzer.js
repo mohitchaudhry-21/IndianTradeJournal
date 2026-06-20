@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useJournal } from '../context/JournalContext';
 import { fetchOptionChain, fetchAngelOneLtp, angelOneLtpKey, toNseSymbol } from '../utils/optionChain';
-import { generateMarketTimestamps } from '../utils/marketHours';
 import { fetchTickerQuotes } from '../utils/tickerQuotes';
 import { isMarketOpen, saveAnalysisSnapshot, loadAnalysisSnapshot } from '../utils/marketHours';
+import { generateMarketTimestamps } from '../utils/marketHours';
 import {
   payoffAt, intrinsicAt, netPremium, findBreakevens,
   positionGreeks, maxProfitLoss, impliedFuturesPrice, standardDeviation,
@@ -14,7 +14,7 @@ const RISK_FREE_RATE = 0.065;
 // Defensive formatting — broker APIs occasionally return numeric fields as
 // strings or omit them entirely, and a bare .toFixed() call on anything
 // non-numeric crashes the whole page rather than degrading gracefully.
-function fmt(value, decimals = 2) {
+function fmt(value, decimals = 1) {
   const n = typeof value === 'number' ? value : parseFloat(value);
   return Number.isFinite(n) ? n.toFixed(decimals) : '—';
 }
@@ -22,14 +22,14 @@ function fmt(value, decimals = 2) {
 function fmtMoney(n) {
   if (n === null || n === undefined || isNaN(n)) return '—';
   const sign = n < 0 ? '-' : '+';
-  return `${sign}₹${Math.abs(n).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `${sign}₹${Math.abs(Math.round(n)).toLocaleString('en-IN')}`;
 }
 
 function StatCard({ label, value, color }) {
   return (
     <div style={{ background: 'var(--bg-card2)', borderRadius: 8, padding: '10px 12px' }}>
       <div style={{ fontSize: 9, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 3 }}>{label}</div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 600, color: color || 'var(--text-primary)' }}>{value}</div>
+      <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, fontWeight: 600, color: color || 'var(--text-primary)' }}>{value}</div>
     </div>
   );
 }
@@ -128,54 +128,41 @@ export default function OptionsAnalyzer() {
     let cancelled = false;
 
     if (!isMarketOpen()) {
-      // Market is closed — try AngelOne once for EOD/closing values, then
-      // fall back to a saved snapshot. Don't poll; one fetch is enough since
-      // prices won't change until next open.
       setUsingSnapshot(true);
-
-      const tryLiveEod = () => {
-        const symbol = toNseSymbol(position.instrument);
-        setLoadingChain(true);
-        fetchOptionChain(symbol, position.expiry, RISK_FREE_RATE).then(result => {
-          if (cancelled) return;
-          setLoadingChain(false);
-          if (result.ok && result.rows?.length) {
-            // Got EOD data from AngelOne — use it and save as snapshot
-            setChainSource(result.source);
-            setChainError(null);
-            const byLeg = {};
-            const angelLegs = [];
-            position.legs.forEach(leg => {
-              const row = result.rows.find(r => Math.abs(r.strike - leg.strike) < 0.01);
-              const legData = row ? row[leg.optionType] : null;
-              if (legData) {
-                byLeg[leg.id] = { ltp: legData.ltp, iv: legData.iv, oi: legData.oi };
-                if (!legData.ltp) angelLegs.push({ instrument: position.instrument, strike: leg.strike, optionType: leg.optionType, expiry: position.angelExpiry || '' });
-              }
-            });
-            setChainData(byLeg);
-            if (result.underlyingValue) setLiveSpot(result.underlyingValue);
-            const snap = { chainData: byLeg, chainSource: result.source, angelLtpByLeg: {}, savedAt: Date.now() };
-            saveAnalysisSnapshot(position.positionId, snap);
-            setSnapshotSavedAt(snap.savedAt);
-            setLastUpdated(snap.savedAt);
-          } else {
-            // AngelOne couldn't provide data — try saved snapshot
-            const snap = loadAnalysisSnapshot(position.positionId);
-            if (snap) {
-              setChainData(snap.chainData || {});
-              setChainSource(snap.chainSource || null);
-              setAngelLtpByLeg(snap.angelLtpByLeg || {});
-              setLastUpdated(snap.savedAt || null);
-              setSnapshotSavedAt(snap.savedAt);
-            } else {
-              setChainError('Market is closed. Opening this position during market hours will enable after-hours analysis using closing prices.');
-            }
-          }
-        });
-      };
-
-      tryLiveEod();
+      const snap = loadAnalysisSnapshot(position.positionId);
+      if (snap) {
+        setChainData(snap.chainData || {});
+        setChainSource(snap.chainSource || null);
+        setAngelLtpByLeg(snap.angelLtpByLeg || {});
+        setLastUpdated(snap.savedAt || null);
+        setSnapshotSavedAt(snap.savedAt || null);
+        return () => { cancelled = true; };
+      }
+      // No snapshot — try AngelOne once for EOD closing values
+      setLoadingChain(true);
+      const symbol = toNseSymbol(position.instrument);
+      fetchOptionChain(symbol, position.expiry, RISK_FREE_RATE).then(result => {
+        if (cancelled) return;
+        setLoadingChain(false);
+        if (result.ok && result.rows?.length) {
+          setChainSource(result.source);
+          setChainError(null);
+          const byLeg = {};
+          position.legs.forEach(leg => {
+            const row = result.rows.find(r => Math.abs(r.strike - leg.strike) < 0.01);
+            const legData = row ? row[leg.optionType] : null;
+            if (legData) byLeg[leg.id] = { ltp: legData.ltp, iv: legData.iv, oi: legData.oi };
+          });
+          setChainData(byLeg);
+          if (result.underlyingValue) setLiveSpot(result.underlyingValue);
+          const newSnap = { chainData: byLeg, chainSource: result.source, angelLtpByLeg: {}, savedAt: Date.now() };
+          saveAnalysisSnapshot(position.positionId, newSnap);
+          setSnapshotSavedAt(newSnap.savedAt);
+          setLastUpdated(newSnap.savedAt);
+        } else {
+          setChainError('Market is closed and no snapshot available. Open this position during market hours to enable after-hours analysis.');
+        }
+      });
       return () => { cancelled = true; };
     }
 
@@ -356,8 +343,19 @@ export default function OptionsAnalyzer() {
 
   return (
     <div style={{ padding: 28 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 6, flexWrap: 'wrap' }}>
         <div className="page-title" style={{ margin: 0 }}>Options analyzer</div>
+        <select
+          value={position.positionId}
+          onChange={e => setSelectedPositionId(e.target.value)}
+          style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, padding: '7px 10px', outline: 'none', minWidth: 260 }}
+        >
+          {openPositions.map(p => (
+            <option key={p.positionId} value={p.positionId}>
+              {p.instrument} {p.strategyName} · {p.expiry ? new Date(p.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : ''}
+            </option>
+          ))}
+        </select>
         {usingSnapshot && (
           <span style={{ fontSize: 11, color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--text-muted)', display: 'inline-block' }} />
@@ -382,54 +380,19 @@ export default function OptionsAnalyzer() {
           </span>
         )}
       </div>
-
-      <div style={{ marginBottom: 18 }}>
-        <select
-          value={position.positionId}
-          onChange={e => setSelectedPositionId(e.target.value)}
-          style={{ width: '100%', background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, padding: '9px 12px', outline: 'none', marginBottom: 10 }}
-        >
-          {openPositions.map(p => (
-            <option key={p.positionId} value={p.positionId}>
-              {p.instrument} {p.strategyName} · {p.expiry ? new Date(p.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }) : ''}
-            </option>
-          ))}
-        </select>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: position.daysToExpiry !== null ? 8 : 0 }}>
-          {position.legs.map(l => (
-            <div key={l.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-card2)', borderRadius: 8, padding: '8px 12px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{
-                  fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 4,
-                  background: l.transactionType === 'SELL' ? 'var(--loss-dim)' : 'var(--profit-dim)',
-                  color: l.transactionType === 'SELL' ? 'var(--loss)' : 'var(--profit)',
-                }}>{l.transactionType}</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{l.strike}{l.optionType}</span>
-              </div>
-              <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{l.quantity}L × {l.lotSize}</span>
-            </div>
-          ))}
-        </div>
-
-        {position.daysToExpiry !== null && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(255,165,61,0.10)', borderRadius: 8, padding: '8px 12px' }}>
-            <span style={{ fontSize: 11, color: '#FFA53D' }}>Expiry</span>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#FFA53D' }}>
-              {position.daysToExpiry}d{position.expiry ? ` · ${new Date(position.expiry).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}` : ''}
-            </span>
-          </div>
-        )}
+      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 18 }}>
+        {position.legs.map(l => `${l.strike}${l.optionType}`).join('/')} · {position.legs[0]?.quantity}L × {position.legs[0]?.lotSize}
+        {position.daysToExpiry !== null && ` · ${position.daysToExpiry}d to expiry`}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 8, marginBottom: 18 }}>
         <StatCard label="Max profit" value={fmtMoney(maxProfit)} color="var(--profit)" />
         <StatCard label="Max loss" value={fmtMoney(maxLoss)} color="var(--loss)" />
         <StatCard label="Risk:reward" value={riskReward} />
-        <StatCard label="Breakeven" value={breakevens.length ? breakevens.map(b => b.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})).join(' / ') : '—'} />
+        <StatCard label="Breakeven" value={breakevens.length ? breakevens.map(b => b.toLocaleString('en-IN')).join(' / ') : '—'} />
         <StatCard label="Net premium" value={activeLegs.length ? fmtMoney(net) : '—'} color={net >= 0 ? 'var(--profit)' : 'var(--loss)'} />
         <StatCard label="Time value" value={fmtMoney(timeValue)} />
-        <StatCard label="Margin used" value={position.margin ? `₹${position.margin.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '—'} />
+        <StatCard label="Margin used" value={position.margin ? `₹${Math.round(position.margin).toLocaleString('en-IN')}` : '—'} />
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2.1fr 1fr', gap: 16, marginBottom: 16 }}>
@@ -489,8 +452,8 @@ export default function OptionsAnalyzer() {
                     <>
                       <line x1={xPos} y1={padT} x2={xPos} y2={H - padB} stroke="var(--accent)" strokeWidth="1" strokeDasharray="3,3" />
                       <rect x={xPos - 58} y={2} width={116} height={18} rx={4} fill="var(--bg-card2)" stroke="var(--border)" />
-                      <text x={xPos} y={14} fontSize="10" fill="var(--text-primary)" textAnchor="middle" fontFamily="inherit">
-                        Spot: {currentSpot.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                      <text x={xPos} y={14} fontSize="10" fill="var(--text-primary)" textAnchor="middle" fontFamily="'JetBrains Mono', monospace">
+                        Spot: {Math.round(currentSpot).toLocaleString('en-IN')}
                       </text>
                     </>
                   );
@@ -499,7 +462,7 @@ export default function OptionsAnalyzer() {
                   const val = spotMin + (spotMax - spotMin) * frac;
                   return (
                     <text key={frac} x={xScale(val)} y={H - 8} fontSize="10" fill="var(--text-muted)" textAnchor="middle">
-                      {val.toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                      {Math.round(val).toLocaleString('en-IN')}
                     </text>
                   );
                 })}
@@ -509,7 +472,7 @@ export default function OptionsAnalyzer() {
 
           <div style={{ textAlign: 'center', marginTop: 10 }}>
             <span style={{
-              fontSize: 13, fontFamily: 'var(--font-mono)', padding: '5px 12px', borderRadius: 6,
+              fontSize: 13, fontFamily: "'JetBrains Mono', monospace", padding: '5px 12px', borderRadius: 6,
               background: curPnl >= 0 ? 'var(--profit-dim)' : 'var(--loss-dim)',
               color: curPnl >= 0 ? 'var(--profit)' : 'var(--loss)',
             }}>
@@ -537,7 +500,7 @@ export default function OptionsAnalyzer() {
                       if (!isNaN(v)) setScenarioSpot(v);
                     }}
                     style={{
-                      width: 90, textAlign: 'right', fontFamily: 'var(--font-mono)',
+                      width: 90, textAlign: 'right', fontFamily: "'JetBrains Mono', monospace",
                       fontSize: 15, fontWeight: 600, color: 'var(--text-primary)',
                       background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 5,
                       padding: '4px 8px',
@@ -572,7 +535,7 @@ export default function OptionsAnalyzer() {
                     {new Date(targetMs).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    {clampedIdx === 0 ? 'Now' : targetDaysToExpiry < 1
+                    {targetDaysToExpiry < 1
                       ? `${Math.round(targetDaysToExpiry * 24)} hours to expiry`
                       : `${targetDaysToExpiry.toFixed(1)} days to expiry`}
                   </div>
@@ -586,8 +549,8 @@ export default function OptionsAnalyzer() {
                 onChange={e => setSliderIdx(parseInt(e.target.value, 10))}
                 style={{ width: '100%', accentColor: 'var(--accent)' }} />
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-                <span>Now · {new Date(nowMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
-                <span>Expiry · {new Date(expiryMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                <span>{new Date(nowMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
+                <span>{new Date(expiryMs).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</span>
               </div>
             </div>
           </div>
@@ -605,7 +568,7 @@ export default function OptionsAnalyzer() {
               ].map(([label, val]) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between' }}>
                   <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{label}</span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 600 }}>{val}</span>
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 14, fontWeight: 600 }}>{val}</span>
                 </div>
               ))}
             </div>
@@ -613,7 +576,7 @@ export default function OptionsAnalyzer() {
 
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>Standard deviation</div>
-            <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', fontFamily: 'var(--font-mono)' }}>
+            <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', fontFamily: "'JetBrains Mono', monospace" }}>
               <tbody>
                 <tr><td style={{ padding: '3px 0', fontFamily: 'Inter, sans-serif' }}>1 SD</td><td style={{ textAlign: 'right' }}>{Math.round(sd1).toLocaleString('en-IN')}</td><td style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-secondary)' }}>{Math.round(currentSpot - sd1).toLocaleString('en-IN')} - {Math.round(currentSpot + sd1).toLocaleString('en-IN')}</td></tr>
                 <tr><td style={{ padding: '3px 0', fontFamily: 'Inter, sans-serif' }}>2 SD</td><td style={{ textAlign: 'right' }}>{Math.round(sd2).toLocaleString('en-IN')}</td><td style={{ textAlign: 'right', fontSize: 11, color: 'var(--text-secondary)' }}>{Math.round(currentSpot - sd2).toLocaleString('en-IN')} - {Math.round(currentSpot + sd2).toLocaleString('en-IN')}</td></tr>
@@ -623,7 +586,7 @@ export default function OptionsAnalyzer() {
 
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 8 }}>Target day futures</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 600 }}>{futPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</div>
+            <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, fontWeight: 600 }}>{futPrice.toLocaleString('en-IN', { maximumFractionDigits: 2 })}</div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>Implied by carry to target date</div>
           </div>
         </div>
@@ -638,7 +601,7 @@ export default function OptionsAnalyzer() {
             </div>
             <button onClick={selectAll} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 11, cursor: 'pointer' }}>select all</button>
           </div>
-          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', fontFamily: 'var(--font-mono)' }}>
+          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', fontFamily: "'JetBrains Mono', monospace" }}>
             <thead>
               <tr style={{ color: 'var(--text-muted)' }}>
                 <th style={{ width: 26 }}></th>
@@ -687,7 +650,7 @@ export default function OptionsAnalyzer() {
 
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
           <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 10 }}>P&L at key prices</div>
-          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', fontFamily: 'var(--font-mono)' }}>
+          <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse', fontFamily: "'JetBrains Mono', monospace" }}>
             <thead>
               <tr style={{ color: 'var(--text-muted)' }}>
                 <th style={{ textAlign: 'left', fontFamily: 'Inter, sans-serif', fontWeight: 500, padding: '3px 0' }}>Spot</th>
