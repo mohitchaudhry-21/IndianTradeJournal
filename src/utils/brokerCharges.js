@@ -53,25 +53,85 @@ export async function fetchExitCharges(legs) {
   return fetchEntryCharges(exitLegs); // same calculation, different inputs
 }
 
-// Calculate total charges for a position: entry charges always, exit
-// charges added only once the position is closed (has exit prices).
+// Fetch charges for each partial exit tranche individually.
+// Partial exits are stored in leg.exits[] as { quantity, exitPremium, exitDate }.
+// Each tranche is a separate market order so charges must be calculated per
+// tranche at the actual exit price, not averaged across tranches.
+export async function fetchPartialExitCharges(legs) {
+  const trancheLegs = [];
+  legs.forEach(leg => {
+    if (!leg.brokerTradeId || !leg.exits || !leg.exits.length) return;
+    const closingTx = leg.transactionType === 'SELL' ? 'BUY' : 'SELL';
+    leg.exits.forEach(exit => {
+      if (!exit.exitPremium) return;
+      trancheLegs.push({
+        token: leg.brokerTradeId,
+        quantity: exit.quantity || 1,
+        lotSize: leg.lotSize || 1,
+        price: exit.exitPremium,
+        transactionType: closingTx,
+        symbolName: leg.tradingSymbol || '',
+      });
+    });
+  });
+  if (!trancheLegs.length) return { ok: false, error: 'No partial exit tranches to price' };
+  try {
+    const res = await fetch(`${SYNC_SERVER}/charges/angelone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ legs: trancheLegs }),
+    });
+    const data = await res.json();
+    if (!data.success) return { ok: false, error: data.error || 'Failed to calculate partial exit charges' };
+    return { ok: true, charges: data.totalCharges, breakdown: data.breakdown };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// Calculate total charges for a position: entry charges always, plus exit
+// charges once legs are fully closed, plus partial exit charges for any
+// tranches that have already been exited (even if position is still OPEN).
 export async function fetchTotalCharges(position) {
   const entryResult = await fetchEntryCharges(position.legs);
   if (!entryResult.ok) return entryResult;
 
+  // Always include partial exit charges — they represent real completed trades
+  // regardless of whether the position as a whole is still open.
+  const hasPartialExits = position.legs.some(l => l.exits && l.exits.length > 0);
+  const partialExitResult = hasPartialExits ? await fetchPartialExitCharges(position.legs) : null;
+  const partialExitCharges = partialExitResult?.ok ? partialExitResult.charges : 0;
+
   const isClosed = position.status !== 'OPEN';
   if (!isClosed) {
-    // Position still open — only entry charges apply so far
-    return { ok: true, charges: entryResult.charges, entryCharges: entryResult.charges, exitCharges: 0 };
+    return {
+      ok: true,
+      charges: entryResult.charges + partialExitCharges,
+      entryCharges: entryResult.charges,
+      exitCharges: partialExitCharges,
+      partialExitCharges,
+    };
   }
 
-  const exitResult = await fetchExitCharges(position.legs);
-  const exitCharges = exitResult.ok ? exitResult.charges : 0;
+  // Fully closed position: use leg-level exit prices for legs that were
+  // closed in one shot; partial exit tranches are covered by partialExitResult.
+  const legsWithSingleExit = position.legs.filter(
+    l => l.brokerTradeId && l.exitPremium !== undefined && l.exitPremium !== null
+      && (!l.exits || l.exits.length === 0) // only legs with no tranche history
+  );
+  let singleExitCharges = 0;
+  if (legsWithSingleExit.length > 0) {
+    const exitResult = await fetchExitCharges(legsWithSingleExit);
+    singleExitCharges = exitResult.ok ? exitResult.charges : 0;
+  }
+
+  const totalExitCharges = singleExitCharges + partialExitCharges;
   return {
     ok: true,
-    charges: entryResult.charges + exitCharges,
+    charges: entryResult.charges + totalExitCharges,
     entryCharges: entryResult.charges,
-    exitCharges,
+    exitCharges: totalExitCharges,
+    partialExitCharges,
   };
 }
 
