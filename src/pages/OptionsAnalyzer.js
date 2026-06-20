@@ -425,7 +425,7 @@ export default function OptionsAnalyzer() {
             const lossAreaPath = `${expiryPath} L${xScale(spotMax)},${zeroY} L${xScale(spotMin)},${zeroY} Z`;
 
             return (
-              <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" style={{ width: '100%', height: 280 }}>
+              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 280 }}>
                 {[0.25, 0.5, 0.75].map(frac => (
                   <line key={frac} x1={padL} y1={padT + plotH * frac} x2={W - padR} y2={padT + plotH * frac} stroke="rgba(255,255,255,0.04)" />
                 ))}
