@@ -69,6 +69,18 @@ function StrategyBuilderKeepAlive() {
   );
 }
 
+// Wizard is also always mounted so navigating away and back preserves
+// instrument selection, prediction, target, and computed results.
+function StrategyWizardKeepAlive() {
+  const location = useLocation();
+  const isActive = location.pathname === '/wizard';
+  return (
+    <div style={{ display: isActive ? 'block' : 'none' }}>
+      <StrategyWizard />
+    </div>
+  );
+}
+
 function TitleUpdater() {
   const location = useLocation();
   useEffect(() => {
@@ -97,11 +109,12 @@ export default function App() {
                   survive when the user navigates to another page and comes back.
                   We simply hide/show it with CSS instead of mounting/unmounting. */}
               <StrategyBuilderKeepAlive />
+              <StrategyWizardKeepAlive />
               <Routes>
               <Route path="/"           element={<Dashboard />} />
               <Route path="/positions"  element={<Positions />} />
               <Route path="/analyzer"   element={<OptionsAnalyzer />} />
-              <Route path="/wizard"     element={<StrategyWizard />} />
+              <Route path="/wizard"     element={null} />
               <Route path="/strategy-builder" element={null} />
               <Route path="/history"    element={<TradeHistory />} />
               <Route path="/analytics"  element={<Analytics />} />
