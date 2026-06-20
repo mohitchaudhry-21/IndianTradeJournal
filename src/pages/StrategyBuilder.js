@@ -84,7 +84,8 @@ export default function StrategyBuilder() {
   const [showDrafts, setShowDrafts] = useState(false);
   const atmRowRef = React.useRef(null);
   const tableBodyRef = React.useRef(null);
-  const hasScrolledToAtm = React.useRef(false); // only auto-scroll ATM on first load
+  const hasScrolledToAtm = React.useRef(false);
+  const [chainCollapsed, setChainCollapsed] = React.useState(false); // collapse chain to show just the chart
   const chartSvgRef = React.useRef(null);
   const [chartHoverSpot, setChartHoverSpot] = React.useState(null); // spot under mouse in payoff chart
   const [targetTimeMs, setTargetTimeMs] = React.useState(null); // null = right now
@@ -513,9 +514,9 @@ export default function StrategyBuilder() {
 
       <div style={{ display: 'grid', gridTemplateColumns: legs.length ? '1.4fr 1fr' : '1fr', gap: 16 }}>
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: chainCollapsed ? 0 : 10 }}>
             <div style={{ display: 'flex', gap: 8 }}>
-              {['CHAIN', 'GREEKS', 'FUTURES'].map(v => (
+              {!chainCollapsed && ['CHAIN', 'GREEKS', 'FUTURES'].map(v => (
                 <button key={v} onClick={() => setPickerView(v)}
                   style={{
                     background: pickerView === v ? 'var(--accent)' : 'var(--bg-card2)',
@@ -523,10 +524,19 @@ export default function StrategyBuilder() {
                     border: 'none', borderRadius: 6, padding: '4px 12px', fontSize: 12, cursor: 'pointer',
                   }}>{v}</button>
               ))}
+              {chainCollapsed && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Option chain</span>}
             </div>
-            {loadingChain && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>loading chain…</span>}
-            {chainError && <span style={{ fontSize: 11, color: 'var(--loss)' }}>{chainError}</span>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {!chainCollapsed && loadingChain && <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>loading chain…</span>}
+              {!chainCollapsed && chainError && <span style={{ fontSize: 11, color: 'var(--loss)' }}>{chainError}</span>}
+              <button onClick={() => setChainCollapsed(c => !c)}
+                style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 5, color: 'var(--text-muted)', fontSize: 11, cursor: 'pointer', padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                {chainCollapsed ? '▼ Show chain' : '▲ Hide chain'}
+              </button>
+            </div>
           </div>
+
+          {!chainCollapsed && <>
 
           {pickerView === 'FUTURES' && (() => {
             const months = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
@@ -760,6 +770,7 @@ export default function StrategyBuilder() {
             </table>
           </div>
           )}
+          </>}
         </div>
 
         {legs.length > 0 && (
@@ -859,69 +870,53 @@ export default function StrategyBuilder() {
 
       {legs.length > 0 && chartPoints.length > 1 && (
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', marginTop: 16 }}>
-          {/* Header row: P&L readout — same format as OptionsAnalyzer */}
-          {(() => {
-            const readSpot = chartHoverSpot ?? currentSpot;
-            const readPnl = readSpot != null ? payoffAt(calibratedLegs, readSpot, T_chart, RISK_FREE_RATE, isCurrentMoment && !chartHoverSpot) : null;
-            const pnlText = readPnl != null
-              ? `${readPnl >= 0 ? '+' : '−'}₹${Math.abs(readPnl).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-              : '—';
-            const label = chartHoverSpot
-              ? `At ${readSpot.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}: `
-              : (readPnl == null || readPnl >= 0 ? 'Projected profit: ' : 'Projected loss: ');
-            return (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>
-                  {label}<span style={{ color: readPnl == null ? 'var(--text-muted)' : readPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{pnlText}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, fontSize: 11, color: 'var(--text-muted)' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ display: 'inline-block', width: 20, height: 2, background: 'var(--profit)' }} /> Today</span>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}><span style={{ display: 'inline-block', width: 20, height: 2, borderTop: '2px dashed rgba(228,235,248,0.4)' }} /> At expiry</span>
-                </div>
-              </div>
-            );
-          })()}
+          {/* Header row — matches OptionsAnalyzer format exactly */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text-secondary)' }}>
+                <span style={{ width: 9, height: 2, background: 'var(--profit)', display: 'inline-block' }} />
+                {curPnl == null ? 'On target date' : (curPnl >= 0 ? 'Projected profit: ' : 'Projected loss: ')}
+                {curPnl != null && <span style={{ fontWeight: 600, color: curPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{curPnl >= 0 ? '+' : '−'}₹{Math.abs(curPnl).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>}
+              </span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text-secondary)' }}>
+                <span style={{ width: 9, height: 0, borderBottom: '1.5px dashed rgba(228,235,248,0.5)', display: 'inline-block' }} />On expiry
+              </span>
+            </div>
+            <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--text-muted)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, background: 'var(--loss)', opacity: 0.4, display: 'inline-block', borderRadius: 1 }} />Call OI</span>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 8, height: 8, background: 'var(--profit)', opacity: 0.4, display: 'inline-block', borderRadius: 1 }} />Put OI</span>
+            </div>
+          </div>
 
-          {/* SVG payoff chart — identical structure to OptionsAnalyzer */}
+          {/* Payoff chart — exact copy of OptionsAnalyzer SVG */}
           {(() => {
             const W = 700, H = 280, padL = 46, padR = 16, padT = 16, padB = 30;
             const plotW = W - padL - padR;
             const plotH = H - padT - padB;
             const xScale = s => padL + ((s - spotMin) / (spotMax - spotMin)) * plotW;
-            const xToSpot = x => spotMin + ((x - padL) / plotW) * (spotMax - spotMin);
             const yScale = v => padT + plotH / 2 - (v / maxAbsPnl) * (plotH / 2);
             const zeroY = yScale(0);
             const expiryPath = chartPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(p.spot)},${yScale(p.onExpiry)}`).join(' ');
             const targetPath = chartPoints.map((p, i) => `${i === 0 ? 'M' : 'L'}${xScale(p.spot)},${yScale(p.onTarget)}`).join(' ');
             const lossAreaPath = `${expiryPath} L${xScale(spotMax)},${zeroY} L${xScale(spotMin)},${zeroY} Z`;
-            const hoverX = chartHoverSpot ? xScale(chartHoverSpot) : null;
-            const hoverPnlExpiry = chartHoverSpot ? payoffAt(calibratedLegs, chartHoverSpot, 0) : null;
-            const hoverPnlToday = chartHoverSpot ? payoffAt(calibratedLegs, chartHoverSpot, T_chart) : null;
             return (
-              <svg ref={chartSvgRef} viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none"
-                style={{ width: '100%', height: 280, cursor: 'crosshair' }}
-                onMouseMove={e => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  const svgX = ((e.clientX - rect.left) / rect.width) * W;
-                  if (svgX < padL || svgX > W - padR) { setChartHoverSpot(null); return; }
-                  setChartHoverSpot(Math.round(Math.max(spotMin, Math.min(spotMax, xToSpot(svgX))) / 10) * 10);
-                }}
-                onMouseLeave={() => setChartHoverSpot(null)}>
+              <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 280 }}>
                 {[0.25, 0.5, 0.75].map(frac => (
                   <line key={frac} x1={padL} y1={padT + plotH * frac} x2={W - padR} y2={padT + plotH * frac} stroke="rgba(255,255,255,0.04)" />
                 ))}
-                {chainRows.map(row => {
-                  const barW = Math.max(plotW / Math.max(chainRows.length, 1) * 0.5, 2);
-                  const results = [];
-                  if (row.CE?.oi > 0 && maxOi > 0) {
-                    const ceH = Math.min((row.CE.oi / maxOi) * (plotH * 0.28), plotH * 0.28);
-                    results.push(<rect key={`ce-${row.strike}`} x={xScale(row.strike) - barW} y={zeroY - ceH} width={barW} height={ceH} fill="rgba(240,86,110,0.45)" />);
-                  }
-                  if (row.PE?.oi > 0 && maxOi > 0) {
-                    const peH = Math.min((row.PE.oi / maxOi) * (plotH * 0.28), plotH * 0.28);
-                    results.push(<rect key={`pe-${row.strike}`} x={xScale(row.strike)} y={zeroY - peH} width={barW} height={peH} fill="rgba(16,217,160,0.45)" />);
-                  }
-                  return results;
+                {/* Only draw OI bars for the legs in the strategy — not the full chain */}
+                {calibratedLegs.map(leg => {
+                  if (!leg.strike || leg.optionType === 'FUT') return null;
+                  const row = chainRows.find(r => Math.abs(r.strike - leg.strike) < 0.01);
+                  const oi = row?.[leg.optionType]?.oi || 0;
+                  if (!oi || !maxOi) return null;
+                  const x = xScale(leg.strike);
+                  const barW = Math.max(plotW / 60, 4);
+                  const barH = (oi / maxOi) * (plotH * 0.42);
+                  return (
+                    <rect key={leg.id} x={x - barW / 2} y={zeroY - barH} width={barW} height={barH}
+                      fill={leg.optionType === 'CE' ? 'var(--loss)' : 'var(--profit)'} opacity={0.32} />
+                  );
                 })}
                 <line x1={padL} y1={zeroY} x2={W - padR} y2={zeroY} stroke="rgba(255,255,255,0.1)" />
                 <path d={lossAreaPath} fill="var(--loss)" opacity={0.08} />
@@ -936,20 +931,13 @@ export default function StrategyBuilder() {
                   return (
                     <>
                       <line x1={xPos} y1={padT} x2={xPos} y2={H - padB} stroke="var(--accent)" strokeWidth="1" strokeDasharray="3,3" />
-                      <rect x={xPos - 58} y={2} width={116} height={18} rx={4} fill="var(--bg-card2)" stroke="var(--border)" />
+                      <rect x={xPos - 52} y={2} width={104} height={18} rx={4} fill="var(--bg-card2)" stroke="var(--border)" />
                       <text x={xPos} y={14} fontSize="10" fill="var(--text-primary)" textAnchor="middle" fontFamily="inherit">
-                        Spot: {currentSpot.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {currentSpot.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </text>
                     </>
                   );
                 })()}
-                {hoverX && (
-                  <>
-                    <line x1={hoverX} y1={padT} x2={hoverX} y2={H - padB} stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
-                    {hoverPnlToday != null && <circle cx={hoverX} cy={yScale(hoverPnlToday)} r={4} fill="var(--profit)" stroke="var(--bg-card)" strokeWidth="2" />}
-                    {hoverPnlExpiry != null && <circle cx={hoverX} cy={yScale(hoverPnlExpiry)} r={3} fill="rgba(228,235,248,0.5)" stroke="var(--bg-card)" strokeWidth="2" />}
-                  </>
-                )}
                 {[0, 0.25, 0.5, 0.75, 1].map(frac => {
                   const val = spotMin + (spotMax - spotMin) * frac;
                   return (
