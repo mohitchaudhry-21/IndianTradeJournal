@@ -477,6 +477,7 @@ function EditLegPopup({ leg, onClose, onSave }) {
 
 // Journal / notes panel
 function NotesPanel({ position, onClose, onSave }) {
+  const { liveQuotes } = useJournal();
   const [notes,      setNotes]      = useState(position.notes || '');
   const [margin,     setMargin]     = useState(position.margin ? String(position.margin) : '');
   const [charges,    setCharges]    = useState(position.charges ? String(position.charges) : '');
