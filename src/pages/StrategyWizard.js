@@ -342,7 +342,9 @@ export default function StrategyWizard() {
   }, [chain, spot, selectedExpiry]); // eslint-disable-line
 
   function go() {
-    if (!chain.length || !tgt) return;
+    const tgt = parseFloat(targetInput);
+    if (!chain.length) { alert('Option chain not loaded yet.'); return; }
+    if (!tgt) { alert('Please enter a target price.'); return; }
     setComputing(true);
     const expiryMs = angelToDate(selectedExpiry).getTime();
     setTimeout(() => {
@@ -353,6 +355,10 @@ export default function StrategyWizard() {
           spreadGaps, minProfit:minProfitOn?minProfitV:null, maxLoss:maxLossOn?maxLossV:null,
         });
         setResults(r); setSearched(true);
+      } catch(err) {
+        console.error('[Wizard] compute error:', err);
+        setChainErr('Compute error: ' + err.message);
+        setResults([]); setSearched(true);
       } finally { setComputing(false); }
     }, 20);
   }
