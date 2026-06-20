@@ -136,6 +136,7 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
         if (!spreadGaps.includes(gap)) continue;
       }
 
+
       // ── Same pipeline as OptionsAnalyzer ──────────────────────────────
       // Step 1: calibrate IV from real LTPs
       const calib = calibrateLegsIV(legs, effectiveSpot, T_live, R);
@@ -144,6 +145,22 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
       const pnl = payoffAt(calib, targetSpot, 0, R, false);
       if (pnl <= 0) continue;
       if (Number.isFinite(minProfit) && pnl < minProfit) continue;
+
+      // ── Direction consistency ─────────────────────────────────────────
+      // Strategy must ALSO profit if spot moves FURTHER in the predicted direction
+      // (not just at the target exactly). This eliminates bullish strategies from
+      // "below" predictions and bearish strategies from "above" predictions.
+      // e.g. "NIFTY below 24300": Sell Call 24300 profits at 24000, 23500, 23000 ✓
+      //                            Buy Call 23550 loses at 23500 ✗ → filtered out
+      if (prediction === 'below') {
+        const farDown = Math.min(targetSpot * 0.93, effectiveSpot * 0.93);
+        if (payoffAt(calib, farDown, 0, R, false) < 0) continue;
+        if (payoffAt(calib, targetSpot * 0.80, 0, R, false) < 0) continue;
+      } else if (prediction === 'above') {
+        const farUp = Math.max(targetSpot * 1.07, effectiveSpot * 1.07);
+        if (payoffAt(calib, farUp, 0, R, false) < 0) continue;
+        if (payoffAt(calib, targetSpot * 1.20, 0, R, false) < 0) continue;
+      }
 
       // Capital
       const netPrem = legs.reduce((s,l)=>s+(l.transactionType==='SELL'?1:-1)*l.premium*l.quantity*l.lotSize, 0);
@@ -157,29 +174,29 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
       const greeks = positionGreeks(calib, effectiveSpot, T_live, R);
 
       // Step 4: breakevens at expiry — findBreakevens(legs, min, max, step)
-      // NOTE: 3rd param is spotMax, 4th is step (NOT T or R)
       const bes = findBreakevens(calib, beLow, beHigh, step);
 
-      // Step 5: max profit / max loss at expiry — same utility as OptionsAnalyzer
+      // Step 5: max profit / max loss — same utility as OptionsAnalyzer
       const { maxProfit, maxLoss: maxLossV } = maxProfitLoss(calib, beLow, beHigh);
-      // Naked sells have unlimited theoretical max loss beyond our scan range
       const isNakedSell = naked && legs.some(l=>l.transactionType==='SELL');
-      const maxLossDisplay = isNakedSell ? null : maxLossV; // null = "Unlimited"
+      const maxLossDisplay = isNakedSell ? null : maxLossV;
 
       // Step 6: POP using lognormal distribution
       const pop = computePOP(calib, effectiveSpot, T_live, R, beLow, beHigh, step);
 
-      // Target price per leg = intrinsic value at target spot at expiry
-      const legTargetPrices = calib.map(l => {
-        const intrinsic = l.optionType === 'CE' ? Math.max(targetSpot - l.strike, 0) : Math.max(l.strike - targetSpot, 0);
-        return intrinsic;
-      });
+      // Target price per leg = option's intrinsic value at the target spot
+      const legTargetPrices = calib.map(l =>
+        l.optionType === 'CE' ? Math.max(targetSpot - l.strike, 0) : Math.max(l.strike - targetSpot, 0)
+      );
 
       const returnPct = approxCap>0 ? (pnl/approxCap)*100 : 0;
 
+      // Strike-combo key for deduplication (same strikes = same trade, different name/template)
+      const strikeKey = calib.map(l=>`${l.transactionType[0]}${l.optionType}${l.strike}`).sort().join('_');
+
       results.push({
-        id:`${tmpl.name}::${base}`, name:tmpl.name, category:tmpl.category, type:tmpl.type, desc:tmpl.desc,
-        legs:calib, pnl, breakevens:bes, approxCap, returnPct, netPrem,
+        id:`${strikeKey}::${tmpl.name}`, name:tmpl.name, category:tmpl.category, type:tmpl.type, desc:tmpl.desc,
+        strikeKey, legs:calib, pnl, breakevens:bes, approxCap, returnPct, netPrem,
         maxProfit, maxLoss:maxLossDisplay, greeks, pop, legTargetPrices,
         daysLeft:Math.round(Math.max(0,(expiryMs-Date.now())/86400000)),
         hKey:hk, uKey:uk,
@@ -187,10 +204,18 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
     }
   });
 
-  const best = {};
-  results.forEach(r=>{ if(!best[r.name]||r.pnl>best[r.name].pnl) best[r.name]=r; });
-  return Object.values(best);
+  // Deduplicate by exact strike combination (same trade = same strikes, same types)
+  // but keep ALL unique variants sorted by profit (Sensibull shows multiple Sell Calls
+  // at different strikes, multiple Bear Call Spreads at different strike pairs, etc.)
+  const seen = new Set();
+  const unique = results.filter(r => {
+    if (seen.has(r.strikeKey)) return false;
+    seen.add(r.strikeKey);
+    return true;
+  });
+  return unique.sort((a,b) => b.pnl - a.pnl);
 }
+
 
 // ── Component ─────────────────────────────────────────────────────────────
 export default function StrategyWizard() {
