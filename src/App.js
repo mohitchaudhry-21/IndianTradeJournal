@@ -17,6 +17,7 @@ import Settings from './pages/Settings';
 import ScreenshotImport from './pages/ScreenshotImport';
 import Calendar from './pages/Calendar';
 import StockMarketCalendar from './pages/StockMarketCalendar';
+import Heatmap from './pages/Heatmap';
 
 
 
@@ -125,6 +126,7 @@ export default function App() {
               <Route path="/screenshot" element={<ScreenshotImport />} />
               <Route path="/calendar"   element={<Calendar />} />
               <Route path="/stock-market-calendar" element={<StockMarketCalendar />} />
+              <Route path="/heatmap" element={<Heatmap />} />
               </Routes>
             </main>
           </div>
