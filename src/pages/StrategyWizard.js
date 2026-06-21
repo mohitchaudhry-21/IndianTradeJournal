@@ -23,6 +23,41 @@ function fmtExp(exp) {
 }
 function expiryIso(exp) { return angelToDate(exp).toISOString(); }
 
+// ── Sensibull's 3-expiry rule for the Wizard ──────────────────────────────
+// Returns exactly 3 expiries: [next weekly, second weekly, monthly]
+// Monthly = last Thursday of nearest month (pre-Sep 2025) or last Tuesday (post-Sep 2025)
+// If monthly coincides with expiry #1 or #2, take next month's monthly instead.
+function isMonthlyExpiry(exp) {
+  const date = angelToDate(exp);
+  const y = date.getFullYear(), m = date.getMonth();
+  // Last day of month
+  const lastDay = new Date(y, m + 1, 0);
+  // Pre Sep 2025: last Thursday (day=4); Post Sep 2025: last Tuesday (day=2)
+  const targetDay = (y > 2025 || (y === 2025 && m >= 8)) ? 2 : 4;
+  // Walk back from last day to find last occurrence of targetDay
+  const diff = (lastDay.getDay() - targetDay + 7) % 7;
+  const lastTargetDay = new Date(y, m, lastDay.getDate() - diff);
+  return date.getDate() === lastTargetDay.getDate() &&
+         date.getMonth() === lastTargetDay.getMonth() &&
+         date.getFullYear() === lastTargetDay.getFullYear();
+}
+
+function pickWizardExpiries(allExpiries) {
+  if (!allExpiries.length) return [];
+  // Sort by date ascending
+  const sorted = [...allExpiries].sort((a, b) => angelToDate(a) - angelToDate(b));
+  // Weekly = first two in the list
+  const w1 = sorted[0];
+  const w2 = sorted[1];
+  if (!w1) return [];
+  if (!w2) return [w1];
+  // Monthly: find the first monthly expiry that isn't w1 or w2
+  const monthly = sorted.find(e => isMonthlyExpiry(e) && e !== w1 && e !== w2);
+  // If none found (e.g. chain doesn't go far enough), fall back to third expiry
+  const third = monthly || sorted[2];
+  return [w1, w2, third].filter(Boolean);
+}
+
 function fmtMoney(n,compact=false) {
   if (!Number.isFinite(n)) return '—';
   const a=Math.abs(n), s=n<0?'-':'+';
@@ -141,70 +176,87 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
     if (hk && !enabledHedgeKeys[hk]) { dbgHedge++; return; }
     if (uk && !enabledUnhegKeys[uk]) { dbgHedge++; return; }
 
-    // Cover strikes within 300 points of the target in each direction.
-    const RANGE_POINTS = 350; // 350 pts gives sell strikes up to ~24650 matching Sensibull exactly
-    const baseMin = Math.round((targetSpot - RANGE_POINTS - effectiveSpot) / step);
-    const baseMax = Math.round((targetSpot + RANGE_POINTS - effectiveSpot) / step);
-    const bases = Array.from({ length: Math.max(0, baseMax - baseMin + 1) }, (_, i) => baseMin + i);
+    const naked = tmpl.type === 'unhedged';
 
-    // Spread width variation: for multi-leg strategies, try widths from 50 to 400
-    // points (1..8 steps for NIFTY). Single-leg templates use width=1 (no scaling).
+    // ── Sensibull-style enumeration: iterate over all available sell strikes ──
+    // Rather than a fixed point range, we iterate every strike in the chain as
+    // the "anchor" (sell leg / lowest strike), and for multi-leg strategies we
+    // try every valid width (buy leg at every higher strike).
+    // This matches Sensibull's 167 results for 37-day expiry where spreads go
+    // from 50pt all the way to 1800pt (e.g. 24300 sell → 26100 buy).
+    //
+    // Sell-leg anchor: must be OTM relative to spot (CE ≥ spot, PE ≤ spot)
+    // and within a sensible range — Sensibull stops showing naked sells once
+    // profit at target is < 0, which our pnl filter handles automatically.
     const rawOffsets = tmpl.legs(n => n).map(t => t.stepsFromAtm);
-    const absOffsets = rawOffsets.filter(o => o !== 0).map(Math.abs);
-    const baseWidth = absOffsets.length ? Math.min(...absOffsets) : 0; // smallest non-zero step
-    const maxWidthSteps = Math.round(400 / step); // 8 for NIFTY
-    const widths = baseWidth > 0
-      ? Array.from({ length: maxWidthSteps }, (_, i) => i + 1) // 1..8 steps
-      : [1]; // single-leg: no width scaling
+    const sellOffsets = rawOffsets.filter(o => o !== 0).map(Math.abs);
+    const baseWidth = sellOffsets.length ? Math.min(...sellOffsets) : 0;
 
-    for (const base of bases) {
-      for (const widthSteps of widths) {
+    // Build a fast LTP lookup from chain
+    const ltpCache = {};
+    chain.forEach(r => {
+      ltpCache[`CE_${r.strike}`] = r.CE;
+      ltpCache[`PE_${r.strike}`] = r.PE;
+    });
+
+    function getLeg(strike, optionType, transactionType, qty, tIdx) {
+      const side = ltpCache[`${optionType}_${strike}`];
+      if (!side) return null;
+      let ltp = side.ltp || 0;
+      if (ltp <= 0 && effectiveSpot > 0 && T_live > 0) {
+        const iv = (ivForExpiry || 12) / 100;
+        ltp = blackScholes(effectiveSpot, strike, T_live, R, iv, optionType).price || 0;
+      }
+      if (ltp <= 0) return null;
+      return {
+        id: `${tmpl.name}_${strike}_${optionType}_${transactionType}_${tIdx}`,
+        strike, optionType, transactionType,
+        quantity: qty || 1, lotSize, iv: side.iv || ivForExpiry || 15,
+        premium: ltp, ltp, ltpIsLive: (side.ltp || 0) > 0,
+      };
+    }
+
+    // For single-leg (naked): iterate every OTM strike as the sell anchor
+    // For multi-leg: iterate every sell-anchor strike × every width step
+    const maxWidthSteps = sorted.length; // try all possible widths up to chain length
+
+    // Anchor = index in sorted[] of the "base" (sell/lower) strike
+    for (let anchorIdx = 0; anchorIdx < sorted.length; anchorIdx++) {
+      // For single-leg, width=1 (no second leg). For multi-leg, iterate widths.
+      const widthRange = baseWidth > 0
+        ? Array.from({ length: maxWidthSteps - anchorIdx }, (_, i) => i + 1)
+        : [1];
+
+      for (const widthSteps of widthRange) {
+        // Build legs by mapping each template leg's stepsFromAtm:
+        // stepsFromAtm=0 → anchorIdx, stepsFromAtm=±2 → anchorIdx ± widthSteps, etc.
         const scale = baseWidth > 0 ? widthSteps / baseWidth : 1;
-
         const legTemplates = tmpl.legs(off);
-        const legs = legTemplates.map(t => {
-          // Scale the relative offset by spread width, then shift by base
-          const scaledStep = Math.round(t.stepsFromAtm * scale);
-          const strike = off(scaledStep + base);
-          const row = chain.find(r=>r.strike===strike);
-          const side = row?.[t.optionType];
-          if (!side) return null;
-
-          let ltp = side.ltp || 0;
-          // When LTP = 0 (option had no trades on Friday — common for far OTM)
-          // use a Black-Scholes theoretical price so the strategy is still evaluated.
-          // This mirrors how Sensibull handles illiquid strikes.
-          if (ltp <= 0 && effectiveSpot > 0 && T_live > 0) {
-            const iv = (ivForExpiry || 12) / 100;
-            ltp = blackScholes(effectiveSpot, strike, T_live, R, iv, t.optionType).price || 0;
-          }
-          if (ltp <= 0) return null; // truly no data even from BS (shouldn't happen)
-
-          return {
-            id:`${tmpl.name}_${base}_${widthSteps}_${t.stepsFromAtm}`,
-            strike, optionType:t.optionType, transactionType:t.transactionType,
-            quantity:t.qty||1, lotSize, iv:side.iv||ivForExpiry||15,
-            premium:ltp, ltp, ltpIsLive: (side.ltp || 0) > 0,
-          };
+        const legs = legTemplates.map((t, tIdx) => {
+          const idxOffset = Math.round(t.stepsFromAtm * scale);
+          const strikeIdx = Math.max(0, Math.min(sorted.length - 1, anchorIdx + idxOffset));
+          const strike = sorted[strikeIdx];
+          return getLeg(strike, t.optionType, t.transactionType, t.qty, tIdx);
         });
         dbgTotal++;
-        if (legs.some(l=>!l)) { dbgLeg++; continue; }
+        if (legs.some(l => !l)) { dbgLeg++; continue; }
 
         // ── Sensibull spread rules ──────────────────────────────────────────
         const strikesSorted = [...new Set(legs.map(l=>l.strike))].sort((a,b)=>a-b);
-        //    are already risky; wide spreads there add little value vs naked sell).
-        //    300pt allowed when sell strike < target (deeper OTM sell, wider hedge needed).
-        // 2. Buy leg hard cap: buy_strike ≤ sell_strike + 300 AND buy_strike ≤ 24850.
-        //    Sensibull never shows buy legs beyond 24800 for 30 Jun target=24300.
         if (strikesSorted.length > 1) {
-          const sellStrike = Math.min(...legs.filter(l=>l.transactionType==='SELL').map(l=>l.strike));
-          const buyStrike  = Math.max(...legs.filter(l=>l.transactionType==='BUY').map(l=>l.strike));
-          const spreadWidth = buyStrike - sellStrike;
-          const maxSpreadAllowed = sellStrike >= targetSpot ? 250 : 300;
-          if (spreadWidth > maxSpreadAllowed) continue;
-          if (buyStrike > effectiveSpot + 1200) continue; // absolute far-OTM cap
-          // Spread gap filter (from filter panel)
-          if (spreadGaps.length > 0 && !spreadGaps.includes(spreadWidth)) { dbgGap++; continue; }
+          const sellStrikes = legs.filter(l=>l.transactionType==='SELL').map(l=>l.strike);
+          const buyStrikes  = legs.filter(l=>l.transactionType==='BUY').map(l=>l.strike);
+          if (sellStrikes.length && buyStrikes.length) {
+            const maxBuy  = Math.max(...buyStrikes);
+            const minSell = Math.min(...sellStrikes);
+            const spreadWidth = Math.abs(maxBuy - minSell);
+            // Spread gap filter: only apply when user has explicitly unchecked some options.
+            // When all 6 are checked (default), show ALL widths — matching Sensibull's behaviour
+            // where wide spreads (350pt, 400pt... 1800pt) are shown for longer expiries.
+            const ALL_GAPS = [50,100,150,200,250,300];
+            const allChecked = ALL_GAPS.every(g => spreadGaps.includes(g));
+            if (!allChecked && !spreadGaps.includes(spreadWidth)) { dbgGap++; continue; }
+          }
         }
 
         // ── OTM-only filter (matches Sensibull exactly) ───────────────────
@@ -234,7 +286,7 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
         }
 
         const netPrem = legs.reduce((s,l)=>s+(l.transactionType==='SELL'?1:-1)*l.premium*l.quantity*l.lotSize, 0);
-        const naked = tmpl.type === 'unhedged';
+        // naked already declared in outer scope (tmpl.type === 'unhedged')
 
         // Greeks, breakeven, max profit/loss
         const greeks = positionGreeks(calib, effectiveSpot, T_live, R);
@@ -339,15 +391,16 @@ export default function StrategyWizard() {
   const [maxLossOn, setMaxLossOn] = useState(false);
   const [maxLossV, setMaxLossV] = useState(1000000);
 
-  // Load expiries
+  // Load expiries — filtered to Sensibull's 3: next weekly, second weekly, monthly
   useEffect(() => {
     fetchExpiryList(instrument).then(r => {
       if (!r.ok || !r.expiries?.length) return;
-      setExpiries(r.expiries);
-      setSelectedExpiry(r.expiries[0]);
-      // Default: first 3 expiries checked, rest unchecked (loading all would be too slow)
+      const wizardExpiries = pickWizardExpiries(r.expiries);
+      setExpiries(wizardExpiries);
+      setSelectedExpiry(wizardExpiries[0] || '');
+      // All 3 enabled by default — user can toggle in Filters
       const en = {};
-      r.expiries.forEach((e, i) => { en[e] = i < 3; });
+      wizardExpiries.forEach(e => { en[e] = true; });
       setEnabledExpiries(en);
     });
     setChain([]); setSpot(null); setResults([]); setSearched(false);
@@ -357,7 +410,7 @@ export default function StrategyWizard() {
   useEffect(() => {
     if (!selectedExpiry) return;
     let cancelled = false;
-    setLoading(true); setChainErr('');
+    setLoading(true); setChainErr(''); setChain([]); setSpot(null);
     // When target date changes, clear any extra-expiry filter selections so
     // the new search focuses on the chosen expiry only (user can re-add via Filters)
     setEnabledExpiries(prev => {
@@ -606,7 +659,7 @@ export default function StrategyWizard() {
           <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6 }}>Target date</div>
           <select value={selectedExpiry} onChange={e=>setSelectedExpiry(e.target.value)}
             style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:13, padding:'8px 12px', cursor:'pointer', outline:'none', minWidth:155 }}>
-            {expiries.map(e=><option key={e} value={e}>{fmtExp(e)} ({daysUntil(e)} days)</option>)}
+            {expiries.map((e,i)=><option key={e} value={e}>{fmtExp(e)} ({daysUntil(e)} days){i===2?' · Monthly':''}</option>)}
           </select>
         </div>
         <div style={{ display:'flex', gap:8, alignItems:'center' }}>
@@ -619,7 +672,10 @@ export default function StrategyWizard() {
             {computing?'Working…':'Go'}
           </button>
         </div>
-        {loading&&<span style={{ fontSize:12, color:'var(--text-muted)', alignSelf:'center' }}>Loading chain…</span>}
+        {loading&&<span style={{ fontSize:12, color:'var(--accent)', alignSelf:'center', display:'flex', alignItems:'center', gap:5 }}>
+          <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', border:'2px solid var(--accent)', borderTopColor:'transparent', animation:'spin 0.7s linear infinite' }}/>
+          Loading chain…
+        </span>}
         {chainErr&&<span style={{ fontSize:12, color:'var(--loss)', alignSelf:'center' }}>{chainErr}</span>}
         {chain.length>0&&!loading&&(
           <span style={{ fontSize:11, color:isMarketOpen()?'var(--profit)':'#FFA53D', alignSelf:'center', display:'flex', alignItems:'center', gap:4 }}>
@@ -644,10 +700,14 @@ export default function StrategyWizard() {
                 {Object.values(enabledExpiries).some(v=>!v) && <span style={{ marginLeft:6, color:'#FFA53D', fontSize:10 }}>⚠ some off</span>}
               </div>
               <div style={{ maxHeight:220, overflowY:'auto', paddingRight:4 }}>
-                {expiries.map(e=>(
+                {expiries.map((e, i)=>(
                   <label key={e} style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, marginBottom:6, cursor:'pointer', color: enabledExpiries[e]?'var(--text-secondary)':'var(--text-muted)' }}>
                     <input type="checkbox" checked={!!enabledExpiries[e]} onChange={ev=>setEnabledExpiries(p=>({...p,[e]:ev.target.checked}))} />
-                    {fmtExp(e)} <span style={{ fontSize:10, color:'var(--text-muted)' }}>({daysUntil(e)}d)</span>
+                    {fmtExp(e)}
+                    <span style={{ fontSize:10, color:'var(--text-muted)' }}>({daysUntil(e)}d)</span>
+                    <span style={{ fontSize:9, color: i===2?'#A78BFA':'var(--accent)', opacity:0.7, marginLeft:2 }}>
+                      {i===2?'Monthly':'Weekly'}
+                    </span>
                   </label>
                 ))}
               </div>
