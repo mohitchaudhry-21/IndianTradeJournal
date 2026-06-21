@@ -12,6 +12,7 @@ const SECTIONS = [
       { to: '/positions',  label: 'Open Positions',   icon: '◎' },
       { to: '/calendar',   label: 'Calendar',         icon: '▦' },
       { to: '/stock-market-calendar', label: 'Market Calendar', icon: '📅' },
+      { to: '/heatmap',               label: 'Market Heatmap',  icon: '🟩' },
     ],
   },
   {
