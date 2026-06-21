@@ -51,29 +51,46 @@ function getColor(pct) {
   return { bg:'#1e1e2e', border:'#333', text:'#aaa' };
 }
 
+// Display name overrides for symbols with special characters
+const DISPLAY_NAMES = {
+  'M_M': 'M&M',
+  'BAJAJ_AUTO': 'BAJAJ-AUTO',
+};
+
+function displaySymbol(sym) {
+  return DISPLAY_NAMES[sym] || sym;
+}
+
 function fmt(n, decimals=2) {
   if (!n && n !== 0) return '—';
   return n.toLocaleString('en-IN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
 export default function Heatmap() {
-  const [stocks, setStocks]   = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState('');
+  const [stocks, setStocks]     = useState([]);
+  const [indices, setIndices]   = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState('');
   const [lastUpdated, setLastUpdated] = useState(null);
-  const [sector, setSector]   = useState('All');
-  const [sortBy, setSortBy]   = useState('changePct');
+  const [sector, setSector]     = useState('All');
+  const [sortBy, setSortBy]     = useState('changePct');
   const [groupBySector, setGroupBySector] = useState(false);
-  const [marketStatus, setMarketStatus] = useState(marketStatusLabel());
+  const [marketStatus, setMarketStatus]   = useState(marketStatusLabel());
   const intervalRef = useRef(null);
 
   const load = useCallback(async (silent=false) => {
     if (!silent) setLoading(true);
     try {
-      const r = await fetch(`${SERVER}/heatmap/nifty50`);
-      const d = await r.json();
-      if (d.success) { setStocks(d.stocks); setLastUpdated(new Date()); setError(''); }
-      else setError(d.error || 'Failed to load');
+      const [r1, r2] = await Promise.all([
+        fetch(`${SERVER}/heatmap/nifty50`),
+        fetch(`${SERVER}/heatmap/indices`),
+      ]);
+      const [d1, d2] = await Promise.all([r1.json(), r2.json()]);
+      if (d1.success) setStocks(d1.stocks);
+      else setError(d1.error || 'Failed to load stocks');
+      if (d2.success) setIndices(d2.indices);
+      setLastUpdated(new Date());
+      if (d1.success) setError('');
     } catch { setError('Server not running — start server.py'); }
     setLoading(false);
   }, []);
@@ -131,26 +148,23 @@ export default function Heatmap() {
     const sign = s.changePct >= 0 ? '+' : '';
     return (
       <div style={{
-        background: c.bg,
-        border: `1px solid ${c.border}`,
-        borderRadius: 10,
-        padding: '10px 12px',
-        cursor: 'default',
-        transition: 'transform 0.1s',
-        minWidth: 0,
+        background: c.bg, border: `1px solid ${c.border}`, borderRadius: 10,
+        padding: '10px 12px', cursor: 'default', transition: 'transform 0.1s', minWidth: 0,
       }}
         onMouseEnter={e => e.currentTarget.style.transform='scale(1.02)'}
         onMouseLeave={e => e.currentTarget.style.transform='scale(1)'}
       >
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
-          <div style={{ fontSize:11, color: c.text, opacity:0.7 }}>Fut. Price</div>
-          <div style={{ fontSize:13, fontWeight:700, color: c.text }}>{fmt(s.ltp, 2)}</div>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+          <div style={{ fontSize:10, color: c.text, opacity:0.7 }}>Fut. Price</div>
+          <div style={{ fontSize:12, fontWeight:700, color: c.text }}>{fmt(s.ltp, 2)}</div>
         </div>
-        <div style={{ fontSize:15, fontWeight:800, color: c.text, marginBottom:2 }}>
+        <div style={{ fontSize:16, fontWeight:800, color: c.text, lineHeight:1 }}>
           {sign}{s.changePct.toFixed(2)}%
         </div>
-        <div style={{ fontSize:14, fontWeight:700, color:'#fff', marginBottom:6 }}>{s.symbol}</div>
-        <div style={{ fontSize:10, color: c.text, opacity:0.65 }}>
+        <div style={{ fontSize:13, fontWeight:700, color:'#fff', margin:'5px 0 3px' }}>
+          {displaySymbol(s.symbol)}
+        </div>
+        <div style={{ fontSize:11, color: c.text, opacity:0.75 }}>
           {sign}{fmt(s.change, 2)}
         </div>
       </div>
@@ -226,6 +240,44 @@ export default function Heatmap() {
         <div style={{ padding:'12px 18px', background:'rgba(239,68,68,0.06)', border:'1px solid rgba(239,68,68,0.2)',
           borderRadius:12, fontSize:13, color:'var(--loss)', marginBottom:14 }}>
           {error}
+        </div>
+      )}
+
+      {/* Indices strip */}
+      {indices.length > 0 && (
+        <div style={{ marginBottom:14 }}>
+          {/* Major indices */}
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:8 }}>
+            {indices.filter(i=>i.group==='Major').map(idx => {
+              const c = getColor(idx.changePct);
+              const sign = idx.changePct >= 0 ? '+' : '';
+              return (
+                <div key={idx.key} style={{ background:c.bg, border:`1px solid ${c.border}`,
+                  borderRadius:10, padding:'10px 16px', minWidth:130, flex:'1 1 130px', maxWidth:200 }}>
+                  <div style={{ fontSize:11, color:c.text, opacity:0.7, marginBottom:2 }}>{idx.label}</div>
+                  <div style={{ fontSize:16, fontWeight:800, color:c.text }}>{idx.ltp.toLocaleString('en-IN', {maximumFractionDigits:2})}</div>
+                  <div style={{ fontSize:12, fontWeight:700, color:c.text, marginTop:2 }}>
+                    {sign}{idx.changePct.toFixed(2)}% <span style={{ opacity:0.7, fontWeight:400 }}>({sign}{idx.change.toFixed(2)})</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Sector sub-indices */}
+          <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
+            {indices.filter(i=>i.group==='Sector').map(idx => {
+              const c = getColor(idx.changePct);
+              const sign = idx.changePct >= 0 ? '+' : '';
+              return (
+                <div key={idx.key} style={{ background:c.bg, border:`1px solid ${c.border}`,
+                  borderRadius:8, padding:'6px 12px', minWidth:100, flex:'1 1 100px', maxWidth:160 }}>
+                  <div style={{ fontSize:10, color:c.text, opacity:0.7 }}>{idx.label}</div>
+                  <div style={{ fontSize:13, fontWeight:700, color:c.text }}>{sign}{idx.changePct.toFixed(2)}%</div>
+                  <div style={{ fontSize:11, color:c.text, opacity:0.7 }}>{idx.ltp.toLocaleString('en-IN', {maximumFractionDigits:0})}</div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
