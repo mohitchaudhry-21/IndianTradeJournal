@@ -258,3 +258,6 @@ tbody td.mono{font-family:var(--font-mono);}
 [style*="mono"] {
   font-family: var(--font-mono) !important;
 }
+
+/* ── Spinner animation ─────────────────────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
