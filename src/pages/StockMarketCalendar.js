@@ -233,18 +233,25 @@ function StockResultsCalendar() {
   const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [fromDate, setFromDate] = useState(() => ddmmyyyy(addDays(new Date(), -7)));
-  const [toDate, setToDate] = useState(() => ddmmyyyy(addDays(new Date(), 60)));
+  // Use YYYY-MM-DD internally for date inputs (native date picker)
+  const [fromDate, setFromDate] = useState(() => addDays(new Date(), -7).toISOString().slice(0,10));
+  const [toDate, setToDate]     = useState(() => addDays(new Date(),  60).toISOString().slice(0,10));
   const [filterType, setFilterType] = useState('All');
   const [search, setSearch] = useState('');
   const [liquidOnly, setLiquidOnly] = useState(false);
 
   const EVENT_TYPES = ['All', 'Dividend', 'Bonus', 'Split', 'Rights', 'AGM/EGM'];
 
+  // Convert YYYY-MM-DD → DD-MM-YYYY for NSE API
+  function toNseDate(iso) {
+    const [y,m,d] = iso.split('-');
+    return `${d}-${m}-${y}`;
+  }
+
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const r = await fetch(`${SERVER}/calendar/corporate-actions?from_date=${fromDate}&to_date=${toDate}`);
+      const r = await fetch(`${SERVER}/calendar/corporate-actions?from_date=${toNseDate(fromDate)}&to_date=${toNseDate(toDate)}`);
       const text = await r.text();
       let d;
       try { d = JSON.parse(text); } catch { setError(`NSE returned unexpected response — ${text.slice(0,120)}`); setLoading(false); return; }
@@ -259,11 +266,26 @@ function StockResultsCalendar() {
   function normaliseAction(a) {
     const purposeRaw = a.purpose || a.subject || '';
     const p = purposeRaw.toLowerCase();
+    // Convert NSE ex-date from DD-MMM-YYYY or DD-MM-YYYY to YYYY-MM-DD for sorting
+    const rawDate = a.exDate || a.exdate || a.ex_date || '';
+    let exDate = rawDate;
+    if (rawDate) {
+      const d = new Date(rawDate);
+      if (!isNaN(d)) {
+        exDate = d.toISOString().slice(0,10);
+      } else {
+        // Try DD-MM-YYYY
+        const parts = rawDate.split('-');
+        if (parts.length === 3 && parts[0].length === 2) {
+          exDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
+      }
+    }
     return {
       symbol:  a.symbol || a.sym || '',
       company: a.comp || a.companyName || a.company || '',
       series:  a.series || 'EQ',
-      exDate:  a.exDate || a.exdate || a.ex_date || '',
+      exDate,
       purpose: purposeRaw,
       type: p.includes('dividend') ? 'Dividend'
           : p.includes('bonus')    ? 'Bonus'
@@ -296,13 +318,13 @@ function StockResultsCalendar() {
         display: 'flex', gap: 12, alignItems: 'flex-end', flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 5 }}>From</div>
-          <input type="text" value={fromDate} onChange={e => setFromDate(e.target.value)}
-            placeholder="DD-MM-YYYY" style={{ ...inputStyle, width: 120 }} />
+          <input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)}
+            style={{ ...inputStyle, width: 140 }} />
         </div>
         <div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 5 }}>To</div>
-          <input type="text" value={toDate} onChange={e => setToDate(e.target.value)}
-            placeholder="DD-MM-YYYY" style={{ ...inputStyle, width: 120 }} />
+          <input type="date" value={toDate} onChange={e => setToDate(e.target.value)}
+            style={{ ...inputStyle, width: 140 }} />
         </div>
         <div>
           <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 5 }}>Event type</div>
@@ -341,7 +363,7 @@ function StockResultsCalendar() {
       ) : (
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
           <div style={{ padding: '10px 18px', borderBottom: '1px solid var(--border)', fontSize: 13, color: 'var(--text-muted)' }}>
-            <strong style={{ color: 'var(--text-primary)' }}>{filtered.length} events</strong> · {fromDate} to {toDate}
+            <strong style={{ color: 'var(--text-primary)' }}>{filtered.length} events</strong> · {fmtDate(fromDate)} to {fmtDate(toDate)}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr 120px 1fr',
             padding: '8px 18px', background: 'var(--bg-card2)', borderBottom: '1px solid var(--border)',
