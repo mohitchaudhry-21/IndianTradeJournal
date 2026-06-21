@@ -139,7 +139,7 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
     if (uk && !enabledUnhegKeys[uk]) { dbgHedge++; return; }
 
     // Cover strikes within 300 points of the target in each direction.
-    const RANGE_POINTS = 300;
+    const RANGE_POINTS = 400; // 400 pts captures Sensibull's full strike range
     const baseMin = Math.round((targetSpot - RANGE_POINTS - effectiveSpot) / step);
     const baseMax = Math.round((targetSpot + RANGE_POINTS - effectiveSpot) / step);
     const bases = Array.from({ length: Math.max(0, baseMax - baseMin + 1) }, (_, i) => baseMin + i);
@@ -310,7 +310,7 @@ export default function StrategyWizard() {
   const [searched, setSearched] = useState(false);
   const [computing, setComputing] = useState(false);
   const [page, setPage] = useState(1);
-  const rowsPerPage = 10;
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [expanded, setExpanded] = useState(null);
   const [sortField, setSortField] = useState('pnl');
   const [sortAsc, setSortAsc] = useState(false); // false = descending = highest profit first
@@ -319,7 +319,7 @@ export default function StrategyWizard() {
   const [enabledHedge, setEnabledHedge] = useState({buyCall:true,buyPut:true,callSpread:true,putSpread:true,ironCondor:true,ironButterfly:true});
   const [enabledUnheg, setEnabledUnheg] = useState({sellCall:true,sellPut:true,straddle:true,strangle:true});
   const [enabledExpiries, setEnabledExpiries] = useState({});
-  const [spreadGaps, setSpreadGaps] = useState([50,100,150]);
+  const [spreadGaps, setSpreadGaps] = useState([50,100,150,200,250,300]);
   const [ivAdj, setIvAdj] = useState({});
   const [minProfitOn, setMinProfitOn] = useState(false);
   const [minProfitV, setMinProfitV] = useState(0);
@@ -694,7 +694,7 @@ export default function StrategyWizard() {
             <div>
               <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-muted)', marginBottom:10 }}>Spread gap ⓘ</div>
               <div style={{ display:'flex', gap:14 }}>
-                {[50,100,150].map(g=>(
+                {[50,100,150,200,250,300].map(g=>(
                   <label key={g} style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, cursor:'pointer', color:'var(--text-secondary)' }}>
                     <input type="checkbox" checked={spreadGaps.includes(g)} onChange={e=>setSpreadGaps(p=>e.target.checked?[...p,g]:p.filter(x=>x!==g))}/>{g}
                   </label>
@@ -923,19 +923,29 @@ export default function StrategyWizard() {
               })}
 
               {/* Pagination */}
-              {sorted.length > rowsPerPage && (
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'16px', borderTop:'1px solid var(--border)', background:'var(--bg-card2)' }}>
-                  <button onClick={()=>setPage(1)} disabled={page===1}
-                    style={{ background:'none', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-muted)', padding:'5px 10px', cursor:page===1?'not-allowed':'pointer', opacity:page===1?0.4:1 }}>«</button>
-                  <button onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1}
-                    style={{ background:'none', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-muted)', padding:'5px 10px', cursor:page===1?'not-allowed':'pointer', opacity:page===1?0.4:1 }}>‹</button>
-                  <span style={{ fontSize:13, color:'var(--text-secondary)', padding:'0 8px' }}>
-                    Page <strong>{page}</strong> of <strong>{Math.ceil(sorted.length/rowsPerPage)}</strong>
-                  </span>
-                  <button onClick={()=>setPage(p=>Math.min(Math.ceil(sorted.length/rowsPerPage),p+1))} disabled={page>=Math.ceil(sorted.length/rowsPerPage)}
-                    style={{ background:'none', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-muted)', padding:'5px 10px', cursor:page>=Math.ceil(sorted.length/rowsPerPage)?'not-allowed':'pointer', opacity:page>=Math.ceil(sorted.length/rowsPerPage)?0.4:1 }}>›</button>
-                  <button onClick={()=>setPage(Math.ceil(sorted.length/rowsPerPage))} disabled={page>=Math.ceil(sorted.length/rowsPerPage)}
-                    style={{ background:'none', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-muted)', padding:'5px 10px', cursor:page>=Math.ceil(sorted.length/rowsPerPage)?'not-allowed':'pointer', opacity:page>=Math.ceil(sorted.length/rowsPerPage)?0.4:1 }}>»</button>
+              {sorted.length > 5 && (
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'16px', borderTop:'1px solid var(--border)', background:'var(--bg-card2)', flexWrap:'wrap' }}>
+                  {/* Rows per page */}
+                  <div style={{ display:'flex', alignItems:'center', gap:6, marginRight:12 }}>
+                    <span style={{ fontSize:12, color:'var(--text-muted)' }}>Show</span>
+                    <select value={rowsPerPage} onChange={e=>{ setRowsPerPage(Number(e.target.value)); setPage(1); }}
+                      style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-primary)', fontSize:12, padding:'4px 8px', cursor:'pointer' }}>
+                      {[5,10,15,20,25,30].map(n=><option key={n} value={n}>{n} rows</option>)}
+                    </select>
+                  </div>
+                  {sorted.length > rowsPerPage && (<>
+                    <button onClick={()=>setPage(1)} disabled={page===1}
+                      style={{ background:'none', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-muted)', padding:'5px 10px', cursor:page===1?'not-allowed':'pointer', opacity:page===1?0.4:1 }}>«</button>
+                    <button onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1}
+                      style={{ background:'none', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-muted)', padding:'5px 10px', cursor:page===1?'not-allowed':'pointer', opacity:page===1?0.4:1 }}>‹</button>
+                    <span style={{ fontSize:13, color:'var(--text-secondary)', padding:'0 8px' }}>
+                      Page <strong>{page}</strong> of <strong>{Math.ceil(sorted.length/rowsPerPage)}</strong>
+                    </span>
+                    <button onClick={()=>setPage(p=>Math.min(Math.ceil(sorted.length/rowsPerPage),p+1))} disabled={page>=Math.ceil(sorted.length/rowsPerPage)}
+                      style={{ background:'none', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-muted)', padding:'5px 10px', cursor:page>=Math.ceil(sorted.length/rowsPerPage)?'not-allowed':'pointer', opacity:page>=Math.ceil(sorted.length/rowsPerPage)?0.4:1 }}>›</button>
+                    <button onClick={()=>setPage(Math.ceil(sorted.length/rowsPerPage))} disabled={page>=Math.ceil(sorted.length/rowsPerPage)}
+                      style={{ background:'none', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-muted)', padding:'5px 10px', cursor:page>=Math.ceil(sorted.length/rowsPerPage)?'not-allowed':'pointer', opacity:page>=Math.ceil(sorted.length/rowsPerPage)?0.4:1 }}>»</button>
+                  </>)}
                   <span style={{ fontSize:12, color:'var(--text-muted)', marginLeft:8 }}>{sorted.length} total</span>
                 </div>
               )}
