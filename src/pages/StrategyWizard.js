@@ -340,6 +340,14 @@ export default function StrategyWizard() {
     if (!selectedExpiry) return;
     let cancelled = false;
     setLoading(true); setChainErr('');
+    // When target date changes, clear any extra-expiry filter selections so
+    // the new search focuses on the chosen expiry only (user can re-add via Filters)
+    setEnabledExpiries(prev => {
+      const next = {};
+      Object.keys(prev).forEach(e => { next[e] = false; });
+      next[selectedExpiry] = true;
+      return next;
+    });
     (async () => {
       let res = await fetchOptionChain(instrument, expiryIso(selectedExpiry), R);
       if (!res.ok || !res.rows?.length) res = await fetchEodChain(instrument, selectedExpiry, R);
@@ -420,7 +428,11 @@ export default function StrategyWizard() {
     setComputing(true);
     try {
       // Run computation for every checked expiry
-      const checkedExpiries = expiries.filter(e => enabledExpiries[e] === true);
+      // Always search the target date expiry, plus any extras explicitly checked in Filters
+      const checkedExpiries = [
+        selectedExpiry,
+        ...expiries.filter(e => e !== selectedExpiry && enabledExpiries[e] === true),
+      ];
       const allResults = [];
 
       for (const exp of checkedExpiries) {
