@@ -219,13 +219,25 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
         const isNakedSell = naked && legs.some(l=>l.transactionType==='SELL');
         const maxLossDisplay = isNakedSell ? null : maxLossV;
 
-        // Capital:
-        // Naked sells → approx SPAN margin (₹1.50L/lot; replaced by AngelOne API after)
-        // Defined-risk (spreads, condors) → max possible loss IS the capital at risk.
-        //   Much more accurate than using netPrem (which is just the credit received).
+        // ── Margin approximation using NSE SPAN formula ──────────────────
+        // Matches Sensibull's displayed values even when market is closed /
+        // AngelOne is not connected. The AngelOne API call after Go() will
+        // override these with exact SPAN values when a session is active.
+        //
+        // Naked sell: ~10.5% of notional (NSE requires ~10-11% for index options)
+        //   NIFTY@24013 × 65 × 10.5% = ₹1.63L ≈ Sensibull's 1.62L ✓
+        //
+        // Spread: (spread_width + SPAN_buffer) × lotSize × qty
+        //   SPAN buffer ≈ 3 daily SD = spot × IV × √(1/252) × 3 ≈ spot × 2%
+        //   150pt spread: (150 + 24000×2%) × 65 = (150+480) × 65 = ₹40,950 ≈ Sensibull's 41k ✓
+        //   100pt spread: (100 + 480) × 65 = ₹37,700 ≈ Sensibull's 37k ✓
+        const spanBuffer = effectiveSpot * 0.02; // ≈ 480 pts for NIFTY@24000
+        const spreStrike = [...new Set(calib.map(l=>l.strike))].sort((a,b)=>a-b);
+        const spreadWidth = spreStrike.length > 1 ? spreStrike[spreStrike.length-1] - spreStrike[0] : 0;
+        const totalQty = calib.filter(l=>l.transactionType==='SELL').reduce((s,l)=>s+l.quantity,0) || 1;
         const approxCap = naked
-          ? legs.filter(l=>l.transactionType==='SELL').reduce((s,l)=>s+150000*l.quantity, 0)
-          : Math.max(Math.abs(maxLossV || netPrem), 1000);
+          ? effectiveSpot * lotSize * totalQty * 0.105          // naked: 10.5% notional
+          : (spreadWidth + spanBuffer) * lotSize * totalQty;    // spread: width + SPAN buffer
         if (Number.isFinite(maxLoss) && approxCap > maxLoss) continue;
 
         const pop = computePOP(calib, effectiveSpot, T_live, R, beLow, beHigh, step);
