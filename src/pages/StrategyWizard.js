@@ -692,14 +692,15 @@ export default function StrategyWizard() {
             <span style={{ fontSize:15, fontWeight:700 }}>Filters</span>
             <button onClick={()=>setShowFilters(false)} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:20 }}>×</button>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'130px 150px 200px 200px 200px', gap:20 }}>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:24 }}>
             {/* Expiry — ALL available expiries with checkboxes */}
-            <div>
+            <div style={{ minWidth:130 }}>
               <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-muted)', marginBottom:10 }}>
                 Expiry
                 {Object.values(enabledExpiries).some(v=>!v) && <span style={{ marginLeft:6, color:'#FFA53D', fontSize:10 }}>⚠ some off</span>}
               </div>
               <div style={{ maxHeight:220, overflowY:'auto', paddingRight:4 }}>
+                {expiries.length === 0 && <div style={{ fontSize:11, color:'var(--text-muted)' }}>Loading…</div>}
                 {expiries.map((e, i)=>(
                   <label key={e} style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, marginBottom:6, cursor:'pointer', color: enabledExpiries[e]?'var(--text-secondary)':'var(--text-muted)' }}>
                     <input type="checkbox" checked={!!enabledExpiries[e]} onChange={ev=>setEnabledExpiries(p=>({...p,[e]:ev.target.checked}))} />
@@ -713,7 +714,7 @@ export default function StrategyWizard() {
               </div>
             </div>
             {/* Premium */}
-            <div>
+            <div style={{ minWidth:120 }}>
               <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-muted)', marginBottom:10 }}>Premium</div>
               {[['Get',true,()=>{}],['Pay',true,()=>{}]].map(([l])=>(
                 <label key={l} style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, marginBottom:8, cursor:'pointer', color:'var(--text-secondary)' }}>
@@ -722,7 +723,7 @@ export default function StrategyWizard() {
               ))}
             </div>
             {/* Hedged */}
-            <div>
+            <div style={{ minWidth:180 }}>
               <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-muted)', marginBottom:10 }}>Hedged strategies</div>
               {[['Buy Call','buyCall'],['Buy Put','buyPut'],['Call Spread','callSpread'],['Put Spread','putSpread'],['Iron Condor','ironCondor'],['Iron Butterfly','ironButterfly']].map(([l,k])=>(
                 <label key={k} style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, marginBottom:7, cursor:'pointer', color:'var(--text-secondary)' }}>
@@ -732,7 +733,7 @@ export default function StrategyWizard() {
               ))}
             </div>
             {/* Unhedged */}
-            <div>
+            <div style={{ minWidth:180 }}>
               <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-muted)', marginBottom:10 }}>Unhedged strategies</div>
               {[['Sell Call','sellCall'],['Sell Put','sellPut'],['Straddle','straddle'],['Strangle','strangle']].map(([l,k])=>(
                 <label key={k} style={{ display:'flex', alignItems:'center', gap:8, fontSize:13, marginBottom:7, cursor:'pointer', color:'var(--text-secondary)' }}>
@@ -742,9 +743,10 @@ export default function StrategyWizard() {
               ))}
             </div>
             {/* ATM IV — all expiries, scrollable */}
-            <div>
+            <div style={{ minWidth:160 }}>
               <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-muted)', marginBottom:10 }}>ATM IV on target ⓘ</div>
               <div style={{ maxHeight:220, overflowY:'auto', paddingRight:4 }}>
+                {expiries.length === 0 && <div style={{ fontSize:11, color:'var(--text-muted)' }}>—</div>}
                 {expiries.map(e=>(
                   <div key={e} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8, fontSize:12,
                     color: enabledExpiries[e] ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: enabledExpiries[e] ? 1 : 0.5 }}>
@@ -762,11 +764,11 @@ export default function StrategyWizard() {
 
           <div style={{ height:1, background:'var(--border)', margin:'18px 0' }}/>
 
-          <div style={{ display:'grid', gridTemplateColumns:'200px 1fr 1fr 1fr', gap:24, alignItems:'start' }}>
+          <div style={{ display:'flex', flexWrap:'wrap', gap:24, alignItems:'start' }}>
             {/* Spread gap */}
-            <div>
+            <div style={{ minWidth:280 }}>
               <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-muted)', marginBottom:10 }}>Spread gap ⓘ</div>
-              <div style={{ display:'flex', gap:14 }}>
+              <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
                 {[50,100,150,200,250,300].map(g=>(
                   <label key={g} style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, cursor:'pointer', color:'var(--text-secondary)' }}>
                     <input type="checkbox" checked={spreadGaps.includes(g)} onChange={e=>setSpreadGaps(p=>e.target.checked?[...p,g]:p.filter(x=>x!==g))}/>{g}
@@ -775,7 +777,7 @@ export default function StrategyWizard() {
               </div>
             </div>
             {/* Max loss */}
-            <div>
+            <div style={{ minWidth:220 }}>
               <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
                 <input type="checkbox" checked={maxLossOn} onChange={e=>setMaxLossOn(e.target.checked)}/>
                 <span style={{ fontSize:13, color:'var(--text-secondary)' }}>Max loss limit ⓘ</span>
@@ -786,7 +788,7 @@ export default function StrategyWizard() {
                 onChange={e=>setMaxLossV(Number(e.target.value))} style={{ width:'100%', accentColor:'var(--accent)', opacity:maxLossOn?1:0.3 }}/>
             </div>
             {/* Min profit */}
-            <div>
+            <div style={{ minWidth:220 }}>
               <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
                 <input type="checkbox" checked={minProfitOn} onChange={e=>setMinProfitOn(e.target.checked)}/>
                 <span style={{ fontSize:13, color:'var(--text-secondary)' }}>Min profit ⓘ</span>
@@ -797,7 +799,7 @@ export default function StrategyWizard() {
                 onChange={e=>setMinProfitV(Number(e.target.value))} style={{ width:'100%', accentColor:'var(--accent)', opacity:minProfitOn?1:0.3 }}/>
             </div>
             {/* Delta range */}
-            <div>
+            <div style={{ minWidth:180 }}>
               <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
                 <input type="checkbox" disabled/>
                 <span style={{ fontSize:13, color:'var(--text-secondary)' }}>Delta range ⓘ</span>
