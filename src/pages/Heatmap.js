@@ -245,9 +245,11 @@ export default function Heatmap() {
 
       {/* Indices strip */}
       {indices.length > 0 && (
-        <div style={{ marginBottom:14 }}>
+        <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:'12px 14px', marginBottom:14 }}>
+          <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em',
+            color:'var(--text-muted)', marginBottom:10 }}>Major Indices</div>
           {/* Major indices */}
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:8 }}>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
             {indices.filter(i=>i.group==='Major').map(idx => {
               const c = getColor(idx.changePct);
               const sign = idx.changePct >= 0 ? '+' : '';
@@ -263,6 +265,12 @@ export default function Heatmap() {
               );
             })}
           </div>
+
+          {/* Divider */}
+          <div style={{ height:1, background:'var(--border)', margin:'0 0 10px 0' }}/>
+
+          <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em',
+            color:'var(--text-muted)', marginBottom:8 }}>Sector Indices</div>
           {/* Sector sub-indices */}
           <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
             {indices.filter(i=>i.group==='Sector').map(idx => {
@@ -280,6 +288,14 @@ export default function Heatmap() {
           </div>
         </div>
       )}
+
+      {/* Divider before stock grid */}
+      <div style={{ display:'flex', alignItems:'center', gap:12, marginBottom:12 }}>
+        <div style={{ height:1, background:'var(--border)', flex:1 }}/>
+        <span style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em',
+          color:'var(--text-muted)', whiteSpace:'nowrap' }}>Nifty 50 Stocks</span>
+        <div style={{ height:1, background:'var(--border)', flex:1 }}/>
+      </div>
 
       {/* Heatmap grid */}
       {loading && !stocks.length ? (
