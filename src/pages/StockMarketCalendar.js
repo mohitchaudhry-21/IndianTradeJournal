@@ -327,15 +327,11 @@ function StockResultsCalendar() {
     if (rawDate) {
       const d = new Date(rawDate);
       if (!isNaN(d)) {
-        // Subtract 1 day (record → ex-date)
-        d.setDate(d.getDate() - 1);
         exDate = d.toISOString().slice(0,10);
       } else {
         const parts = rawDate.split('-');
         if (parts.length === 3 && parts[0].length === 2) {
-          const d2 = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
-          d2.setDate(d2.getDate() - 1);
-          exDate = d2.toISOString().slice(0,10);
+          exDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
         }
       }
     }
