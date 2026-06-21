@@ -69,6 +69,9 @@ export default function StrategyBuilder() {
   const [loadingChain, setLoadingChain] = useState(false);
   const [chainError, setChainError] = useState(null);
   const [spot, setSpot] = useState(null);
+  // Track which instrument+expiry pair the current chainRows belong to,
+  // so we know whether to re-fetch when the user changes either.
+  const loadedChainKey = React.useRef(null);
 
   const [legs, setLegs] = useState(() => {
     try {
@@ -147,6 +150,8 @@ export default function StrategyBuilder() {
   useEffect(() => {
     setLegs([]);
     setScenarioSpot(null);
+    setChainRows([]); // clear stale chain immediately
+    loadedChainKey.current = null; // force re-fetch for new instrument
   }, [instrument]);
 
   // Live spot price, independent of chain source
@@ -263,16 +268,17 @@ export default function StrategyBuilder() {
       });
     };
 
-    // When market is closed, skip the optionGreek API (returns AB9019 outside
-    // market hours) and instead fetch last-close LTPs via the market quote API
-    // which returns Friday 3:30 PM prices on weekends. Do this once — prices
-    // won't change until the market reopens.
+    // When market is closed, fetch last-close data once per instrument+expiry combination.
+    // Use a ref-tracked key so we always re-fetch when the user picks a different expiry
+    // or switches instrument, even if chainRows is already populated from the previous combo.
     if (!isMarketOpen()) {
-      if (chainRows.length > 0) {
-        // Already have data from a previous load — keep it, don't re-fetch.
+      const chainKey = `${instrument}::${selectedExpiry}`;
+      if (loadedChainKey.current === chainKey) {
+        // Same instrument+expiry already loaded — nothing to do.
         return () => { cancelled = true; };
       }
       setLoadingChain(true);
+      setChainRows([]); // clear stale rows while new chain loads
       fetchEodChain(instrument, selectedExpiry, RISK_FREE_RATE).then(result => {
         if (cancelled) return;
         setLoadingChain(false);
@@ -283,6 +289,7 @@ export default function StrategyBuilder() {
         setChainError(null);
         setChainSource('angelone-eod');
         setChainRows(result.rows);
+        loadedChainKey.current = chainKey; // mark as loaded
       });
       return () => { cancelled = true; };
     }
