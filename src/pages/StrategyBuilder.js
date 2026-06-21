@@ -50,6 +50,16 @@ function formatAngelExpiry(angelExpiry) {
   return `${day} ${monthName}`;
 }
 
+function daysUntilExpiry(angelExpiry) {
+  if (!angelExpiry) return null;
+  const M = { JAN:0,FEB:1,MAR:2,APR:3,MAY:4,JUN:5,JUL:6,AUG:7,SEP:8,OCT:9,NOV:10,DEC:11 };
+  const d = parseInt(angelExpiry.slice(0,2),10);
+  const m = M[angelExpiry.slice(2,5).toUpperCase()];
+  const y = parseInt(angelExpiry.slice(5),10);
+  const exp = new Date(y, m, d, 15, 30);
+  return Math.max(0, Math.round((exp - Date.now()) / 86400000));
+}
+
 let legIdCounter = 0;
 function nextLegId() {
   legIdCounter += 1;
@@ -583,7 +593,7 @@ export default function StrategyBuilder() {
         <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Expiry</span>
         <select value={selectedExpiry || ''} onChange={e => setSelectedExpiry(e.target.value)}
           style={{ background: 'var(--bg-card2)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-primary)', padding: '6px 10px', fontSize: 13 }}>
-          {expiries.map(exp => <option key={exp} value={exp}>{formatAngelExpiry(exp)}</option>)}
+          {expiries.map(exp => <option key={exp} value={exp}>{formatAngelExpiry(exp)} ({daysUntilExpiry(exp)}d)</option>)}
         </select>
       </div>
 
