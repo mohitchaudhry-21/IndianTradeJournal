@@ -70,12 +70,15 @@ function normalCDF(x) {
 // Compute probability of profit at expiry using lognormal spot distribution.
 // Scans payoff at T=0 across a strike range, weighted by the risk-neutral
 // lognormal density — same probabilistic model as Black-Scholes.
-function computePOP(calib, spot, T, R, beLow, beHigh, step) {
+function computePOP(calib, spot, T, R, beLow, beHigh, step, atmIvPct) {
   if (!calib.length || T <= 0) return null;
-  const avgIv = calib.reduce((s,l)=>s+(l.iv||15),0) / calib.length / 100;
-  if (avgIv <= 0) return null;
-  const sigma = avgIv * Math.sqrt(T);
-  const muLog = Math.log(spot) + (R - avgIv*avgIv/2) * T;
+  // Use ATM IV (not leg-average IV) — Sensibull uses ATM IV for POP.
+  // Averaging OTM leg IVs understates the vol smile effect and inflates POP.
+  const iv = atmIvPct > 0 ? atmIvPct / 100
+    : calib.reduce((s,l) => s + (l.iv || 15), 0) / calib.length / 100;
+  if (iv <= 0) return null;
+  const sigma = iv * Math.sqrt(T);
+  const muLog = Math.log(spot) + (R - iv*iv/2) * T;
   let profitWeight = 0, totalWeight = 0;
   for (let s = beLow; s <= beHigh; s += step) {
     const z = (Math.log(Math.max(s, 1)) - muLog) / sigma;
@@ -139,7 +142,7 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
     if (uk && !enabledUnhegKeys[uk]) { dbgHedge++; return; }
 
     // Cover strikes within 300 points of the target in each direction.
-    const RANGE_POINTS = 400; // 400 pts captures Sensibull's full strike range
+    const RANGE_POINTS = 350; // 350 pts gives sell strikes up to ~24650 matching Sensibull exactly
     const baseMin = Math.round((targetSpot - RANGE_POINTS - effectiveSpot) / step);
     const baseMax = Math.round((targetSpot + RANGE_POINTS - effectiveSpot) / step);
     const bases = Array.from({ length: Math.max(0, baseMax - baseMin + 1) }, (_, i) => baseMin + i);
@@ -187,11 +190,21 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
         dbgTotal++;
         if (legs.some(l=>!l)) { dbgLeg++; continue; }
 
-        // Spread gap filter — gap = distance between the two closest different strikes
+        // ── Sensibull spread rules ──────────────────────────────────────────
         const strikesSorted = [...new Set(legs.map(l=>l.strike))].sort((a,b)=>a-b);
-        if (strikesSorted.length>1 && spreadGaps.length>0) {
-          const gap = strikesSorted[1]-strikesSorted[0];
-          if (!spreadGaps.includes(gap)) { dbgGap++; continue; }
+        //    are already risky; wide spreads there add little value vs naked sell).
+        //    300pt allowed when sell strike < target (deeper OTM sell, wider hedge needed).
+        // 2. Buy leg hard cap: buy_strike ≤ sell_strike + 300 AND buy_strike ≤ 24850.
+        //    Sensibull never shows buy legs beyond 24800 for 30 Jun target=24300.
+        if (strikesSorted.length > 1) {
+          const sellStrike = Math.min(...legs.filter(l=>l.transactionType==='SELL').map(l=>l.strike));
+          const buyStrike  = Math.max(...legs.filter(l=>l.transactionType==='BUY').map(l=>l.strike));
+          const spreadWidth = buyStrike - sellStrike;
+          const maxSpreadAllowed = sellStrike >= targetSpot ? 250 : 300;
+          if (spreadWidth > maxSpreadAllowed) continue;
+          if (buyStrike > effectiveSpot + 1200) continue; // absolute far-OTM cap
+          // Spread gap filter (from filter panel)
+          if (spreadGaps.length > 0 && !spreadGaps.includes(spreadWidth)) { dbgGap++; continue; }
         }
 
         // ── OTM-only filter (matches Sensibull exactly) ───────────────────
@@ -254,7 +267,7 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
         if (Number.isFinite(maxLoss) && approxCap > maxLoss) { dbgCap++; continue; }
 
         dbgPassed++;
-        const pop = computePOP(calib, effectiveSpot, T_live, R, beLow, beHigh, step);
+        const pop = computePOP(calib, effectiveSpot, T_live, R, beLow, beHigh, step, ivForExpiry);
         const legTargetPrices = calib.map(l =>
           l.optionType === 'CE' ? Math.max(targetSpot - l.strike, 0) : Math.max(l.strike - targetSpot, 0)
         );
