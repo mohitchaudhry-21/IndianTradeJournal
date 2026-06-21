@@ -189,6 +189,11 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
         const calib = calibrateLegsIV(legs, effectiveSpot, T_live, R);
         const pnl = payoffAt(calib, targetSpot, 0, R, false);
         if (pnl <= 0) continue;
+        // Minimum profit filter: match Sensibull's practical threshold.
+        // Sensibull's lowest shown strategy has profit ~436 (Bear Call Spread 24400-24550).
+        // Tiny-premium strategies aren't worth the margin risk, so we skip them.
+        const minProfitThreshold = getLot(instrument) * 6; // ~390 for NIFTY (6 pts × 65)
+        if (pnl < minProfitThreshold) continue;
         if (Number.isFinite(minProfit) && pnl < minProfit) continue;
 
         // Direction consistency
@@ -204,29 +209,37 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
 
         const netPrem = legs.reduce((s,l)=>s+(l.transactionType==='SELL'?1:-1)*l.premium*l.quantity*l.lotSize, 0);
         const naked = tmpl.type === 'unhedged';
-        const approxCap = naked
-          ? legs.filter(l=>l.transactionType==='SELL').reduce((s,l)=>s+150000*l.quantity,0)
-          : Math.max(Math.abs(netPrem), 1000);
-        if (Number.isFinite(maxLoss) && approxCap > maxLoss) continue;
 
+        // Greeks, breakeven, max profit/loss
         const greeks = positionGreeks(calib, effectiveSpot, T_live, R);
-        // Use step=1 for accurate breakeven (Sensibull shows exact point e.g. 24322 not 24370)
         const beFrom = Math.max(beLow, Math.min(...legs.map(l=>l.strike)) - 200);
         const beTo   = Math.min(beHigh, Math.max(...legs.map(l=>l.strike)) + 200);
         const bes = findBreakevens(calib, beFrom, beTo, 1);
         const { maxProfit, maxLoss: maxLossV } = maxProfitLoss(calib, beLow, beHigh);
         const isNakedSell = naked && legs.some(l=>l.transactionType==='SELL');
         const maxLossDisplay = isNakedSell ? null : maxLossV;
+
+        // Capital:
+        // Naked sells → approx SPAN margin (₹1.50L/lot; replaced by AngelOne API after)
+        // Defined-risk (spreads, condors) → max possible loss IS the capital at risk.
+        //   Much more accurate than using netPrem (which is just the credit received).
+        const approxCap = naked
+          ? legs.filter(l=>l.transactionType==='SELL').reduce((s,l)=>s+150000*l.quantity, 0)
+          : Math.max(Math.abs(maxLossV || netPrem), 1000);
+        if (Number.isFinite(maxLoss) && approxCap > maxLoss) continue;
+
         const pop = computePOP(calib, effectiveSpot, T_live, R, beLow, beHigh, step);
         const legTargetPrices = calib.map(l =>
           l.optionType === 'CE' ? Math.max(targetSpot - l.strike, 0) : Math.max(l.strike - targetSpot, 0)
         );
+        // Net premium per unit (positive = credit, negative = debit)
+        const netPremUnit = legs.reduce((s,l)=>s+(l.transactionType==='SELL'?1:-1)*l.ltp, 0);
         const returnPct = approxCap>0 ? (pnl/approxCap)*100 : 0;
         const strikeKey = calib.map(l=>`${l.transactionType[0]}${l.optionType}${l.strike}`).sort().join('_');
 
         results.push({
           id:`${strikeKey}::${tmpl.name}`, name:tmpl.name, category:tmpl.category, type:tmpl.type, desc:tmpl.desc,
-          strikeKey, legs:calib, pnl, breakevens:bes, approxCap, returnPct, netPrem,
+          strikeKey, legs:calib, pnl, breakevens:bes, approxCap, returnPct, netPrem, netPremUnit,
           maxProfit, maxLoss:maxLossDisplay, greeks, pop, legTargetPrices,
           daysLeft:Math.round(Math.max(0,(expiryMs-Date.now())/86400000)),
           hKey:hk, uKey:uk,
@@ -679,13 +692,25 @@ export default function StrategyWizard() {
                             <div style={{ fontSize:13, color:'var(--text-muted)', maxWidth:540 }}>{row.desc}</div>
                           </div>
                           {/* Per-leg details — proper grid like Sensibull */}
-                          <div style={{ display:'flex', gap:14, marginLeft:16, flexWrap:'wrap' }}>
+                          <div style={{ display:'flex', gap:14, marginLeft:16, flexWrap:'wrap', alignItems:'flex-start' }}>
+                            {/* Net premium (most prominent — Sensibull's "LTP" for spreads) */}
+                            <div style={{ textAlign:'center', minWidth:80 }}>
+                              <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:3 }}>
+                                {row.netPremUnit >= 0 ? 'Get (net)' : 'Pay (net)'}
+                              </div>
+                              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16,
+                                color: row.netPremUnit >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                                ₹{Math.abs(row.netPremUnit).toFixed(2)}
+                              </div>
+                              <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:2 }}>per unit</div>
+                            </div>
+                            <div style={{ width:1, background:'var(--border)', alignSelf:'stretch', margin:'0 4px' }} />
                             {row.legs.map((l,i)=>(
                               <div key={i} style={{ textAlign:'center', minWidth:68 }}>
                                 <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:3 }}>
                                   {l.transactionType==='BUY'?'B':'S'} {l.strike} {l.optionType}
                                 </div>
-                                <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:15 }}>
+                                <div style={{ fontFamily:'var(--font-mono)', fontWeight:600, fontSize:14 }}>
                                   {l.ltp?.toFixed(2)??'—'}
                                 </div>
                                 <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:2 }}>
