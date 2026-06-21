@@ -106,7 +106,12 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
   const T_live = Math.max((expiryMs - Date.now()) / (365*86400000), 1/365);
   const off = n => sorted[Math.max(0, Math.min(sorted.length-1, atmIdx+n))];
   // Breakeven scan bounds and step size (match OptionsAnalyzer approach)
-  const step = sorted.length > 1 ? Math.abs(sorted[1]-sorted[0]) : 50;
+  // Use the MINIMUM positive difference between adjacent sorted strikes so we don't
+  // get tripped up by chains where the first two entries happen to be 200 pts apart
+  // (the 30 Jun chain has sorted[0]=20000, sorted[1]=20200 → step=200 instead of 50).
+  // Min-diff correctly returns 50 for NIFTY regardless of chain structure.
+  const diffs = sorted.slice(1).map((s, i) => s - sorted[i]).filter(d => d > 0);
+  const step = diffs.length > 0 ? Math.min(...diffs) : 50;
   const beLow  = sorted[0] * 0.85;
   const beHigh = sorted[sorted.length-1] * 1.15;
 
