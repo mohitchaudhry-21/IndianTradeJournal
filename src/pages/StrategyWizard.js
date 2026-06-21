@@ -111,6 +111,8 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
   const beHigh = sorted[sorted.length-1] * 1.15;
 
   const results = [];
+  // Debug counters — log to console to see exactly which filter kills strategies
+  let dbgTotal=0, dbgCat=0, dbgHedge=0, dbgLeg=0, dbgGap=0, dbgOTM=0, dbgPnl=0, dbgMin=0, dbgDir=0, dbgCap=0, dbgPassed=0;
 
   // Map prediction → allowed strategy categories (matches Sensibull exactly)
   // "below" → bearish strategies only (Sell Call, Bear Spread, Buy Put, etc.)
@@ -125,11 +127,11 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
 
   STRATEGY_TEMPLATES.forEach(tmpl => {
     // ── Category gate — primary filter matching Sensibull's categorisation ──
-    if (!allowedCats.includes(tmpl.category)) return;
+    if (!allowedCats.includes(tmpl.category)) { dbgCat++; return; }
 
     const hk = HEDGE_KEY[tmpl.name], uk = UNHEG_KEY[tmpl.name];
-    if (hk && !enabledHedgeKeys[hk]) return;
-    if (uk && !enabledUnhegKeys[uk]) return;
+    if (hk && !enabledHedgeKeys[hk]) { dbgHedge++; return; }
+    if (uk && !enabledUnhegKeys[uk]) { dbgHedge++; return; }
 
     // Cover strikes within 300 points of the target in each direction.
     const RANGE_POINTS = 300;
@@ -177,46 +179,40 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
             premium:ltp, ltp, ltpIsLive: (side.ltp || 0) > 0,
           };
         });
-        if (legs.some(l=>!l)) continue;
+        dbgTotal++;
+        if (legs.some(l=>!l)) { dbgLeg++; continue; }
 
         // Spread gap filter — gap = distance between the two closest different strikes
         const strikesSorted = [...new Set(legs.map(l=>l.strike))].sort((a,b)=>a-b);
         if (strikesSorted.length>1 && spreadGaps.length>0) {
           const gap = strikesSorted[1]-strikesSorted[0];
-          if (!spreadGaps.includes(gap)) continue;
+          if (!spreadGaps.includes(gap)) { dbgGap++; continue; }
         }
 
         // ── OTM-only filter (matches Sensibull exactly) ───────────────────
-        // Only generate strategies where ALL option legs are currently OTM.
-        // CE is OTM when strike ≥ spot; PE is OTM when strike ≤ spot.
-        // This eliminates ITM Bear Put Spreads, ITM butterflies, etc. from
-        // appearing for a "below" prediction where market is already below target.
         const allOTM = legs.every(l =>
           l.optionType === 'CE' ? l.strike >= effectiveSpot :
           l.optionType === 'PE' ? l.strike <= effectiveSpot : true
         );
-        if (!allOTM) continue;
+        if (!allOTM) { dbgOTM++; continue; }
 
         // ── Same pipeline as OptionsAnalyzer ────────────────────────
         const calib = calibrateLegsIV(legs, effectiveSpot, T_live, R);
         const pnl = payoffAt(calib, targetSpot, 0, R, false);
-        if (pnl <= 0) continue;
-        // Minimum profit filter: match Sensibull's practical threshold.
-        // Sensibull's lowest shown strategy has profit ~436 (Bear Call Spread 24400-24550).
-        // Tiny-premium strategies aren't worth the margin risk, so we skip them.
-        const minProfitThreshold = getLot(instrument) * 6; // ~390 for NIFTY (6 pts × 65)
-        if (pnl < minProfitThreshold) continue;
-        if (Number.isFinite(minProfit) && pnl < minProfit) continue;
+        if (pnl <= 0) { dbgPnl++; continue; }
+        const minProfitThreshold = getLot(instrument) * 6;
+        if (pnl < minProfitThreshold) { dbgMin++; continue; }
+        if (Number.isFinite(minProfit) && pnl < minProfit) { dbgMin++; continue; }
 
         // Direction consistency
         if (prediction === 'below') {
           const farDown = Math.min(targetSpot * 0.93, effectiveSpot * 0.93);
-          if (payoffAt(calib, farDown, 0, R, false) < 0) continue;
-          if (payoffAt(calib, targetSpot * 0.80, 0, R, false) < 0) continue;
+          if (payoffAt(calib, farDown, 0, R, false) < 0) { dbgDir++; continue; }
+          if (payoffAt(calib, targetSpot * 0.80, 0, R, false) < 0) { dbgDir++; continue; }
         } else if (prediction === 'above') {
           const farUp = Math.max(targetSpot * 1.07, effectiveSpot * 1.07);
-          if (payoffAt(calib, farUp, 0, R, false) < 0) continue;
-          if (payoffAt(calib, targetSpot * 1.20, 0, R, false) < 0) continue;
+          if (payoffAt(calib, farUp, 0, R, false) < 0) { dbgDir++; continue; }
+          if (payoffAt(calib, targetSpot * 1.20, 0, R, false) < 0) { dbgDir++; continue; }
         }
 
         const netPrem = legs.reduce((s,l)=>s+(l.transactionType==='SELL'?1:-1)*l.premium*l.quantity*l.lotSize, 0);
@@ -250,8 +246,9 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
         const approxCap = naked
           ? effectiveSpot * lotSize * totalQty * 0.105          // naked: 10.5% notional
           : (spreadWidth + spanBuffer) * lotSize * totalQty;    // spread: width + SPAN buffer
-        if (Number.isFinite(maxLoss) && approxCap > maxLoss) continue;
+        if (Number.isFinite(maxLoss) && approxCap > maxLoss) { dbgCap++; continue; }
 
+        dbgPassed++;
         const pop = computePOP(calib, effectiveSpot, T_live, R, beLow, beHigh, step);
         const legTargetPrices = calib.map(l =>
           l.optionType === 'CE' ? Math.max(targetSpot - l.strike, 0) : Math.max(l.strike - targetSpot, 0)
@@ -276,6 +273,9 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
   // Deduplicate by exact strike combination (same trade = same strikes, same types)
   // but keep ALL unique variants sorted by profit (Sensibull shows multiple Sell Calls
   // at different strikes, multiple Bear Call Spreads at different strike pairs, etc.)
+  console.log(`[Wizard computeWizard] ${selectedExpiryForResult||'?'} spot=${Math.round(effectiveSpot)} tgt=${targetSpot}` +
+    ` | tried=${dbgTotal} cat✗=${dbgCat} hedge✗=${dbgHedge} leg✗=${dbgLeg} gap✗=${dbgGap}` +
+    ` OTM✗=${dbgOTM} pnl✗=${dbgPnl} min✗=${dbgMin} dir✗=${dbgDir} cap✗=${dbgCap} passed=${dbgPassed}`);
   const seen = new Set();
   const unique = results.filter(r => {
     if (seen.has(r.strikeKey)) return false;
