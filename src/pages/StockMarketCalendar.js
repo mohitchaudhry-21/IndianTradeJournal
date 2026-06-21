@@ -74,8 +74,6 @@ const RBI_EVENTS = [
   { date: '2026-08-12', time: '05:30 PM', event: 'India CPI Inflation — Jul 2026', detail: 'MoSPI release', impact: 'Medium', done: false, actual: '' },
 ];
 
-const INVESTING_WIDGET_URL =
-  'https://sslecal2.investing.com?columns=exc_flags,exc_currency,exc_importance,exc_actual,exc_forecast,exc_previous&features=datepicker,timezone&countries=14,5,35&importance=2,3&defaultTab=0&calType=week&timeZone=23&lang=56';
 
 const NSE_HOLIDAYS_2026 = [
   { date: '2026-01-26', weekday: 'Monday',   holiday: 'Republic Day' },
@@ -125,16 +123,63 @@ function EconomicCalendar() {
     .filter(e => !e.done && e.date >= today)
     .sort((a, b) => a.date.localeCompare(b.date))[0] || null;
 
+  // Live global calendar state
+  const [events, setEvents] = useState([]);
+  const [loadingEcon, setLoadingEcon] = useState(false);
+  const [econErr, setEconErr] = useState('');
+  const [dateFrom, setDateFrom] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dateTo, setDateTo]     = useState(() => {
+    const d = new Date(); d.setDate(d.getDate() + 7);
+    return d.toISOString().slice(0, 10);
+  });
+  const [filterCountry, setFilterCountry] = useState('All');
+  const [filterImpact, setFilterImpact]   = useState('All');
+
+  const loadEcon = useCallback(async () => {
+    setLoadingEcon(true); setEconErr('');
+    try {
+      const r = await fetch(
+        `${SERVER}/calendar/economic?date_from=${dateFrom}&date_to=${dateTo}&countries=14,5,35&importance=1,2,3`
+      );
+      const d = await r.json();
+      if (d.success) setEvents(d.events || []);
+      else setEconErr(d.error || 'Failed to load');
+    } catch { setEconErr('Server not running — start server.py'); }
+    setLoadingEcon(false);
+  }, [dateFrom, dateTo]);
+
+  useEffect(() => { loadEcon(); }, [loadEcon]);
+
+  const IMPACT_COLORS = {
+    High:   { color: '#EF4444', dot: '●●●' },
+    Medium: { color: '#F59E0B', dot: '●●○' },
+    Low:    { color: '#6B7280', dot: '●○○' },
+  };
+
+  // Group by date
+  const filtered = events.filter(e =>
+    (filterCountry === 'All' || e.country === filterCountry) &&
+    (filterImpact  === 'All' || e.impact  === filterImpact)
+  );
+  const grouped = {};
+  filtered.forEach(e => {
+    if (!grouped[e.date]) grouped[e.date] = [];
+    grouped[e.date].push(e);
+  });
+
   return (
     <div>
+      {/* Next high impact alert */}
       {nextEvent && (
         <div style={{ background: 'rgba(239,68,68,0.06)', border: '1px solid rgba(239,68,68,0.2)',
-          borderRadius: 12, padding: '12px 18px', marginBottom: 14,
+          borderRadius: 12, padding: '11px 18px', marginBottom: 14,
           display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 99,
             background: 'rgba(239,68,68,0.12)', color: '#EF4444', whiteSpace: 'nowrap' }}>NEXT HIGH IMPACT</span>
           <span style={{ fontSize: 13, fontWeight: 700 }}>🇮🇳 {nextEvent.event}</span>
-          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(nextEvent.date)} · {nextEvent.time} IST · {nextEvent.detail}</span>
+          <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+            {fmtDate(nextEvent.date)} · {nextEvent.time} IST · {nextEvent.detail}
+          </span>
           {(() => { const d = daysFromNow(nextEvent.date); return d !== null
             ? <span style={{ marginLeft: 'auto', fontSize: 12, fontWeight: 700,
                 color: d <= 5 ? '#EF4444' : '#F59E0B' }}>{d === 0 ? 'Today' : `${d} days away`}</span>
@@ -142,16 +187,18 @@ function EconomicCalendar() {
         </div>
       )}
 
+      {/* India key events */}
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12,
-        overflow: 'hidden', marginBottom: 16 }}>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)',
+        overflow: 'hidden', marginBottom: 14 }}>
+        <div style={{ padding: '11px 18px', borderBottom: '1px solid var(--border)',
           display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 13, fontWeight: 700 }}>🇮🇳 India key events — FY 2026-27</span>
           <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>RBI official calendar · MoSPI dates</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr 90px 80px 80px',
-          padding: '8px 18px', background: 'var(--bg-card2)', borderBottom: '1px solid var(--border)',
-          fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          padding: '7px 18px', background: 'var(--bg-card2)', borderBottom: '1px solid var(--border)',
+          fontSize: 11, color: 'var(--text-muted)', fontWeight: 600,
+          textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           <span>Date</span><span>Event</span><span>Time IST</span><span>Impact</span><span>Actual</span>
         </div>
         {RBI_EVENTS.sort((a, b) => a.date.localeCompare(b.date)).map((ev, i) => {
@@ -159,8 +206,8 @@ function EconomicCalendar() {
           const isPast = ev.done || ev.date < today;
           return (
             <div key={i} style={{ display: 'grid', gridTemplateColumns: '110px 1fr 90px 80px 80px',
-              padding: '10px 18px', alignItems: 'center', gap: 8,
-              borderBottom: '1px solid var(--border)', opacity: isPast ? 0.45 : 1,
+              padding: '9px 18px', alignItems: 'center', gap: 8,
+              borderBottom: '1px solid var(--border)', opacity: isPast ? 0.4 : 1,
               background: !isPast && days !== null && days <= 5 ? 'rgba(239,68,68,0.03)' : 'transparent' }}>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 700 }}>{fmtDate(ev.date)}</div>
@@ -183,22 +230,106 @@ function EconomicCalendar() {
         })}
       </div>
 
+      {/* Live global calendar */}
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-        <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 13, fontWeight: 700 }}>Live global calendar</span>
-            <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 99,
-              background: 'rgba(16,185,129,0.12)', color: '#10B981' }}>Investing.com</span>
+        <div style={{ padding: '11px 18px', borderBottom: '1px solid var(--border)',
+          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 700 }}>Live global calendar</span>
+          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>India · USA · China · IST</span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
+              style={{ ...inputStyle, padding: '5px 8px', fontSize: 12 }} />
+            <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>to</span>
+            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)}
+              style={{ ...inputStyle, padding: '5px 8px', fontSize: 12 }} />
+            <select value={filterCountry} onChange={e => setFilterCountry(e.target.value)}
+              style={{ ...inputStyle, padding: '5px 8px', fontSize: 12 }}>
+              {['All','India','USA','China','Japan'].map(c => <option key={c}>{c}</option>)}
+            </select>
+            <select value={filterImpact} onChange={e => setFilterImpact(e.target.value)}
+              style={{ ...inputStyle, padding: '5px 8px', fontSize: 12 }}>
+              {['All','High','Medium','Low'].map(i => <option key={i}>{i}</option>)}
+            </select>
+            <button onClick={loadEcon} style={{ ...btnStyle, padding: '5px 14px', fontSize: 12 }}>
+              {loadingEcon ? 'Loading…' : 'Refresh'}
+            </button>
           </div>
-          <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>India · USA · China · Medium + High · IST</span>
         </div>
-        <iframe src={INVESTING_WIDGET_URL} width="100%" height="600" frameBorder="0"
-          allowTransparency="true" marginWidth="0" marginHeight="0"
-          title="Economic Calendar" style={{ display: 'block' }} />
+
+        {econErr ? (
+          <div style={{ padding: '16px 18px', fontSize: 13, color: 'var(--loss)',
+            background: 'rgba(239,68,68,0.05)', borderBottom: '1px solid var(--border)' }}>
+            {econErr}
+            {econErr.includes('beautifulsoup') && (
+              <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+                Run in terminal: <code style={{ background: 'var(--bg-card2)', padding: '1px 6px', borderRadius: 4 }}>
+                  pip install beautifulsoup4
+                </code>
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {/* Column headers */}
+        <div style={{ display: 'grid', gridTemplateColumns: '80px 32px 80px 1fr 80px 80px 80px',
+          padding: '7px 18px', background: 'var(--bg-card2)', borderBottom: '1px solid var(--border)',
+          fontSize: 11, color: 'var(--text-muted)', fontWeight: 600,
+          textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          <span>Date</span><span></span><span>Time IST</span><span>Event</span>
+          <span style={{ textAlign: 'right' }}>Actual</span>
+          <span style={{ textAlign: 'right' }}>Forecast</span>
+          <span style={{ textAlign: 'right' }}>Previous</span>
+        </div>
+
+        {loadingEcon ? (
+          <div style={{ padding: '40px 18px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+            Loading from Investing.com…
+          </div>
+        ) : Object.keys(grouped).length === 0 ? (
+          <div style={{ padding: '40px 18px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13 }}>
+            No events found for this period.{econErr ? '' : ' Try a wider date range.'}
+          </div>
+        ) : Object.entries(grouped).map(([date, evs]) => (
+          <div key={date}>
+            <div style={{ padding: '7px 18px', background: 'rgba(59,130,246,0.05)',
+              borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)',
+              fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>
+              {date}
+            </div>
+            {evs.map((ev, i) => {
+              const ic = IMPACT_COLORS[ev.impact] || IMPACT_COLORS.Low;
+              const hasActual = ev.actual && ev.actual !== '';
+              const actualColor = hasActual
+                ? (ev.forecast && parseFloat(ev.actual) >= parseFloat(ev.forecast) ? 'var(--profit)' : 'var(--loss)')
+                : 'var(--text-muted)';
+              return (
+                <div key={i} style={{ display: 'grid', gridTemplateColumns: '80px 32px 80px 1fr 80px 80px 80px',
+                  padding: '9px 18px', alignItems: 'center', gap: 8,
+                  borderBottom: '1px solid var(--border)', fontSize: 13,
+                  background: ev.impact === 'High' ? 'rgba(239,68,68,0.02)' : 'transparent' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}></div>
+                  <div style={{ fontSize: 18 }} title={ev.country}>{ev.flag}</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>{ev.time}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: ic.color, letterSpacing: -2 }} title={ev.impact}>{ic.dot}</span>
+                    <span style={{ fontSize: 13 }}>{ev.event}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{ev.currency}</span>
+                  </div>
+                  <div style={{ textAlign: 'right', fontWeight: hasActual ? 700 : 400,
+                    color: hasActual ? actualColor : 'var(--text-muted)', fontSize: 12 }}>
+                    {ev.actual || '—'}
+                  </div>
+                  <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-muted)' }}>{ev.forecast || '—'}</div>
+                  <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--text-muted)' }}>{ev.previous || '—'}</div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
         <div style={{ padding: '8px 18px', borderTop: '1px solid var(--border)',
           fontSize: 11, color: 'var(--text-muted)', textAlign: 'right' }}>
-          Data by <a href="https://www.investing.com" target="_blank" rel="noopener noreferrer"
+          {filtered.length} events · Data sourced from{' '}
+          <a href="https://www.investing.com/economic-calendar/" target="_blank" rel="noopener noreferrer"
             style={{ color: 'var(--accent)' }}>Investing.com</a>
         </div>
       </div>
