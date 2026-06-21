@@ -59,7 +59,59 @@ function ImpactBadge({ impact }) {
   );
 }
 
-// ── Confirmed RBI FY27 dates ──────────────────────────────────────────────────
+// ── Nifty 100 symbols with sector mapping (Jun 2026) ─────────────────────────
+// Source: NSE Indices Ltd — semi-annual rebalance Jan/Jul
+const NIFTY100 = {
+  // Banking & Finance
+  HDFCBANK:'Banking', ICICIBANK:'Banking', SBIN:'Banking', AXISBANK:'Banking',
+  KOTAKBANK:'Banking', INDUSINDBK:'Banking', BANDHANBNK:'Banking', FEDERALBNK:'Banking',
+  IDFCFIRSTB:'Banking', BAJFINANCE:'Finance', BAJAJFINSV:'Finance', HDFCLIFE:'Insurance',
+  SBILIFE:'Insurance', ICICIGI:'Insurance', LICI:'Insurance',
+  // IT
+  TCS:'IT', INFY:'IT', WIPRO:'IT', HCLTECH:'IT', TECHM:'IT', LTIM:'IT',
+  MPHASIS:'IT', COFORGE:'IT', PERSISTENT:'IT',
+  // Energy & Oil
+  RELIANCE:'Energy', ONGC:'Energy', BPCL:'Energy', IOC:'Energy', COALINDIA:'Energy',
+  ADANIGREEN:'Energy', ADANIPOWER:'Energy', TATAPOWER:'Energy', TORNTPOWER:'Energy', NTPC:'Energy',
+  POWERGRID:'Energy', GAIL:'Energy',
+  // Auto
+  MARUTI:'Auto', TATAMOTORS:'Auto', BAJAJ_AUTO:'Auto', EICHERMOT:'Auto',
+  HEROMOTOCO:'Auto', M_M:'Auto', TVSMOTOR:'Auto', ASHOKLEY:'Auto', TMPV:'Auto',
+  // Consumer & FMCG
+  HINDUNILVR:'FMCG', ITC:'FMCG', NESTLEIND:'FMCG', BRITANNIA:'FMCG',
+  GODREJCP:'FMCG', MARICO:'FMCG', DABUR:'FMCG', COLPAL:'FMCG', TATACONSUM:'FMCG',
+  // Pharma
+  SUNPHARMA:'Pharma', DRREDDY:'Pharma', CIPLA:'Pharma', DIVISLAB:'Pharma',
+  APOLLOHOSP:'Pharma', TORNTPHARM:'Pharma', BIOCON:'Pharma', ALKEM:'Pharma',
+  // Metals & Mining
+  TATASTEEL:'Metals', JSWSTEEL:'Metals', HINDALCO:'Metals', VEDL:'Metals',
+  SAIL:'Metals', NMDC:'Metals', JINDALSTEL:'Metals',
+  // Telecom
+  BHARTIARTL:'Telecom', IDEA:'Telecom',
+  // Infrastructure & Capital Goods
+  LT:'Infra', ADANIPORTS:'Infra', ADANIENT:'Infra', ULTRACEMCO:'Infra',
+  GRASIM:'Infra', AMBUJACEM:'Infra', ACC:'Infra', DALBHARAT:'Infra',
+  ABB:'Capital Goods', SIEMENS:'Capital Goods', BEL:'Capital Goods',
+  BHEL:'Capital Goods', CGPOWER:'Capital Goods',
+  // Consumer Discretionary
+  TITAN:'Cons. Disc.', ASIANPAINT:'Cons. Disc.', BERGERPAINTS:'Cons. Disc.',
+  HAVELLS:'Cons. Disc.', VOLTAS:'Cons. Disc.', WHIRLPOOL:'Cons. Disc.',
+  VBL:'Cons. Disc.', JUBLFOOD:'Cons. Disc.', DMART:'Cons. Disc.',
+  TRENT:'Cons. Disc.', NYKAA:'Cons. Disc.',
+  // Chemicals
+  PIDILITIND:'Chemicals', SRF:'Chemicals', DEEPAKNITRITE:'Chemicals',
+  // Others
+  ZOMATO:'Internet', PAYTM:'Internet', INDIAMART:'Internet',
+  IRCTC:'Transport', CONCOR:'Transport',
+  BSE:'Finance', MUTHOOTFIN:'Finance', CHOLAFIN:'Finance', RECLTD:'Finance',
+  PFC:'Finance', HUDCO:'Finance',
+  POLYCAB:'Electricals', CUMMINSIND:'Industrials',
+  SBICARD:'Finance', SHRIRAMFIN:'Finance', BAJAJHLDNG:'Finance', PIIND:'Chemicals',
+  MOTHERSON:'Auto', EXIDEIND:'Auto', SUNDARMFIN:'Finance',
+};
+
+const SECTORS = ['All', ...Array.from(new Set(Object.values(NIFTY100))).sort()];
+
 const RBI_EVENTS = [
   { date: '2026-04-08', time: '10:00 AM', event: 'RBI MPC Rate Decision', detail: 'Meeting: Apr 6–8', impact: 'High', done: true,  actual: '5.25%' },
   { date: '2026-06-05', time: '10:00 AM', event: 'RBI MPC Rate Decision', detail: 'Meeting: Jun 3–5', impact: 'High', done: false, actual: '' },
@@ -237,6 +289,8 @@ function StockResultsCalendar() {
   const [fromDate, setFromDate] = useState(() => addDays(new Date(), -7).toISOString().slice(0,10));
   const [toDate, setToDate]     = useState(() => addDays(new Date(),  60).toISOString().slice(0,10));
   const [filterType, setFilterType] = useState('All');
+  const [filterSector, setFilterSector] = useState('All');
+  const [nifty100Only, setNifty100Only] = useState(true);
   const [search, setSearch] = useState('');
   const [liquidOnly, setLiquidOnly] = useState(false);
 
@@ -267,17 +321,21 @@ function StockResultsCalendar() {
     const purposeRaw = a.purpose || a.subject || '';
     const p = purposeRaw.toLowerCase();
     // Convert NSE ex-date from DD-MMM-YYYY or DD-MM-YYYY to YYYY-MM-DD for sorting
-    const rawDate = a.exDate || a.exdate || a.ex_date || '';
+    // NSE API returns record date; ex-date = record date - 1 calendar day
+    const rawDate = a.exDate || a.exdate || a.ex_date || a['Ex Date'] || '';
     let exDate = rawDate;
     if (rawDate) {
       const d = new Date(rawDate);
       if (!isNaN(d)) {
+        // Subtract 1 day (record → ex-date)
+        d.setDate(d.getDate() - 1);
         exDate = d.toISOString().slice(0,10);
       } else {
-        // Try DD-MM-YYYY
         const parts = rawDate.split('-');
         if (parts.length === 3 && parts[0].length === 2) {
-          exDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+          const d2 = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`);
+          d2.setDate(d2.getDate() - 1);
+          exDate = d2.toISOString().slice(0,10);
         }
       }
     }
@@ -297,7 +355,9 @@ function StockResultsCalendar() {
   }
 
   let filtered = actions.map(normaliseAction);
+  if (nifty100Only) filtered = filtered.filter(a => NIFTY100[a.symbol] !== undefined);
   if (filterType !== 'All') filtered = filtered.filter(a => a.type === filterType);
+  if (filterSector !== 'All') filtered = filtered.filter(a => NIFTY100[a.symbol] === filterSector);
   if (liquidOnly) filtered = filtered.filter(a => a.series === 'EQ');
   if (search.trim()) {
     const q = search.toLowerCase();
@@ -334,6 +394,16 @@ function StockResultsCalendar() {
             ))}
           </select>
         </div>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 5 }}>Sector</div>
+          <select value={filterSector} onChange={e => setFilterSector(e.target.value)} style={inputStyle}>
+            {SECTORS.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', paddingBottom: 6 }}>
+          <input type="checkbox" checked={nifty100Only} onChange={e => setNifty100Only(e.target.checked)} />
+          Nifty 100 only
+        </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', paddingBottom: 6 }}>
           <input type="checkbox" checked={liquidOnly} onChange={e => setLiquidOnly(e.target.checked)} />
           EQ series only
@@ -394,7 +464,15 @@ function StockResultsCalendar() {
                     borderBottom: '1px solid var(--border)', fontSize: 13 }}>
                     <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{a.series}</div>
                     <div>
-                      <div style={{ fontWeight: 700 }}>{a.symbol}</div>
+                      <div style={{ fontWeight: 700, display:'flex', alignItems:'center', gap:6 }}>
+                        {a.symbol}
+                        {NIFTY100[a.symbol] && (
+                          <span style={{ fontSize:10, fontWeight:600, padding:'1px 5px', borderRadius:4,
+                            background:'rgba(59,130,246,0.12)', color:'var(--accent)' }}>
+                            {NIFTY100[a.symbol]}
+                          </span>
+                        )}
+                      </div>
                       <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 1 }}>{a.company}</div>
                     </div>
                     <EventBadge type={a.type} />
