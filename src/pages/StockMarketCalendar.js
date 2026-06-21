@@ -422,12 +422,22 @@ function HolidayCalendar() {
 
       <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)',
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
           <span style={{ fontSize: 13, fontWeight: 700 }}>NSE Trading Holidays 2026</span>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
-            <input type="checkbox" checked={showUS} onChange={e => setShowUS(e.target.checked)} />
-            Show NYSE holidays
-          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: 'rgba(16,185,129,0.3)', display: 'inline-block' }}/>
+              NSE India
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text-muted)' }}>
+              <span style={{ width: 10, height: 10, borderRadius: 2, background: 'rgba(59,130,246,0.4)', display: 'inline-block' }}/>
+              NYSE US
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer' }}>
+              <input type="checkbox" checked={showUS} onChange={e => setShowUS(e.target.checked)} />
+              Show NYSE holidays
+            </label>
+          </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '44px 120px 100px 1fr 56px',
           padding: '8px 18px', background: 'var(--bg-card2)', borderBottom: '1px solid var(--border)',
@@ -441,8 +451,13 @@ function HolidayCalendar() {
             <div key={i} style={{ display: 'grid', gridTemplateColumns: '44px 120px 100px 1fr 56px',
               padding: '10px 18px', alignItems: 'center', gap: 12,
               borderBottom: '1px solid var(--border)',
-              background: isNext ? 'rgba(59,130,246,0.05)' : 'transparent',
-              opacity: isPast ? 0.4 : 1, fontSize: 13, fontWeight: isNext ? 700 : 400 }}>
+              background: isNext ? 'rgba(59,130,246,0.05)'
+                : h.exchange === 'NYSE' ? 'rgba(59,130,246,0.02)'
+                : isPast ? 'transparent' : 'rgba(16,185,129,0.02)',
+              opacity: isPast ? 0.4 : 1, fontSize: 13, fontWeight: isNext ? 700 : 400,
+              borderLeft: isNext ? '3px solid var(--accent)'
+                : h.exchange === 'NYSE' ? '3px solid rgba(59,130,246,0.4)'
+                : '3px solid rgba(16,185,129,0.3)' }}>
               <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{i + 1}</span>
               <span>{fmtDate(h.date)}</span>
               <span style={{ color: 'var(--text-muted)' }}>{h.weekday}</span>
