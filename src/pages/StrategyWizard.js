@@ -5,7 +5,7 @@ import { fetchOptionChain, fetchExpiryList, fetchEodChain } from '../utils/optio
 import { STRATEGY_TEMPLATES, getBadge } from '../utils/strategyTemplates';
 import { isMarketOpen } from '../utils/marketHours';
 import { getLotSize } from '../utils/lotSizes';
-import { impliedVolatility } from '../utils/blackscholes';
+import { impliedVolatility, blackScholes } from '../utils/blackscholes';
 
 const R = 0.065;
 // Use the same getLotSize as StrategyBuilder — single source of truth
@@ -94,7 +94,7 @@ function computePOP(calib, spot, T, R, beLow, beHigh, step) {
 //   maxProfitLoss    → same utility as OptionsAnalyzer uses
 //   positionGreeks   → current-time Greeks with calibrated IV
 function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiryMs,
-    enabledHedgeKeys, enabledUnhegKeys, spreadGaps, minProfit, maxLoss }) {
+    enabledHedgeKeys, enabledUnhegKeys, spreadGaps, minProfit, maxLoss, ivForExpiry, selectedExpiryForResult }) {
   if (!chain.length || !targetSpot) return [];
 
   const lotSize = getLot(instrument);
@@ -158,11 +158,23 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
           const strike = off(scaledStep + base);
           const row = chain.find(r=>r.strike===strike);
           const side = row?.[t.optionType];
-          if (!side?.ltp || side.ltp <= 0) return null;
+          if (!side) return null;
+
+          let ltp = side.ltp || 0;
+          // When LTP = 0 (option had no trades on Friday — common for far OTM)
+          // use a Black-Scholes theoretical price so the strategy is still evaluated.
+          // This mirrors how Sensibull handles illiquid strikes.
+          if (ltp <= 0 && effectiveSpot > 0 && T_live > 0) {
+            const iv = (ivForExpiry || 12) / 100;
+            ltp = blackScholes(effectiveSpot, strike, T_live, R, iv, t.optionType).price || 0;
+          }
+          if (ltp <= 0) return null; // truly no data even from BS (shouldn't happen)
+
           return {
             id:`${tmpl.name}_${base}_${widthSteps}_${t.stepsFromAtm}`,
             strike, optionType:t.optionType, transactionType:t.transactionType,
-            quantity:t.qty||1, lotSize, iv:side.iv||15, premium:side.ltp, ltp:side.ltp,
+            quantity:t.qty||1, lotSize, iv:side.iv||ivForExpiry||15,
+            premium:ltp, ltp, ltpIsLive: (side.ltp || 0) > 0,
           };
         });
         if (legs.some(l=>!l)) continue;
@@ -254,6 +266,7 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
           strikeKey, legs:calib, pnl, breakevens:bes, approxCap, returnPct, netPrem, netPremUnit,
           maxProfit, maxLoss:maxLossDisplay, greeks, pop, legTargetPrices,
           daysLeft:Math.round(Math.max(0,(expiryMs-Date.now())/86400000)),
+          expiry: selectedExpiryForResult || '',
           hKey:hk, uKey:uk,
         });
       } // end widthSteps
@@ -291,6 +304,8 @@ export default function StrategyWizard() {
   const [results, setResults] = useState([]);
   const [searched, setSearched] = useState(false);
   const [computing, setComputing] = useState(false);
+  const [page, setPage] = useState(1);
+  const rowsPerPage = 10;
   const [expanded, setExpanded] = useState(null);
   const [sortField, setSortField] = useState('pnl');
   const [sortAsc, setSortAsc] = useState(false); // false = descending = highest profit first
@@ -385,51 +400,81 @@ export default function StrategyWizard() {
   }, [chain, selectedExpiry]); // eslint-disable-line
 
 
-  function go() {
+  // Load chain for a given expiry (tries live then EOD fallback)
+  async function loadChainFor(exp) {
+    if (exp === selectedExpiry && chain.length) return chain; // already loaded
+    let res = await fetchOptionChain(instrument, expiryIso(exp), R);
+    if (!res.ok || !res.rows?.length) res = await fetchEodChain(instrument, exp, R);
+    return (res.ok && res.rows?.length) ? res.rows : null;
+  }
+
+  async function go() {
     const tgt = parseFloat(targetInput);
     if (!chain.length) { alert('Option chain not loaded yet.'); return; }
     if (!tgt) { alert('Please enter a target price.'); return; }
     setComputing(true);
-    const expiryMs = angelToDate(selectedExpiry).getTime();
-    setTimeout(() => {
-      try {
-        const r = computeWizard({
-          chain, spot, instrument, prediction, targetSpot:tgt, expiryMs,
-          enabledHedgeKeys:enabledHedge, enabledUnhegKeys:enabledUnheg,
-          spreadGaps, minProfit:minProfitOn?minProfitV:null, maxLoss:maxLossOn?maxLossV:null,
-        });
-        setResults(r); setSearched(true);
+    try {
+      // Run computation for every checked expiry
+      const checkedExpiries = expiries.filter(e => enabledExpiries[e] !== false);
+      const allResults = [];
 
-        // Fetch real SPAN margins from AngelOne in the background
-        // (replaces the hardcoded 1.5L approximation with actual margin)
-        if (r.length > 0) {
-          const strategies = r.map(row => ({
-            id: row.id,
-            instrument, expiry: selectedExpiry,
-            legs: row.legs.map(l => ({
-              strike: l.strike, optionType: l.optionType,
-              transactionType: l.transactionType,
-              quantity: l.quantity, lotSize: l.lotSize,
-            })),
+      for (const exp of checkedExpiries) {
+        const chainForExp = await loadChainFor(exp);
+        if (!chainForExp) continue;
+        const expiryMs = angelToDate(exp).getTime();
+
+        // Estimate spot from put-call parity for this expiry's chain
+        const validRows = chainForExp.filter(r => r.CE?.ltp > 0 && r.PE?.ltp > 0);
+        const expSpot = validRows.length
+          ? validRows.reduce((s,r) => s + r.strike + r.CE.ltp - r.PE.ltp, 0) / validRows.length
+          : spot;
+
+        const r = computeWizard({
+          chain: chainForExp, spot: expSpot || spot, instrument, prediction,
+          targetSpot: tgt, expiryMs, selectedExpiryForResult: exp,
+          enabledHedgeKeys: enabledHedge, enabledUnhegKeys: enabledUnheg,
+          spreadGaps, minProfit: minProfitOn ? minProfitV : null,
+          maxLoss: maxLossOn ? maxLossV : null,
+          ivForExpiry: ivAdj[exp] ?? 12,
+        });
+        allResults.push(...r);
+      }
+
+      // Sort all results by profit descending, deduplicate by strikeKey+expiry
+      const seen = new Set();
+      const unique = allResults.filter(r => {
+        const k = r.strikeKey + '::' + r.expiry;
+        if (seen.has(k)) return false;
+        seen.add(k); return true;
+      }).sort((a,b) => b.pnl - a.pnl);
+
+      setResults(unique); setSearched(true); setPage(1);
+
+      // Fetch real margins from AngelOne in background
+      if (unique.length > 0) {
+        const strategies = unique.map(row => ({
+          id: row.id, instrument, expiry: row.expiry,
+          legs: row.legs.map(l => ({
+            strike: l.strike, optionType: l.optionType,
+            transactionType: l.transactionType, quantity: l.quantity, lotSize: l.lotSize,
+          })),
+        }));
+        fetch('http://localhost:5001/margin/calculate', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ strategies }),
+        }).then(res => res.json()).then(data => {
+          if (!data.ok || !data.margins) return;
+          setResults(prev => prev.map(row => {
+            const m = data.margins.find(x => x.id === row.id);
+            return (m && m.margin > 0) ? { ...row, approxCap: m.margin } : row;
           }));
-          fetch('http://localhost:5001/margin/calculate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ strategies }),
-          }).then(res => res.json()).then(data => {
-            if (!data.ok || !data.margins) return;
-            setResults(prev => prev.map(row => {
-              const m = data.margins.find(x => x.id === row.id);
-              return (m && m.margin > 0) ? { ...row, approxCap: m.margin } : row;
-            }));
-          }).catch(() => { /* silently fall back to approximation */ });
-        }
-      } catch(err) {
-        console.error('[Wizard] compute error:', err);
-        setChainErr('Compute error: ' + err.message);
-        setResults([]); setSearched(true);
-      } finally { setComputing(false); }
-    }, 20);
+        }).catch(() => {});
+      }
+    } catch(err) {
+      console.error('[Wizard] compute error:', err);
+      setChainErr('Compute error: ' + err.message);
+      setResults([]); setSearched(true);
+    } finally { setComputing(false); }
   }
 
   const sorted = useMemo(() => {
@@ -470,7 +515,7 @@ export default function StrategyWizard() {
     ['pnl','Profit'],
     ['breakeven','Breakeven'],
     ['approxCap','Approx. capital'],
-    ['returnPct', `${daysLeft}d return %`],
+    ['returnPct', 'Return %'],
   ];
 
   return (
@@ -645,7 +690,7 @@ export default function StrategyWizard() {
           ):(
             <>
               <div style={{ padding:'14px 24px', borderBottom:'1px solid var(--border)', fontSize:14, color:'var(--text-muted)' }}>
-                We found <strong style={{ color:'var(--text-primary)' }}>{sorted.length} strategies</strong> for your prediction of {instrument} <strong>{prediction}</strong> {targetInput} by {fmtExp(selectedExpiry)}
+                We found <strong style={{ color:'var(--text-primary)' }}>{sorted.length} strategies</strong> for your prediction of {instrument} <strong>{prediction}</strong> {targetInput}
               </div>
               {/* Column headers */}
               <div style={{ display:'grid', gridTemplateColumns:'2.2fr 1fr 1fr 1fr 1fr 100px', padding:'12px 24px', background:'var(--bg-card2)', borderBottom:'1px solid var(--border)' }}>
@@ -659,7 +704,8 @@ export default function StrategyWizard() {
                 <span/>
               </div>
 
-              {sorted.map(row=>{
+              {/* Paginated rows */}
+              {sorted.slice((page-1)*rowsPerPage, page*rowsPerPage).map(row=>{
                 const badge=getBadge(row.name);
                 const exp=expanded===row.id;
                 const be=row.breakevens?.[0];
@@ -672,7 +718,7 @@ export default function StrategyWizard() {
                         <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
                           <span style={{ fontSize:11, fontWeight:700, padding:'3px 8px', borderRadius:5, background:badge.bg, color:badge.color }}>{badge.label}</span>
                           <span style={{ fontSize:14, fontWeight:700 }}>{row.name}</span>
-                          <span style={{ fontSize:12, color:'var(--text-muted)' }}>{fmtExp(selectedExpiry)}</span>
+                          <span style={{ fontSize:12, color:'var(--text-muted)', fontWeight:600 }}>{fmtExp(row.expiry||selectedExpiry)}</span>
                         </div>
                         <div style={{ display:'flex', alignItems:'center', gap:4, flexWrap:'wrap', marginTop:2 }}>
                           {row.legs.map((l,i)=>(
@@ -689,10 +735,10 @@ export default function StrategyWizard() {
                           ))}
                         </div>
                       </div>
-                      <div style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontWeight:700, color:row.pnl>=0?'var(--profit)':'var(--loss)' }}>{fmtMoney(row.pnl,true)}</div>
-                      <div style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontSize:14, color:'var(--text-primary)' }}>{be?be.toLocaleString('en-IN',{maximumFractionDigits:0}):'—'}</div>
-                      <div style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontSize:14, color:'var(--text-secondary)' }}>{fmtCap(row.approxCap)}</div>
-                      <div style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontSize:14, color:row.returnPct>=0?'var(--profit)':'var(--loss)' }}>{fmtPct(row.returnPct)}</div>
+                      <div style={{ textAlign:'right', fontWeight:800, fontSize:16, letterSpacing:'-0.02em', color:row.pnl>=0?'var(--profit)':'var(--loss)' }}>{fmtMoney(row.pnl,true)}</div>
+                      <div style={{ textAlign:'right', fontWeight:700, fontSize:14, color:'var(--text-primary)' }}>{be?be.toLocaleString('en-IN',{maximumFractionDigits:0}):'—'}</div>
+                      <div style={{ textAlign:'right', fontWeight:700, fontSize:14, color:'var(--text-secondary)' }}>{fmtCap(row.approxCap)}</div>
+                      <div style={{ textAlign:'right', fontWeight:700, fontSize:14, color:row.returnPct>=0?'var(--profit)':'var(--loss)' }}>{fmtPct(row.returnPct)} <span style={{fontSize:10,color:'var(--text-muted)',fontWeight:400}}>{row.daysLeft}d</span></div>
                       <div style={{ textAlign:'right' }}>
                         <button onClick={e=>{e.stopPropagation();setExpanded(exp?null:row.id);}}
                           style={{ background:'var(--accent)', border:'none', borderRadius:8, color:'#fff', fontSize:13, fontWeight:600, padding:'7px 16px', cursor:'pointer' }}>
@@ -709,7 +755,7 @@ export default function StrategyWizard() {
                           <div style={{ flex:1 }}>
                             <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:8 }}>
                               <span style={{ fontSize:11, fontWeight:700, padding:'2px 8px', borderRadius:4, background:badge.bg, color:badge.color }}>{badge.label}</span>
-                              <span style={{ fontSize:15, fontWeight:700 }}>{instrument} {fmtExp(selectedExpiry)} — {row.name}</span>
+                              <span style={{ fontSize:15, fontWeight:700 }}>{instrument} {fmtExp(row.expiry||selectedExpiry)} — {row.name}</span>
                             </div>
                             <div style={{ fontSize:13, fontWeight:600, color:'var(--text-secondary)', marginBottom:4 }}>How does this trade work?</div>
                             <div style={{ fontSize:13, color:'var(--text-muted)', maxWidth:540 }}>{row.desc}</div>
@@ -721,7 +767,7 @@ export default function StrategyWizard() {
                               <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:3 }}>
                                 {row.netPremUnit >= 0 ? 'Get (net)' : 'Pay (net)'}
                               </div>
-                              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16,
+                              <div style={{ fontWeight:800, fontSize:18,
                                 color: row.netPremUnit >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
                                 ₹{Math.abs(row.netPremUnit).toFixed(2)}
                               </div>
@@ -733,7 +779,7 @@ export default function StrategyWizard() {
                                 <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:3 }}>
                                   {l.transactionType==='BUY'?'B':'S'} {l.strike} {l.optionType}
                                 </div>
-                                <div style={{ fontFamily:'var(--font-mono)', fontWeight:600, fontSize:14 }}>
+                                <div style={{ fontWeight:700, fontSize:14 }}>
                                   {l.ltp?.toFixed(2)??'—'}
                                 </div>
                                 <div style={{ fontSize:10, color:'var(--text-muted)', marginTop:2 }}>
@@ -743,7 +789,7 @@ export default function StrategyWizard() {
                             ))}
                             <div style={{ textAlign:'center', minWidth:68 }}>
                               <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:3 }}>Qty (1 Lot)</div>
-                              <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:15 }}>{getLot(instrument)}</div>
+                              <div style={{ fontWeight:800, fontSize:15 }}>{getLot(instrument)}</div>
                             </div>
                           </div>
                         </div>
@@ -752,19 +798,19 @@ export default function StrategyWizard() {
                         <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:14 }}>
                           <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:'10px 14px' }}>
                             <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:4 }}>Max profit</div>
-                            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16, color:'var(--profit)' }}>
+                            <div style={{ fontWeight:800, fontSize:17, color:'var(--profit)' }}>
                               {row.maxProfit > 1e6 ? 'Unlimited' : fmtMoney(row.maxProfit,true)}
                             </div>
                           </div>
                           <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:'10px 14px' }}>
                             <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:4 }}>Max loss</div>
-                            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16, color:'var(--loss)' }}>
+                            <div style={{ fontWeight:800, fontSize:17, color:'var(--loss)' }}>
                               {row.maxLoss === null ? 'Unlimited' : '−₹' + Math.abs(row.maxLoss).toLocaleString('en-IN', {maximumFractionDigits:0})}
                             </div>
                           </div>
                           <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:'10px 14px' }}>
                             <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:4 }}>Probability of profit</div>
-                            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:16, color:'var(--text-primary)' }}>
+                            <div style={{ fontWeight:800, fontSize:17, color:'var(--text-primary)' }}>
                               {row.pop != null ? `${row.pop}%` : '—'}
                             </div>
                           </div>
@@ -773,13 +819,13 @@ export default function StrategyWizard() {
                         <div style={{ display:'flex', gap:10, marginBottom:14 }}>
                           <div style={{ background:'rgba(16,217,160,0.07)', border:'1px solid rgba(16,217,160,0.2)', borderRadius:8, padding:'8px 14px', flex:1 }}>
                             <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>Profit at target ({parseFloat(targetInput).toLocaleString('en-IN')})</div>
-                            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:14, color: row.pnl>=0?'var(--profit)':'var(--loss)' }}>
+                            <div style={{ fontWeight:800, fontSize:15, color: row.pnl>=0?'var(--profit)':'var(--loss)' }}>
                               {fmtMoney(row.pnl,true)} <span style={{ fontSize:12, fontWeight:400, color:'var(--text-muted)' }}>({fmtPct(row.returnPct)} on margin)</span>
                             </div>
                           </div>
                           <div style={{ background:'var(--bg-card2)', borderRadius:8, padding:'8px 14px', flex:1 }}>
                             <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>Approx. margin required</div>
-                            <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:14, color:'var(--text-primary)' }}>
+                            <div style={{ fontWeight:800, fontSize:15, color:'var(--text-primary)' }}>
                               {fmtCap(row.approxCap)}
                             </div>
                           </div>
@@ -817,6 +863,24 @@ export default function StrategyWizard() {
                   </div>
                 );
               })}
+
+              {/* Pagination */}
+              {sorted.length > rowsPerPage && (
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8, padding:'16px', borderTop:'1px solid var(--border)', background:'var(--bg-card2)' }}>
+                  <button onClick={()=>setPage(1)} disabled={page===1}
+                    style={{ background:'none', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-muted)', padding:'5px 10px', cursor:page===1?'not-allowed':'pointer', opacity:page===1?0.4:1 }}>«</button>
+                  <button onClick={()=>setPage(p=>Math.max(1,p-1))} disabled={page===1}
+                    style={{ background:'none', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-muted)', padding:'5px 10px', cursor:page===1?'not-allowed':'pointer', opacity:page===1?0.4:1 }}>‹</button>
+                  <span style={{ fontSize:13, color:'var(--text-secondary)', padding:'0 8px' }}>
+                    Page <strong>{page}</strong> of <strong>{Math.ceil(sorted.length/rowsPerPage)}</strong>
+                  </span>
+                  <button onClick={()=>setPage(p=>Math.min(Math.ceil(sorted.length/rowsPerPage),p+1))} disabled={page>=Math.ceil(sorted.length/rowsPerPage)}
+                    style={{ background:'none', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-muted)', padding:'5px 10px', cursor:page>=Math.ceil(sorted.length/rowsPerPage)?'not-allowed':'pointer', opacity:page>=Math.ceil(sorted.length/rowsPerPage)?0.4:1 }}>›</button>
+                  <button onClick={()=>setPage(Math.ceil(sorted.length/rowsPerPage))} disabled={page>=Math.ceil(sorted.length/rowsPerPage)}
+                    style={{ background:'none', border:'1px solid var(--border)', borderRadius:6, color:'var(--text-muted)', padding:'5px 10px', cursor:page>=Math.ceil(sorted.length/rowsPerPage)?'not-allowed':'pointer', opacity:page>=Math.ceil(sorted.length/rowsPerPage)?0.4:1 }}>»</button>
+                  <span style={{ fontSize:12, color:'var(--text-muted)', marginLeft:8 }}>{sorted.length} total</span>
+                </div>
+              )}
             </>
           )}
         </div>
