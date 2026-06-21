@@ -313,6 +313,7 @@ export default function StrategyWizard() {
   // Filters
   const [enabledHedge, setEnabledHedge] = useState({buyCall:true,buyPut:true,callSpread:true,putSpread:true,ironCondor:true,ironButterfly:true});
   const [enabledUnheg, setEnabledUnheg] = useState({sellCall:true,sellPut:true,straddle:true,strangle:true});
+  const [enabledExpiries, setEnabledExpiries] = useState({});
   const [spreadGaps, setSpreadGaps] = useState([50,100,150]);
   const [ivAdj, setIvAdj] = useState({});
   const [minProfitOn, setMinProfitOn] = useState(false);
@@ -326,6 +327,9 @@ export default function StrategyWizard() {
       if (!r.ok || !r.expiries?.length) return;
       setExpiries(r.expiries);
       setSelectedExpiry(r.expiries[0]);
+      // All expiries checked by default
+      const en = {}; r.expiries.forEach(e => { en[e] = true; });
+      setEnabledExpiries(en);
     });
     setChain([]); setSpot(null); setResults([]); setSearched(false);
   }, [instrument]);
