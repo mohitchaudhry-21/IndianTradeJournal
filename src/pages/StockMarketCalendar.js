@@ -233,8 +233,8 @@ function StockResultsCalendar() {
   const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [fromDate, setFromDate] = useState(() => ddmmyyyy(new Date()));
-  const [toDate, setToDate] = useState(() => ddmmyyyy(addDays(new Date(), 30)));
+  const [fromDate, setFromDate] = useState(() => ddmmyyyy(addDays(new Date(), -7)));
+  const [toDate, setToDate] = useState(() => ddmmyyyy(addDays(new Date(), 60)));
   const [filterType, setFilterType] = useState('All');
   const [search, setSearch] = useState('');
   const [liquidOnly, setLiquidOnly] = useState(false);
