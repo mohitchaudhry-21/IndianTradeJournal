@@ -481,16 +481,16 @@ export default function StrategyWizard() {
       </div>
 
       {/* Input bar */}
-      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:'16px 20px', marginBottom:14, display:'flex', gap:12, alignItems:'flex-end', flexWrap:'wrap' }}>
+      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:'20px 24px', marginBottom:16, display:'flex', gap:12, alignItems:'flex-end', flexWrap:'wrap' }}>
         <div>
-          <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:5 }}>Instrument</div>
+          <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6 }}>Instrument</div>
           <select value={instrument} onChange={e=>setInstrument(e.target.value)}
-            style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:13, padding:'8px 12px', cursor:'pointer', outline:'none', fontWeight:600 }}>
+            style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:14, padding:'10px 14px', cursor:'pointer', outline:'none', fontWeight:700 }}>
             {['NIFTY','BANKNIFTY','FINNIFTY','MIDCPNIFTY','SENSEX'].map(i=><option key={i} value={i}>{i}{spot&&i===instrument?' '+spot.toLocaleString('en-IN',{maximumFractionDigits:2}):''}</option>)}
           </select>
         </div>
         <div>
-          <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:5 }}>Prediction</div>
+          <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6 }}>Prediction</div>
           <select value={prediction} onChange={e=>setPrediction(e.target.value)}
             style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:13, padding:'8px 12px', cursor:'pointer', outline:'none', minWidth:100 }}>
             <option value="above">Above</option>
@@ -499,13 +499,13 @@ export default function StrategyWizard() {
           </select>
         </div>
         <div>
-          <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:5 }}>{instrument} Target</div>
+          <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6 }}>{instrument} Target</div>
           <input type="number" value={targetInput} onChange={e=>setTargetInput(e.target.value)}
             placeholder={spot?String(Math.round(spot)):'e.g. 24500'}
             style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:13, padding:'8px 12px', outline:'none', width:130 }} />
         </div>
         <div>
-          <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:5 }}>Target date</div>
+          <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6 }}>Target date</div>
           <select value={selectedExpiry} onChange={e=>setSelectedExpiry(e.target.value)}
             style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:13, padding:'8px 12px', cursor:'pointer', outline:'none', minWidth:155 }}>
             {expiries.map(e=><option key={e} value={e}>{fmtExp(e)} ({daysUntil(e)} days)</option>)}
@@ -644,15 +644,15 @@ export default function StrategyWizard() {
             </div>
           ):(
             <>
-              <div style={{ padding:'10px 20px', borderBottom:'1px solid var(--border)', fontSize:12, color:'var(--text-muted)' }}>
+              <div style={{ padding:'14px 24px', borderBottom:'1px solid var(--border)', fontSize:14, color:'var(--text-muted)' }}>
                 We found <strong style={{ color:'var(--text-primary)' }}>{sorted.length} strategies</strong> for your prediction of {instrument} <strong>{prediction}</strong> {targetInput} by {fmtExp(selectedExpiry)}
               </div>
               {/* Column headers */}
-              <div style={{ display:'grid', gridTemplateColumns:'2.2fr 1fr 1fr 1fr 1fr 90px', padding:'10px 20px', background:'var(--bg-card2)', borderBottom:'1px solid var(--border)' }}>
-                <span style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em' }}>Trade</span>
+              <div style={{ display:'grid', gridTemplateColumns:'2.2fr 1fr 1fr 1fr 1fr 100px', padding:'12px 24px', background:'var(--bg-card2)', borderBottom:'1px solid var(--border)' }}>
+                <span style={{ fontSize:12, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em' }}>Trade</span>
                 {colHeader.map(([k,l])=>(
                   <button key={k} onClick={()=>sort(k)}
-                    style={{ background:'none', border:'none', padding:0, color:sortField===k?'var(--accent)':'var(--text-muted)', cursor:'pointer', fontSize:11, textTransform:'uppercase', letterSpacing:'0.06em', textAlign:'right', display:'flex', alignItems:'center', justifyContent:'flex-end', gap:3 }}>
+                    style={{ background:'none', border:'none', padding:0, color:sortField===k?'var(--accent)':'var(--text-muted)', cursor:'pointer', fontSize:12, textTransform:'uppercase', letterSpacing:'0.06em', textAlign:'right', display:'flex', alignItems:'center', justifyContent:'flex-end', gap:3 }}>
                     {l}<span>{sortField===k?(sortAsc?'↑':'↓'):'↕'}</span>
                   </button>
                 ))}
@@ -666,25 +666,36 @@ export default function StrategyWizard() {
                 return (
                   <div key={row.id} style={{ borderBottom:'1px solid var(--border)' }}>
                     {/* Summary row */}
-                    <div style={{ display:'grid', gridTemplateColumns:'2.2fr 1fr 1fr 1fr 1fr 90px', padding:'12px 20px', alignItems:'center', background:exp?'rgba(59,130,246,0.04)':'transparent', cursor:'pointer' }}
+                    <div style={{ display:'grid', gridTemplateColumns:'2.2fr 1fr 1fr 1fr 1fr 100px', padding:'16px 24px', alignItems:'center', background:exp?'rgba(59,130,246,0.04)':'transparent', cursor:'pointer' }}
                       onClick={()=>setExpanded(exp?null:row.id)}>
                       <div>
                         <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3 }}>
-                          <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:4, background:badge.bg, color:badge.color }}>{badge.label}</span>
-                          <span style={{ fontSize:13, fontWeight:600 }}>{row.name}</span>
-                          <span style={{ fontSize:11, color:'var(--text-muted)' }}>{fmtExp(selectedExpiry)}</span>
+                          <span style={{ fontSize:11, fontWeight:700, padding:'3px 8px', borderRadius:5, background:badge.bg, color:badge.color }}>{badge.label}</span>
+                          <span style={{ fontSize:14, fontWeight:700 }}>{row.name}</span>
+                          <span style={{ fontSize:12, color:'var(--text-muted)' }}>{fmtExp(selectedExpiry)}</span>
                         </div>
-                        <div style={{ fontSize:11, color:'var(--text-muted)' }}>
-                          {row.legs.map(l=>`${l.transactionType==='BUY'?'B':'S'} ${l.strike} ${l.optionType}`).join(' · ')}
+                        <div style={{ display:'flex', alignItems:'center', gap:4, flexWrap:'wrap', marginTop:2 }}>
+                          {row.legs.map((l,i)=>(
+                            <span key={i} style={{ display:'flex', alignItems:'center', gap:3 }}>
+                              {i>0&&<span style={{ color:'var(--border-hover)', fontSize:12 }}>·</span>}
+                              <span style={{ fontSize:12, fontWeight:600,
+                                color: l.transactionType==='SELL' ? '#F87171' : '#34D399' }}>
+                                {l.transactionType==='SELL'?'S':'B'}
+                              </span>
+                              <span style={{ fontSize:12, color:'var(--text-secondary)' }}>
+                                {l.strike} {l.optionType}
+                              </span>
+                            </span>
+                          ))}
                         </div>
                       </div>
                       <div style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontWeight:700, color:row.pnl>=0?'var(--profit)':'var(--loss)' }}>{fmtMoney(row.pnl,true)}</div>
-                      <div style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontSize:12, color:'var(--text-primary)' }}>{be?be.toLocaleString('en-IN',{maximumFractionDigits:0}):'—'}</div>
-                      <div style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontSize:12, color:'var(--text-secondary)' }}>{fmtCap(row.approxCap)}</div>
-                      <div style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontSize:12, color:row.returnPct>=0?'var(--profit)':'var(--loss)' }}>{fmtPct(row.returnPct)}</div>
+                      <div style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontSize:14, color:'var(--text-primary)' }}>{be?be.toLocaleString('en-IN',{maximumFractionDigits:0}):'—'}</div>
+                      <div style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontSize:14, color:'var(--text-secondary)' }}>{fmtCap(row.approxCap)}</div>
+                      <div style={{ textAlign:'right', fontFamily:'var(--font-mono)', fontSize:14, color:row.returnPct>=0?'var(--profit)':'var(--loss)' }}>{fmtPct(row.returnPct)}</div>
                       <div style={{ textAlign:'right' }}>
                         <button onClick={e=>{e.stopPropagation();setExpanded(exp?null:row.id);}}
-                          style={{ background:'var(--accent)', border:'none', borderRadius:6, color:'#fff', fontSize:12, padding:'5px 12px', cursor:'pointer' }}>
+                          style={{ background:'var(--accent)', border:'none', borderRadius:8, color:'#fff', fontSize:13, fontWeight:600, padding:'7px 16px', cursor:'pointer' }}>
                           {exp?'Less ↑':'Trade ↓'}
                         </button>
                       </div>
