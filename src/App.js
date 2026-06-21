@@ -16,6 +16,7 @@ import StrategyWizard from './pages/StrategyWizard';
 import Settings from './pages/Settings';
 import ScreenshotImport from './pages/ScreenshotImport';
 import Calendar from './pages/Calendar';
+import StockMarketCalendar from './pages/StockMarketCalendar';
 
 
 
@@ -123,6 +124,7 @@ export default function App() {
               <Route path="/settings"   element={<Settings />} />
               <Route path="/screenshot" element={<ScreenshotImport />} />
               <Route path="/calendar"   element={<Calendar />} />
+              <Route path="/stock-market-calendar" element={<StockMarketCalendar />} />
               </Routes>
             </main>
           </div>
