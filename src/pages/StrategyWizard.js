@@ -327,8 +327,9 @@ export default function StrategyWizard() {
       if (!r.ok || !r.expiries?.length) return;
       setExpiries(r.expiries);
       setSelectedExpiry(r.expiries[0]);
-      // All expiries checked by default
-      const en = {}; r.expiries.forEach(e => { en[e] = true; });
+      // Default: first 3 expiries checked, rest unchecked (loading all would be too slow)
+      const en = {};
+      r.expiries.forEach((e, i) => { en[e] = i < 3; });
       setEnabledExpiries(en);
     });
     setChain([]); setSpot(null); setResults([]); setSearched(false);
@@ -419,7 +420,7 @@ export default function StrategyWizard() {
     setComputing(true);
     try {
       // Run computation for every checked expiry
-      const checkedExpiries = expiries.filter(e => enabledExpiries[e] !== false);
+      const checkedExpiries = expiries.filter(e => enabledExpiries[e] === true);
       const allResults = [];
 
       for (const exp of checkedExpiries) {
@@ -587,7 +588,22 @@ export default function StrategyWizard() {
             <span style={{ fontSize:15, fontWeight:700 }}>Filters</span>
             <button onClick={()=>setShowFilters(false)} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:20 }}>×</button>
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'150px 180px 220px 220px', gap:24 }}>
+          <div style={{ display:'grid', gridTemplateColumns:'130px 150px 200px 200px 200px', gap:20 }}>
+            {/* Expiry — ALL available expiries with checkboxes */}
+            <div>
+              <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-muted)', marginBottom:10 }}>
+                Expiry
+                {Object.values(enabledExpiries).some(v=>!v) && <span style={{ marginLeft:6, color:'#FFA53D', fontSize:10 }}>⚠ some off</span>}
+              </div>
+              <div style={{ maxHeight:220, overflowY:'auto', paddingRight:4 }}>
+                {expiries.map(e=>(
+                  <label key={e} style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, marginBottom:6, cursor:'pointer', color: enabledExpiries[e]?'var(--text-secondary)':'var(--text-muted)' }}>
+                    <input type="checkbox" checked={!!enabledExpiries[e]} onChange={ev=>setEnabledExpiries(p=>({...p,[e]:ev.target.checked}))} />
+                    {fmtExp(e)} <span style={{ fontSize:10, color:'var(--text-muted)' }}>({daysUntil(e)}d)</span>
+                  </label>
+                ))}
+              </div>
+            </div>
             {/* Premium */}
             <div>
               <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-muted)', marginBottom:10 }}>Premium</div>
@@ -617,19 +633,22 @@ export default function StrategyWizard() {
                 </label>
               ))}
             </div>
-            {/* ATM IV */}
+            {/* ATM IV — all expiries, scrollable */}
             <div>
               <div style={{ fontSize:11, fontWeight:600, textTransform:'uppercase', letterSpacing:'0.07em', color:'var(--text-muted)', marginBottom:10 }}>ATM IV on target ⓘ</div>
-              {expiries.slice(0,3).map(e=>(
-                <div key={e} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8, fontSize:12, color:'var(--text-secondary)' }}>
-                  <span style={{ minWidth:65, fontSize:11 }}>{fmtExp(e)} opts</span>
-                  <button onClick={()=>setIvAdj(p=>({...p,[e]:Math.max(1,(p[e]||15)-0.5)},''))}
-                    style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:4, color:'var(--text-primary)', width:22, height:22, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>−</button>
-                  <span style={{ fontFamily:'var(--font-mono)', width:32, textAlign:'center' }}>{(ivAdj[e] ?? 15).toFixed(1)}</span>
-                  <button onClick={()=>setIvAdj(p=>({...p,[e]:(p[e]||15)+0.5}))}
-                    style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:4, color:'var(--text-primary)', width:22, height:22, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center' }}>+</button>
-                </div>
-              ))}
+              <div style={{ maxHeight:220, overflowY:'auto', paddingRight:4 }}>
+                {expiries.map(e=>(
+                  <div key={e} style={{ display:'flex', alignItems:'center', gap:6, marginBottom:8, fontSize:12,
+                    color: enabledExpiries[e] ? 'var(--text-secondary)' : 'var(--text-muted)', opacity: enabledExpiries[e] ? 1 : 0.5 }}>
+                    <span style={{ minWidth:55, fontSize:11 }}>{fmtExp(e)}</span>
+                    <button onClick={()=>setIvAdj(p=>({...p,[e]:Math.max(1,(p[e]||15)-0.5)}))}
+                      style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:4, color:'var(--text-primary)', width:20, height:20, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>−</button>
+                    <span style={{ width:30, textAlign:'center', fontWeight:600 }}>{(ivAdj[e] ?? 15).toFixed(1)}</span>
+                    <button onClick={()=>setIvAdj(p=>({...p,[e]:(p[e]||15)+0.5}))}
+                      style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:4, color:'var(--text-primary)', width:20, height:20, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>+</button>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
 
