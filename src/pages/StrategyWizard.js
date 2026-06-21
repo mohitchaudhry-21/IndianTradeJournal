@@ -415,10 +415,26 @@ export default function StrategyWizard() {
 
   // Load chain for a given expiry (tries live then EOD fallback)
   async function loadChainFor(exp) {
-    if (exp === selectedExpiry && chain.length) return chain; // already loaded
-    let res = await fetchOptionChain(instrument, expiryIso(exp), R);
-    if (!res.ok || !res.rows?.length) res = await fetchEodChain(instrument, exp, R);
-    return (res.ok && res.rows?.length) ? res.rows : null;
+    try {
+      if (exp === selectedExpiry && chain.length) {
+        console.log(`[Wizard] ${exp}: reusing loaded chain (${chain.length} rows)`);
+        return chain;
+      }
+      // Market closed — go straight to EOD to avoid AB9019 errors
+      let res;
+      if (!isMarketOpen()) {
+        res = await fetchEodChain(instrument, exp, R);
+        console.log(`[Wizard] ${exp}: EOD chain ${res.ok ? res.rows?.length + ' rows' : 'FAILED: ' + res.error}`);
+      } else {
+        res = await fetchOptionChain(instrument, expiryIso(exp), R);
+        if (!res.ok || !res.rows?.length) res = await fetchEodChain(instrument, exp, R);
+        console.log(`[Wizard] ${exp}: chain ${res.ok ? res.rows?.length + ' rows' : 'FAILED: ' + res.error}`);
+      }
+      return (res.ok && res.rows?.length) ? res.rows : null;
+    } catch(err) {
+      console.warn(`[Wizard] loadChainFor ${exp} threw:`, err);
+      return null;
+    }
   }
 
   async function go() {
@@ -427,17 +443,17 @@ export default function StrategyWizard() {
     if (!tgt) { alert('Please enter a target price.'); return; }
     setComputing(true);
     try {
-      // Run computation for every checked expiry
       // Always search the target date expiry, plus any extras explicitly checked in Filters
       const checkedExpiries = [
         selectedExpiry,
         ...expiries.filter(e => e !== selectedExpiry && enabledExpiries[e] === true),
       ];
+      console.log('[Wizard] go() — expiries to search:', checkedExpiries);
       const allResults = [];
 
       for (const exp of checkedExpiries) {
         const chainForExp = await loadChainFor(exp);
-        if (!chainForExp) continue;
+        if (!chainForExp) { console.warn(`[Wizard] Skipping ${exp} — no chain data`); continue; }
         const expiryMs = angelToDate(exp).getTime();
 
         // Estimate spot from put-call parity for this expiry's chain
@@ -445,6 +461,7 @@ export default function StrategyWizard() {
         const expSpot = validRows.length
           ? validRows.reduce((s,r) => s + r.strike + r.CE.ltp - r.PE.ltp, 0) / validRows.length
           : spot;
+        console.log(`[Wizard] ${exp}: effectiveSpot=${Math.round(expSpot||spot)} validLtpRows=${validRows.length}`);
 
         const r = computeWizard({
           chain: chainForExp, spot: expSpot || spot, instrument, prediction,
@@ -454,6 +471,7 @@ export default function StrategyWizard() {
           maxLoss: maxLossOn ? maxLossV : null,
           ivForExpiry: ivAdj[exp] ?? 12,
         });
+        console.log(`[Wizard] ${exp}: ${r.length} strategies found`);
         allResults.push(...r);
       }
 
