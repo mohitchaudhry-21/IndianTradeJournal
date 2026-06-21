@@ -1,0 +1,275 @@
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+
+const SERVER = 'http://localhost:5001';
+
+// ── Market hours helper (IST = UTC+5:30) ─────────────────────────────────────
+function getISTTime() {
+  const now = new Date();
+  // IST offset: UTC+5:30 = 330 minutes
+  const ist = new Date(now.getTime() + (330 + now.getTimezoneOffset()) * 60000);
+  return ist;
+}
+
+function isMarketOpen() {
+  const ist = getISTTime();
+  const day = ist.getDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return false;
+  const h = ist.getHours(), m = ist.getMinutes();
+  const mins = h * 60 + m;
+  return mins >= 9 * 60 + 15 && mins < 15 * 60 + 30;
+}
+
+function marketStatusLabel() {
+  const ist = getISTTime();
+  const day = ist.getDay();
+  if (day === 0 || day === 6) return { open: false, label: 'Weekend — showing last close' };
+  const h = ist.getHours(), m = ist.getMinutes();
+  const mins = h * 60 + m;
+  if (mins < 9 * 60 + 15) return { open: false, label: 'Pre-market — showing prev close' };
+  if (mins >= 15 * 60 + 30) return { open: false, label: 'Market closed — showing last LTP' };
+  return { open: true, label: 'Market live' };
+}
+
+const SECTORS = ['All','Banking','IT','Energy','Finance','Auto','FMCG','Pharma',
+                 'Infra','Metals','Telecom','Insurance','Cons. Disc.','Defence'];
+
+function getColor(pct) {
+  const abs = Math.abs(pct);
+  if (pct > 0) {
+    if (abs >= 3)   return { bg:'#1a4a1a', border:'#2d7a2d', text:'#6fcf6f' };
+    if (abs >= 2)   return { bg:'#1e4d1e', border:'#2e7d2e', text:'#81c784' };
+    if (abs >= 1)   return { bg:'#1b3d1b', border:'#2a5e2a', text:'#a5d6a7' };
+    if (abs >= 0.5) return { bg:'#1a351a', border:'#274f27', text:'#c8e6c9' };
+    return              { bg:'#1a2d1a', border:'#243824', text:'#dcedc8' };
+  } else if (pct < 0) {
+    if (abs >= 3)   return { bg:'#4a1a1a', border:'#7a2d2d', text:'#ef9a9a' };
+    if (abs >= 2)   return { bg:'#4d1e1e', border:'#7d2e2e', text:'#e57373' };
+    if (abs >= 1)   return { bg:'#3d1b1b', border:'#5e2a2a', text:'#ef9a9a' };
+    if (abs >= 0.5) return { bg:'#351a1a', border:'#4f2727', text:'#ffcdd2' };
+    return              { bg:'#2d1a1a', border:'#382424', text:'#fce4ec' };
+  }
+  return { bg:'#1e1e2e', border:'#333', text:'#aaa' };
+}
+
+function fmt(n, decimals=2) {
+  if (!n && n !== 0) return '—';
+  return n.toLocaleString('en-IN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+}
+
+export default function Heatmap() {
+  const [stocks, setStocks]   = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [sector, setSector]   = useState('All');
+  const [sortBy, setSortBy]   = useState('changePct');
+  const [groupBySector, setGroupBySector] = useState(false);
+  const [marketStatus, setMarketStatus] = useState(marketStatusLabel());
+  const intervalRef = useRef(null);
+
+  const load = useCallback(async (silent=false) => {
+    if (!silent) setLoading(true);
+    try {
+      const r = await fetch(`${SERVER}/heatmap/nifty50`);
+      const d = await r.json();
+      if (d.success) { setStocks(d.stocks); setLastUpdated(new Date()); setError(''); }
+      else setError(d.error || 'Failed to load');
+    } catch { setError('Server not running — start server.py'); }
+    setLoading(false);
+  }, []);
+
+  // Smart refresh: every 30s during market hours, stop when closed
+  useEffect(() => {
+    load();
+    function scheduleRefresh() {
+      const status = marketStatusLabel();
+      setMarketStatus(status);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (status.open) {
+        intervalRef.current = setInterval(() => {
+          load(true); // silent refresh (no spinner)
+          const s = marketStatusLabel();
+          setMarketStatus(s);
+          if (!s.open && intervalRef.current) {
+            clearInterval(intervalRef.current);
+            intervalRef.current = null;
+          }
+        }, 30000);
+      }
+    }
+    scheduleRefresh();
+    // Re-check every minute in case market opens/closes
+    const checkId = setInterval(scheduleRefresh, 60000);
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+      clearInterval(checkId);
+    };
+  }, [load]);
+
+  const filtered = stocks
+    .filter(s => sector === 'All' || s.sector === sector)
+    .sort((a, b) => {
+      if (sortBy === 'changePct') return b.changePct - a.changePct;
+      if (sortBy === 'alpha') return a.symbol.localeCompare(b.symbol);
+      if (sortBy === 'ltp') return b.ltp - a.ltp;
+      return 0;
+    });
+
+  // Sector summary for group view
+  const sectorGroups = {};
+  filtered.forEach(s => {
+    if (!sectorGroups[s.sector]) sectorGroups[s.sector] = [];
+    sectorGroups[s.sector].push(s);
+  });
+
+  const advances = stocks.filter(s => s.changePct > 0).length;
+  const declines = stocks.filter(s => s.changePct < 0).length;
+  const unchanged = stocks.filter(s => s.changePct === 0).length;
+
+  const StockCard = ({ s }) => {
+    const c = getColor(s.changePct);
+    const sign = s.changePct >= 0 ? '+' : '';
+    return (
+      <div style={{
+        background: c.bg,
+        border: `1px solid ${c.border}`,
+        borderRadius: 10,
+        padding: '10px 12px',
+        cursor: 'default',
+        transition: 'transform 0.1s',
+        minWidth: 0,
+      }}
+        onMouseEnter={e => e.currentTarget.style.transform='scale(1.02)'}
+        onMouseLeave={e => e.currentTarget.style.transform='scale(1)'}
+      >
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
+          <div style={{ fontSize:11, color: c.text, opacity:0.7 }}>Fut. Price</div>
+          <div style={{ fontSize:13, fontWeight:700, color: c.text }}>{fmt(s.ltp, 2)}</div>
+        </div>
+        <div style={{ fontSize:15, fontWeight:800, color: c.text, marginBottom:2 }}>
+          {sign}{s.changePct.toFixed(2)}%
+        </div>
+        <div style={{ fontSize:14, fontWeight:700, color:'#fff', marginBottom:6 }}>{s.symbol}</div>
+        <div style={{ fontSize:10, color: c.text, opacity:0.65 }}>
+          {sign}{fmt(s.change, 2)}
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{ maxWidth:1300, margin:'0 auto' }}>
+      {/* Header */}
+      <div style={{ marginBottom:16, display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
+        <div>
+          <div className="page-title">Market Heatmap</div>
+          <div className="page-subtitle">Nifty 50 stocks · colour by % change</div>
+        </div>
+        <div style={{ display:'flex', gap:16, fontSize:13, alignItems:'center' }}>
+          <span style={{ display:'flex', alignItems:'center', gap:6 }}>
+            <span style={{ width:8, height:8, borderRadius:'50%', display:'inline-block',
+              background: marketStatus.open ? '#4caf50' : '#888',
+              boxShadow: marketStatus.open ? '0 0 6px #4caf50' : 'none' }}/>
+            <span style={{ fontSize:12, color: marketStatus.open ? '#81c784' : 'var(--text-muted)' }}>
+              {marketStatus.label}
+            </span>
+          </span>
+          <span style={{ color:'#81c784' }}>▲ {advances} up</span>
+          <span style={{ color:'#e57373' }}>▼ {declines} down</span>
+          {unchanged > 0 && <span style={{ color:'var(--text-muted)' }}>● {unchanged} flat</span>}
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12,
+        padding:'12px 18px', marginBottom:14,
+        display:'flex', gap:10, alignItems:'center', flexWrap:'wrap' }}>
+        {/* Sector pills */}
+        <div style={{ display:'flex', gap:6, flexWrap:'wrap', flex:1 }}>
+          {SECTORS.map(s => (
+            <button key={s} onClick={()=>setSector(s)}
+              style={{ fontSize:12, fontWeight:600, padding:'4px 10px', borderRadius:99, border:'none', cursor:'pointer',
+                background: sector===s ? 'var(--accent)' : 'var(--bg-card2)',
+                color: sector===s ? '#fff' : 'var(--text-muted)' }}>
+              {s}
+            </button>
+          ))}
+        </div>
+        {/* Sort */}
+        <select value={sortBy} onChange={e=>setSortBy(e.target.value)}
+          style={{ fontSize:12, background:'var(--bg-card2)', border:'1px solid var(--border)',
+            borderRadius:8, color:'var(--text-primary)', padding:'5px 10px' }}>
+          <option value="changePct">Sort: % Change</option>
+          <option value="alpha">Sort: A–Z</option>
+          <option value="ltp">Sort: Price</option>
+        </select>
+        {/* Group by sector toggle */}
+        <label style={{ display:'flex', alignItems:'center', gap:6, fontSize:12, cursor:'pointer', color:'var(--text-muted)' }}>
+          <input type="checkbox" checked={groupBySector} onChange={e=>setGroupBySector(e.target.checked)}/>
+          Group by sector
+        </label>
+        <button onClick={()=>load()}
+          style={{ fontSize:12, fontWeight:700, padding:'5px 14px', borderRadius:8,
+            background:'var(--accent)', border:'none', color:'#fff', cursor:'pointer' }}>
+          {loading ? '…' : 'Refresh'}
+        </button>
+        {lastUpdated && (
+          <span style={{ fontSize:11, color:'var(--text-muted)' }}>
+            Updated {lastUpdated.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
+            {marketStatus.open && <span style={{ color:'#81c784', marginLeft:4 }}>· auto 30s</span>}
+          </span>
+        )}
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div style={{ padding:'12px 18px', background:'rgba(239,68,68,0.06)', border:'1px solid rgba(239,68,68,0.2)',
+          borderRadius:12, fontSize:13, color:'var(--loss)', marginBottom:14 }}>
+          {error}
+        </div>
+      )}
+
+      {/* Heatmap grid */}
+      {loading && !stocks.length ? (
+        <div style={{ textAlign:'center', padding:60, color:'var(--text-muted)', fontSize:14 }}>
+          Loading Nifty 50 data from Yahoo Finance…
+        </div>
+      ) : groupBySector ? (
+        // Grouped by sector
+        <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+          {Object.entries(sectorGroups).sort(([a],[b])=>a.localeCompare(b)).map(([sec, secStocks]) => (
+            <div key={sec} style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, overflow:'hidden' }}>
+              <div style={{ padding:'10px 16px', borderBottom:'1px solid var(--border)',
+                display:'flex', alignItems:'center', gap:10 }}>
+                <span style={{ fontSize:13, fontWeight:700 }}>{sec}</span>
+                <span style={{ fontSize:11, color:'var(--text-muted)' }}>{secStocks.length} stocks</span>
+                {(() => {
+                  const avg = secStocks.reduce((s,x)=>s+x.changePct,0)/secStocks.length;
+                  const c = getColor(avg);
+                  return <span style={{ marginLeft:'auto', fontSize:13, fontWeight:700, color:c.text }}>
+                    {avg>=0?'+':''}{avg.toFixed(2)}% avg
+                  </span>;
+                })()}
+              </div>
+              <div style={{ padding:12, display:'grid',
+                gridTemplateColumns:'repeat(auto-fill, minmax(130px, 1fr))', gap:8 }}>
+                {secStocks.map(s => <StockCard key={s.symbol} s={s}/>)}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        // Flat grid
+        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(130px, 1fr))', gap:8 }}>
+          {filtered.map(s => <StockCard key={s.symbol} s={s}/>)}
+        </div>
+      )}
+
+      {filtered.length === 0 && !loading && (
+        <div style={{ textAlign:'center', padding:40, color:'var(--text-muted)', fontSize:13 }}>
+          No stocks match the selected filter.
+        </div>
+      )}
+    </div>
+  );
+}
