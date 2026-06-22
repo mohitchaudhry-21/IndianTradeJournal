@@ -390,8 +390,10 @@ export default function LiveCharts() {
   const pollNow = async ()=>{
     setLoading(true);
     try {
-      await fetch(`${SERVER}/live-charts/poll-now`,{method:'POST',
-        headers:{'Content-Type':'application/json'},body:JSON.stringify({instrument})});
+      await Promise.all(['NIFTY','BANKNIFTY','FINNIFTY'].map(inst=>
+        fetch(`${SERVER}/live-charts/poll-now`,{method:'POST',
+          headers:{'Content-Type':'application/json'},body:JSON.stringify({instrument:inst})})
+      ));
       await load(true);
     } catch { setError('Server not reachable'); }
     setLoading(false);
