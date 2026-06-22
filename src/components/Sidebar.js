@@ -13,6 +13,7 @@ const SECTIONS = [
       { to: '/calendar',   label: 'Calendar',         icon: '▦' },
       { to: '/stock-market-calendar', label: 'Market Calendar', icon: '📅' },
       { to: '/heatmap',               label: 'Market Heatmap',  icon: '🟩' },
+      { to: '/live-charts',           label: 'Live OI Charts',  icon: '📈' },
     ],
   },
   {
