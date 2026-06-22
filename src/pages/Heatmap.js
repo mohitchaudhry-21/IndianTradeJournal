@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 
 const SERVER = 'http://localhost:5001';
 
+// ── Module-level cache — survives navigation (lives as long as the app is open) ──
+const _cache = { stocks: [], indices: [], lastUpdated: null };
 // ── Market hours helper (IST = UTC+5:30) ─────────────────────────────────────
 function getISTTime() {
   const now = new Date();
@@ -67,11 +69,11 @@ function fmt(n, decimals=2) {
 }
 
 export default function Heatmap() {
-  const [stocks, setStocks]     = useState([]);
-  const [indices, setIndices]   = useState([]);
-  const [loading, setLoading]   = useState(true);
+  const [stocks, setStocks]     = useState(_cache.stocks);
+  const [indices, setIndices]   = useState(_cache.indices);
+  const [loading, setLoading]   = useState(_cache.stocks.length === 0); // only show spinner on first load
   const [error, setError]       = useState('');
-  const [lastUpdated, setLastUpdated] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(_cache.lastUpdated);
   const [sector, setSector]     = useState('All');
   const [sortBy, setSortBy]     = useState('changePct');
   const [groupBySector, setGroupBySector] = useState(false);
@@ -86,10 +88,17 @@ export default function Heatmap() {
         fetch(`${SERVER}/heatmap/indices`),
       ]);
       const [d1, d2] = await Promise.all([r1.json(), r2.json()]);
-      if (d1.success) setStocks(d1.stocks);
-      else setError(d1.error || 'Failed to load stocks');
-      if (d2.success) setIndices(d2.indices);
-      setLastUpdated(new Date());
+      if (d1.success) {
+        _cache.stocks = d1.stocks;
+        setStocks(d1.stocks);
+      } else setError(d1.error || 'Failed to load stocks');
+      if (d2.success) {
+        _cache.indices = d2.indices;
+        setIndices(d2.indices);
+      }
+      const now = new Date();
+      _cache.lastUpdated = now;
+      setLastUpdated(now);
       if (d1.success) setError('');
     } catch { setError('Server not running — start server.py'); }
     setLoading(false);
@@ -97,14 +106,21 @@ export default function Heatmap() {
 
   // Smart refresh: every 30s during market hours, stop when closed
   useEffect(() => {
-    load();
+    // If cache is fresh (< 60s old), skip the initial fetch
+    const cacheAge = _cache.lastUpdated ? (Date.now() - _cache.lastUpdated.getTime()) : Infinity;
+    if (cacheAge < 60000 && _cache.stocks.length > 0) {
+      setLoading(false);
+    } else {
+      load();
+    }
+
     function scheduleRefresh() {
       const status = marketStatusLabel();
       setMarketStatus(status);
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (status.open) {
         intervalRef.current = setInterval(() => {
-          load(true); // silent refresh (no spinner)
+          load(true);
           const s = marketStatusLabel();
           setMarketStatus(s);
           if (!s.open && intervalRef.current) {
@@ -115,7 +131,6 @@ export default function Heatmap() {
       }
     }
     scheduleRefresh();
-    // Re-check every minute in case market opens/closes
     const checkId = setInterval(scheduleRefresh, 60000);
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
