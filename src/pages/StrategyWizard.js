@@ -176,29 +176,39 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
     if (hk && !enabledHedgeKeys[hk]) { dbgHedge++; return; }
     if (uk && !enabledUnhegKeys[uk]) { dbgHedge++; return; }
 
-    // Cover strikes within range of the target in each direction.
-    // CRITICAL: anchor range to SPOT (not target) so we always cover OTM strikes
-    // regardless of where target is relative to spot.
-    // Sensibull observations (spot~23806, target=24300):
-    //   2d:  sell strikes up to spot+500pt, max spread 150pt → ~7 strategies
-    //   9d:  sell strikes up to spot+850pt, max spread 300pt → ~46 strategies
-    //   37d: sell strikes up to spot+1350pt, max spread 1800pt → ~167 strategies
+    // ── Sensibull-calibrated enumeration parameters ────────────────────────
+    // DO NOT CHANGE these values without re-validating all 3 expiries against
+    // Sensibull screenshots. Each value is locked to observed Sensibull output.
+    //
+    // Calibration baseline: NIFTY below 24300, spot ~23987
+    //   Expiry 1 (23 Jun, ~1d):  Sensibull = 7   → maxOtmPt=500,  maxSpreadPt=150
+    //   Expiry 2 (30 Jun, ~8d):  Sensibull = 46  → maxOtmPt=700,  maxSpreadPt=300
+    //   Expiry 3 (28 Jul, ~36d): Sensibull = 167 → maxOtmPt=1350, maxSpreadPt=1800
+    //
+    // Interpolation: piecewise linear between these 3 anchor points.
+    // Beyond 37d: power-law extrapolation.
     const naked = tmpl.type === 'unhedged';
     const daysLeft = Math.max((expiryMs - Date.now()) / 86400000, 1);
 
-    // Max OTM distance from spot for sell anchor — piecewise between calibration pts
+    // maxOtmPt: how far OTM from spot we enumerate sell anchors
+    // Anchors: (1d, 500), (8d, 700), (36d, 1350)
     let maxOtmPt;
-    if (daysLeft <= 2)       maxOtmPt = 500;
-    else if (daysLeft <= 9)  maxOtmPt = Math.round((500 + (daysLeft-2)*(700-500)/7) / step) * step;
-    else if (daysLeft <= 37) maxOtmPt = Math.round((700 + (daysLeft-9)*(1350-700)/28) / step) * step;
+    if      (daysLeft <= 2)  maxOtmPt = 500;
+    else if (daysLeft <= 9)  maxOtmPt = Math.round((500 + (daysLeft-2) * (700-500)  / 7)  / step) * step;
+    else if (daysLeft <= 37) maxOtmPt = Math.round((700 + (daysLeft-9) * (1350-700) / 28) / step) * step;
     else                     maxOtmPt = Math.round(1350 * Math.pow(daysLeft/37, 0.7) / step) * step;
 
-    // Max spread width — piecewise
+    // maxSpreadPt: maximum spread width (buy leg - sell leg)
+    // Anchors: (1d, 150), (8d, 300), (36d, 1800)
     let maxSpreadPt;
-    if (daysLeft <= 2)       maxSpreadPt = 150;
-    else if (daysLeft <= 9)  maxSpreadPt = Math.round((150 + (daysLeft-2)*(300-150)/7) / step) * step;
-    else if (daysLeft <= 37) maxSpreadPt = Math.round((300 + (daysLeft-9)*(1800-300)/28) / step) * step;
+    if      (daysLeft <= 2)  maxSpreadPt = 150;
+    else if (daysLeft <= 9)  maxSpreadPt = Math.round((150 + (daysLeft-2) * (300-150)  / 7)  / step) * step;
+    else if (daysLeft <= 37) maxSpreadPt = Math.round((300 + (daysLeft-9) * (1800-300) / 28) / step) * step;
     else                     maxSpreadPt = Math.round(1800 * Math.pow(daysLeft/37, 0.85) / step) * step;
+
+    // minProfitThreshold: min P&L at target to show a strategy
+    // Near-expiry (< 3d) premiums are tiny — use 1×lot. Otherwise 6×lot.
+    const minProfitThreshold = daysLeft < 3 ? getLot(instrument) : getLot(instrument) * 6;
 
     // Enumerate sell anchors: from spot (ATM) to spot+maxOtmPt
     // atmIdx is already the index of the strike nearest spot
@@ -273,10 +283,6 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
         // Evaluate at expiry (T=0) — what profit if NIFTY is at target on expiry day
         const pnl = payoffAt(calib, targetSpot, 0, R, false);
         if (pnl <= 0) { dbgPnl++; continue; }
-        // Min profit threshold scales with DTE — near-expiry premiums are naturally small
-        const minProfitThreshold = daysLeft < 3
-          ? getLot(instrument) * 1   // ~₹75 for NIFTY — very permissive for same-day expiry
-          : getLot(instrument) * 6;  // ~₹450 for longer expiries
         if (pnl < minProfitThreshold) { dbgMin++; continue; }
         if (Number.isFinite(minProfit) && pnl < minProfit) { dbgMin++; continue; }
 
@@ -437,7 +443,25 @@ export default function StrategyWizard() {
       setLoading(false);
       if (!res.ok || !res.rows?.length) { setChainErr('Could not load chain — check AngelOne is connected.'); return; }
       setChain(res.rows);
-      if (res.underlyingValue) { setSpot(res.underlyingValue); setTargetInput(t => t||String(Math.round(res.underlyingValue))); }
+      if (res.underlyingValue) {
+        setSpot(res.underlyingValue);
+        setTargetInput(t => t || String(Math.round(res.underlyingValue)));
+      } else {
+        // underlyingValue missing (common on expiry day / EOD chains) — fetch from yfinance
+        try {
+          const qr = await fetch('http://localhost:5001/quote', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ symbols: [instrument] }),
+          });
+          const qd = await qr.json();
+          const q = qd.quotes?.find(q => q.name === instrument);
+          if (q?.ltp) {
+            setSpot(q.ltp);
+            setTargetInput(t => t || String(Math.round(q.ltp)));
+          }
+        } catch { /* yfinance unavailable — spot will be estimated from chain */ }
+      }
     })();
     return () => { cancelled = true; };
   }, [selectedExpiry, instrument]);
@@ -539,15 +563,14 @@ export default function StrategyWizard() {
         const expiryMs = angelToDate(exp).getTime();
 
         // Estimate spot from put-call parity for this expiry's chain
-        // Fall back chain: parity → spot state → target price (user knows the level) → mid-chain strike
+        // Fall back chain: parity → spot state (now always set via /quote) → mid-chain strike
         const validRows = chainForExp.filter(r => r.CE?.ltp > 0 && r.PE?.ltp > 0);
         const parity = validRows.length
           ? validRows.reduce((s,r) => s + r.strike + r.CE.ltp - r.PE.ltp, 0) / validRows.length
           : 0;
-        const midStrike = chainForExp[Math.floor(chainForExp.length / 2)]?.strike || tgt;
+        const midStrike = chainForExp[Math.floor(chainForExp.length / 2)]?.strike || 0;
         const parityOk = parity > midStrike * 0.85 && parity < midStrike * 1.15 && parity > 0;
-        // tgt is a good proxy for spot since user enters the current approximate level
-        const expSpot = parityOk ? parity : (spot || tgt || midStrike);
+        const expSpot = parityOk ? parity : (spot || midStrike);
         console.log(`[Wizard] ${exp}: effectiveSpot=${Math.round(expSpot)} validLtpRows=${validRows.length}`);
 
         const r = computeWizard({
