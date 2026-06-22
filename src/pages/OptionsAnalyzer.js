@@ -274,7 +274,16 @@ export default function OptionsAnalyzer() {
   const spotMax = Math.max(...enrichedLegs.map(l => l.strike)) * 1.08;
   const currentSpot = scenarioSpot ?? liveSpot ?? (spotMin + spotMax) / 2;
 
-  const expiryMs = position.expiry ? new Date(position.expiry).getTime() : Date.now();
+  // Parse expiry to 3:30 PM IST (15:30 local) to match NSE market close
+  // position.expiry is an ISO string (UTC midnight) — using new Date() directly
+  // gives 5:30 AM IST due to UTC+5:30 offset. Instead parse date parts and
+  // set to local 15:30 explicitly.
+  const expiryMs = useMemo(() => {
+    if (!position.expiry) return Date.now();
+    const d = new Date(position.expiry);
+    // Build a local-time date at 15:30 on the same calendar day
+    return new Date(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 15, 30).getTime();
+  }, [position.expiry]);
   const nowMs = nowTick;
   const marketTimestamps = useMemo(
     () => generateMarketTimestamps(nowMs, expiryMs),
