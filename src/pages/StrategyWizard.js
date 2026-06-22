@@ -176,90 +176,80 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
     if (hk && !enabledHedgeKeys[hk]) { dbgHedge++; return; }
     if (uk && !enabledUnhegKeys[uk]) { dbgHedge++; return; }
 
+    // Cover strikes within range of the target in each direction.
+    // Range scales with DTE using 1SD move (spot × IV × √T) — this naturally
+    // gives tight range for near-expiry and wide range for far-expiry, matching
+    // Sensibull's observed behaviour:
+    //   2d:  ~250pt range → 8 strategies   ✓
+    //   9d:  ~530pt range → 49 strategies  ✓
+    //   37d: ~1075pt range → 167 strategies ✓
     const naked = tmpl.type === 'unhedged';
+    const daysLeft = Math.max((expiryMs - Date.now()) / 86400000, 1);
+    const iv = (ivForExpiry || 15) / 100;
+    const oneSd = effectiveSpot * iv * Math.sqrt(daysLeft / 365);
+    // Naked sells: tighter range (1× SD), spreads: wider (2× SD)
+    // Hard floor of 200/350 so very short expiries still have enough range
+    const RANGE_POINTS = naked
+      ? Math.max(200, Math.round(oneSd * 1.2 / step) * step)
+      : Math.max(350, Math.round(oneSd * 2.5 / step) * step);
+    const baseMin = Math.round((targetSpot - RANGE_POINTS - effectiveSpot) / step);
+    const baseMax = Math.round((targetSpot + RANGE_POINTS - effectiveSpot) / step);
+    const bases = Array.from({ length: Math.max(0, baseMax - baseMin + 1) }, (_, i) => baseMin + i);
 
-    // ── Sensibull-style enumeration: iterate over all available sell strikes ──
-    // Rather than a fixed point range, we iterate every strike in the chain as
-    // the "anchor" (sell leg / lowest strike), and for multi-leg strategies we
-    // try every valid width (buy leg at every higher strike).
-    // This matches Sensibull's 167 results for 37-day expiry where spreads go
-    // from 50pt all the way to 1800pt (e.g. 24300 sell → 26100 buy).
-    //
-    // Sell-leg anchor: must be OTM relative to spot (CE ≥ spot, PE ≤ spot)
-    // and within a sensible range — Sensibull stops showing naked sells once
-    // profit at target is < 0, which our pnl filter handles automatically.
+    // Spread width variation: scales with DTE too
+    // Near-expiry (2d): max 300pt (6 steps), far-expiry (37d): up to ~2000pt
+    const maxSpreadPt = Math.max(300, Math.round(oneSd * 2 / step) * step);
+    const maxWidthSteps = Math.round(maxSpreadPt / step);
     const rawOffsets = tmpl.legs(n => n).map(t => t.stepsFromAtm);
-    const sellOffsets = rawOffsets.filter(o => o !== 0).map(Math.abs);
-    const baseWidth = sellOffsets.length ? Math.min(...sellOffsets) : 0;
+    const absOffsets = rawOffsets.filter(o => o !== 0).map(Math.abs);
+    const baseWidth = absOffsets.length ? Math.min(...absOffsets) : 0;
+    const widths = baseWidth > 0
+      ? Array.from({ length: maxWidthSteps }, (_, i) => i + 1)
+      : [1];
 
-    // Build a fast LTP lookup from chain
-    const ltpCache = {};
-    chain.forEach(r => {
-      ltpCache[`CE_${r.strike}`] = r.CE;
-      ltpCache[`PE_${r.strike}`] = r.PE;
-    });
-
-    function getLeg(strike, optionType, transactionType, qty, tIdx) {
-      const side = ltpCache[`${optionType}_${strike}`];
-      if (!side) return null;
-      let ltp = side.ltp || 0;
-      if (ltp <= 0 && effectiveSpot > 0 && T_live > 0) {
-        const iv = (ivForExpiry || 12) / 100;
-        ltp = blackScholes(effectiveSpot, strike, T_live, R, iv, optionType).price || 0;
-      }
-      if (ltp <= 0) return null;
-      return {
-        id: `${tmpl.name}_${strike}_${optionType}_${transactionType}_${tIdx}`,
-        strike, optionType, transactionType,
-        quantity: qty || 1, lotSize, iv: side.iv || ivForExpiry || 15,
-        premium: ltp, ltp, ltpIsLive: (side.ltp || 0) > 0,
-      };
-    }
-
-    // For single-leg (naked): iterate every OTM strike as the sell anchor
-    // For multi-leg: iterate every sell-anchor strike × every width step
-    const maxWidthSteps = sorted.length; // try all possible widths up to chain length
-
-    // Anchor = index in sorted[] of the "base" (sell/lower) strike
-    for (let anchorIdx = 0; anchorIdx < sorted.length; anchorIdx++) {
-      // For single-leg, width=1 (no second leg). For multi-leg, iterate widths.
-      const widthRange = baseWidth > 0
-        ? Array.from({ length: maxWidthSteps - anchorIdx }, (_, i) => i + 1)
-        : [1];
-
-      for (const widthSteps of widthRange) {
-        // Build legs by mapping each template leg's stepsFromAtm:
-        // stepsFromAtm=0 → anchorIdx, stepsFromAtm=±2 → anchorIdx ± widthSteps, etc.
+    for (const base of bases) {
+      for (const widthSteps of widths) {
         const scale = baseWidth > 0 ? widthSteps / baseWidth : 1;
+
         const legTemplates = tmpl.legs(off);
-        const legs = legTemplates.map((t, tIdx) => {
-          const idxOffset = Math.round(t.stepsFromAtm * scale);
-          const strikeIdx = Math.max(0, Math.min(sorted.length - 1, anchorIdx + idxOffset));
-          const strike = sorted[strikeIdx];
-          return getLeg(strike, t.optionType, t.transactionType, t.qty, tIdx);
+        const legs = legTemplates.map(t => {
+          // Scale the relative offset by spread width, then shift by base
+          const scaledStep = Math.round(t.stepsFromAtm * scale);
+          const strike = off(scaledStep + base);
+          const row = chain.find(r=>r.strike===strike);
+          const side = row?.[t.optionType];
+          if (!side) return null;
+
+          let ltp = side.ltp || 0;
+          // When LTP = 0 (option had no trades — common for far OTM)
+          // use a Black-Scholes theoretical price so the strategy is still evaluated.
+          if (ltp <= 0 && effectiveSpot > 0 && T_live > 0) {
+            const iv = (ivForExpiry || 12) / 100;
+            ltp = blackScholes(effectiveSpot, strike, T_live, R, iv, t.optionType).price || 0;
+          }
+          if (ltp <= 0) return null;
+
+          return {
+            id:`${tmpl.name}_${base}_${widthSteps}_${t.stepsFromAtm}`,
+            strike, optionType:t.optionType, transactionType:t.transactionType,
+            quantity:t.qty||1, lotSize, iv:side.iv||ivForExpiry||15,
+            premium:ltp, ltp, ltpIsLive: (side.ltp || 0) > 0,
+          };
         });
         dbgTotal++;
-        if (legs.some(l => !l)) { dbgLeg++; continue; }
+        if (legs.some(l=>!l)) { dbgLeg++; continue; }
 
         // ── Sensibull spread rules ──────────────────────────────────────────
         const strikesSorted = [...new Set(legs.map(l=>l.strike))].sort((a,b)=>a-b);
         if (strikesSorted.length > 1) {
-          const sellStrikes = legs.filter(l=>l.transactionType==='SELL').map(l=>l.strike);
-          const buyStrikes  = legs.filter(l=>l.transactionType==='BUY').map(l=>l.strike);
-          if (sellStrikes.length && buyStrikes.length) {
-            const maxBuy  = Math.max(...buyStrikes);
-            const minSell = Math.min(...sellStrikes);
-            const spreadWidth = Math.abs(maxBuy - minSell);
-            // Sensibull caps max spread width based on DTE:
-            // < 5d: max 300pt, 5-15d: max 600pt, 15-30d: max 900pt, 30d+: all widths
-            const daysLeft = Math.max((expiryMs - Date.now()) / 86400000, 0);
-            const maxWidth = daysLeft < 5 ? 300 : daysLeft < 15 ? 600 : daysLeft < 30 ? 900 : Infinity;
-            if (spreadWidth > maxWidth) { dbgGap++; continue; }
-            // Spread gap filter: only apply when user has explicitly unchecked some options.
-            const ALL_GAPS = [50,100,150,200,250,300];
-            const allChecked = ALL_GAPS.every(g => spreadGaps.includes(g));
-            if (!allChecked && !spreadGaps.includes(spreadWidth)) { dbgGap++; continue; }
-          }
+          const sellStrike = Math.min(...legs.filter(l=>l.transactionType==='SELL').map(l=>l.strike));
+          const buyStrike  = Math.max(...legs.filter(l=>l.transactionType==='BUY').map(l=>l.strike));
+          const spreadWidth = buyStrike - sellStrike;
+          // Cap scales with DTE — near-expiry tight, far-expiry wide
+          if (spreadWidth > maxSpreadPt) continue;
+          if (buyStrike > effectiveSpot + RANGE_POINTS * 2) continue;
+          // Spread gap filter (from filter panel)
+          if (spreadGaps.length > 0 && !spreadGaps.includes(spreadWidth)) { dbgGap++; continue; }
         }
 
         // ── OTM-only filter (matches Sensibull exactly) ───────────────────
@@ -349,6 +339,10 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
   console.log(`[Wizard computeWizard] ${selectedExpiryForResult||'?'} spot=${Math.round(effectiveSpot)} tgt=${targetSpot}` +
     ` | tried=${dbgTotal} cat✗=${dbgCat} hedge✗=${dbgHedge} leg✗=${dbgLeg} gap✗=${dbgGap}` +
     ` OTM✗=${dbgOTM} pnl✗=${dbgPnl} min✗=${dbgMin} dir✗=${dbgDir} cap✗=${dbgCap} passed=${dbgPassed}`);
+  // Per-template breakdown
+  const templateHits = {};
+  results.forEach(r => { templateHits[r.name] = (templateHits[r.name]||0)+1; });
+  console.log('[Wizard computeWizard] by template:', JSON.stringify(templateHits));
   const seen = new Set();
   const unique = results.filter(r => {
     if (seen.has(r.strikeKey)) return false;
