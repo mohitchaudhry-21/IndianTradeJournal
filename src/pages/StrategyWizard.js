@@ -270,26 +270,26 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
 
         // ── Same pipeline as OptionsAnalyzer ────────────────────────
         const calib = calibrateLegsIV(legs, effectiveSpot, T_live, R);
-        // Evaluate P&L at target price with remaining time value (not at expiry T=0)
-        // This matches Sensibull which shows profit including time value
-        const pnl = payoffAt(calib, targetSpot, T_live, R, false);
+        // Evaluate at expiry (T=0) — what profit if NIFTY is at target on expiry day
+        const pnl = payoffAt(calib, targetSpot, 0, R, false);
         if (pnl <= 0) { dbgPnl++; continue; }
-        // Min profit threshold scales with DTE — near-expiry premiums are tiny
+        // Min profit threshold scales with DTE — near-expiry premiums are naturally small
         const minProfitThreshold = daysLeft < 3
-          ? getLot(instrument) * 1   // ~₹75 for NIFTY — very permissive near expiry
+          ? getLot(instrument) * 1   // ~₹75 for NIFTY — very permissive for same-day expiry
           : getLot(instrument) * 6;  // ~₹450 for longer expiries
         if (pnl < minProfitThreshold) { dbgMin++; continue; }
         if (Number.isFinite(minProfit) && pnl < minProfit) { dbgMin++; continue; }
 
-        // Direction consistency
+        // Direction consistency — evaluated at expiry (T=0) so BS time value
+        // doesn't interfere with the direction check
         if (prediction === 'below') {
           const farDown = Math.min(targetSpot * 0.93, effectiveSpot * 0.93);
-          if (payoffAt(calib, farDown, T_live, R, false) < 0) { dbgDir++; continue; }
-          if (payoffAt(calib, targetSpot * 0.80, T_live, R, false) < 0) { dbgDir++; continue; }
+          if (payoffAt(calib, farDown, 0, R, false) < 0) { dbgDir++; continue; }
+          if (payoffAt(calib, targetSpot * 0.80, 0, R, false) < 0) { dbgDir++; continue; }
         } else if (prediction === 'above') {
           const farUp = Math.max(targetSpot * 1.07, effectiveSpot * 1.07);
-          if (payoffAt(calib, farUp, T_live, R, false) < 0) { dbgDir++; continue; }
-          if (payoffAt(calib, targetSpot * 1.20, T_live, R, false) < 0) { dbgDir++; continue; }
+          if (payoffAt(calib, farUp, 0, R, false) < 0) { dbgDir++; continue; }
+          if (payoffAt(calib, targetSpot * 1.20, 0, R, false) < 0) { dbgDir++; continue; }
         }
 
         const netPrem = legs.reduce((s,l)=>s+(l.transactionType==='SELL'?1:-1)*l.premium*l.quantity*l.lotSize, 0);
