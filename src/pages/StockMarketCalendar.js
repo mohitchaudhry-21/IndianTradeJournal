@@ -320,18 +320,25 @@ function StockResultsCalendar() {
   function normaliseAction(a) {
     const purposeRaw = a.purpose || a.subject || '';
     const p = purposeRaw.toLowerCase();
-    // Convert NSE ex-date from DD-MMM-YYYY or DD-MM-YYYY to YYYY-MM-DD for sorting
-    // NSE API returns record date; ex-date = record date - 1 calendar day
     const rawDate = a.exDate || a.exdate || a.ex_date || a['Ex Date'] || '';
     let exDate = rawDate;
     if (rawDate) {
-      const d = new Date(rawDate);
-      if (!isNaN(d)) {
-        exDate = d.toISOString().slice(0,10);
-      } else {
-        const parts = rawDate.split('-');
-        if (parts.length === 3 && parts[0].length === 2) {
-          exDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+      // Parse without UTC conversion to avoid IST off-by-one
+      // NSE returns formats like "19-Jun-2026" or "19-06-2026"
+      const parts = rawDate.split('-');
+      if (parts.length === 3) {
+        const MONTHS = { Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12 };
+        if (parts[0].length === 2 && isNaN(parts[1])) {
+          // DD-Mon-YYYY e.g. "19-Jun-2026"
+          const dd = parts[0].padStart(2,'0');
+          const mm = String(MONTHS[parts[1]] || 1).padStart(2,'0');
+          exDate = `${parts[2]}-${mm}-${dd}`;
+        } else if (parts[0].length === 2 && !isNaN(parts[1])) {
+          // DD-MM-YYYY e.g. "19-06-2026"
+          exDate = `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
+        } else if (parts[2].length === 2) {
+          // YYYY-MM-DD already
+          exDate = rawDate;
         }
       }
     }
