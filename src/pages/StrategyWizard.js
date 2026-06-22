@@ -177,28 +177,39 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
     if (uk && !enabledUnhegKeys[uk]) { dbgHedge++; return; }
 
     // Cover strikes within range of the target in each direction.
-    // Range scales with DTE using 1SD move (spot × IV × √T) — this naturally
-    // gives tight range for near-expiry and wide range for far-expiry, matching
-    // Sensibull's observed behaviour:
-    //   2d:  ~250pt range → 8 strategies   ✓
-    //   9d:  ~530pt range → 49 strategies  ✓
-    //   37d: ~1075pt range → 167 strategies ✓
+    // All parameters scale with DTE, calibrated from Sensibull observations:
+    //   2d:  maxSpread=150pt, spreadRange=200pt → ~7 strategies
+    //   9d:  maxSpread=300pt, spreadRange=350pt → ~49 strategies
+    //   37d: maxSpread=1800pt, spreadRange=1100pt → ~167 strategies
     const naked = tmpl.type === 'unhedged';
     const daysLeft = Math.max((expiryMs - Date.now()) / 86400000, 1);
-    const iv = (ivForExpiry || 15) / 100;
-    const oneSd = effectiveSpot * iv * Math.sqrt(daysLeft / 365);
-    // Naked sells: tighter range (1× SD), spreads: wider (2× SD)
-    // Hard floor of 200/350 so very short expiries still have enough range
-    const RANGE_POINTS = naked
-      ? Math.max(200, Math.round(oneSd * 1.2 / step) * step)
-      : Math.max(350, Math.round(oneSd * 2.5 / step) * step);
+
+    // Max spread: piecewise-linear between calibration points, then power-law beyond
+    // 2d→150, 9d→300, 37d→1800
+    let maxSpreadPt;
+    if (daysLeft <= 2)       maxSpreadPt = 150;
+    else if (daysLeft <= 9)  maxSpreadPt = Math.round((150 + (daysLeft - 2) * (300 - 150) / 7) / step) * step;
+    else if (daysLeft <= 37) maxSpreadPt = Math.round((300 + (daysLeft - 9) * (1800 - 300) / 28) / step) * step;
+    else                     maxSpreadPt = Math.round(1800 * Math.pow(daysLeft / 37, 0.85) / step) * step;
+
+    // Sell anchor range above/below target
+    // 2d→200, 9d→350, 37d→1100
+    let RANGE_POINTS;
+    if (daysLeft <= 2)       RANGE_POINTS = naked ? 200 : 200;
+    else if (daysLeft <= 9)  RANGE_POINTS = naked
+      ? Math.round((200 + (daysLeft - 2) * (200 - 200) / 7) / step) * step
+      : Math.round((200 + (daysLeft - 2) * (350 - 200) / 7) / step) * step;
+    else if (daysLeft <= 37) RANGE_POINTS = naked
+      ? Math.round((200 + (daysLeft - 9) * (400 - 200) / 28) / step) * step
+      : Math.round((350 + (daysLeft - 9) * (1100 - 350) / 28) / step) * step;
+    else                     RANGE_POINTS = naked
+      ? Math.round(400 * Math.pow(daysLeft / 37, 0.5) / step) * step
+      : Math.round(1100 * Math.pow(daysLeft / 37, 0.7) / step) * step;
+
     const baseMin = Math.round((targetSpot - RANGE_POINTS - effectiveSpot) / step);
     const baseMax = Math.round((targetSpot + RANGE_POINTS - effectiveSpot) / step);
     const bases = Array.from({ length: Math.max(0, baseMax - baseMin + 1) }, (_, i) => baseMin + i);
 
-    // Spread width variation: scales with DTE too
-    // Near-expiry (2d): max 300pt (6 steps), far-expiry (37d): up to ~2000pt
-    const maxSpreadPt = Math.max(300, Math.round(oneSd * 2 / step) * step);
     const maxWidthSteps = Math.round(maxSpreadPt / step);
     const rawOffsets = tmpl.legs(n => n).map(t => t.stepsFromAtm);
     const absOffsets = rawOffsets.filter(o => o !== 0).map(Math.abs);
