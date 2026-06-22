@@ -387,6 +387,7 @@ export default function StrategyWizard() {
   const [spot, setSpot] = useState(null);
   const [loading, setLoading] = useState(false);
   const [chainErr, setChainErr] = useState('');
+  const [refreshTick, setRefreshTick] = useState(0);
 
   const [showFilters, setShowFilters] = useState(false);
   const [results, setResults] = useState([]);
@@ -465,7 +466,7 @@ export default function StrategyWizard() {
       }
     })();
     return () => { cancelled = true; };
-  }, [selectedExpiry, instrument]);
+  }, [selectedExpiry, instrument, refreshTick]);
 
   // Compute ATM IV for each expiry and populate the "ATM IV on target" filter,
   // matching Sensibull's approach:
@@ -672,57 +673,80 @@ export default function StrategyWizard() {
       </div>
 
       {/* Input bar */}
-      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:'20px 24px', marginBottom:16, display:'flex', gap:12, alignItems:'flex-end', flexWrap:'wrap' }}>
-        <div>
-          <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6 }}>Instrument</div>
-          <select value={instrument} onChange={e=>setInstrument(e.target.value)}
-            style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:14, padding:'10px 14px', cursor:'pointer', outline:'none', fontWeight:700 }}>
-            {['NIFTY','BANKNIFTY','FINNIFTY','MIDCPNIFTY','SENSEX'].map(i=><option key={i} value={i}>{i}{spot&&i===instrument?' '+spot.toLocaleString('en-IN',{maximumFractionDigits:2}):''}</option>)}
-          </select>
+      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:'18px 24px', marginBottom:16 }}>
+        {/* Row 1: controls */}
+        <div style={{ display:'flex', gap:12, alignItems:'flex-end', flexWrap:'wrap' }}>
+          <div>
+            <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:5, textTransform:'uppercase', letterSpacing:'0.05em' }}>Instrument</div>
+            <select value={instrument} onChange={e=>setInstrument(e.target.value)}
+              style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:14, padding:'9px 14px', cursor:'pointer', outline:'none', fontWeight:700 }}>
+              {['NIFTY','BANKNIFTY','FINNIFTY','MIDCPNIFTY','SENSEX'].map(i=><option key={i} value={i}>{i}{spot&&i===instrument?' '+spot.toLocaleString('en-IN',{maximumFractionDigits:2}):''}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:5, textTransform:'uppercase', letterSpacing:'0.05em' }}>Prediction</div>
+            <select value={prediction} onChange={e=>setPrediction(e.target.value)}
+              style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:13, padding:'9px 12px', cursor:'pointer', outline:'none', minWidth:105 }}>
+              <option value="above">Above</option>
+              <option value="below">Below</option>
+              <option value="between">Between</option>
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:5, textTransform:'uppercase', letterSpacing:'0.05em' }}>{instrument} Target</div>
+            <input type="number" value={targetInput} onChange={e=>setTargetInput(e.target.value)}
+              placeholder={spot?String(Math.round(spot)):'e.g. 24500'}
+              style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:13, padding:'9px 12px', outline:'none', width:130 }} />
+          </div>
+          <div>
+            <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:5, textTransform:'uppercase', letterSpacing:'0.05em' }}>Target date</div>
+            <select value={selectedExpiry} onChange={e=>setSelectedExpiry(e.target.value)}
+              style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:13, padding:'9px 12px', cursor:'pointer', outline:'none', minWidth:175 }}>
+              {expiries.map((e,i)=><option key={e} value={e}>{fmtExp(e)} ({daysUntil(e)} days){i===2?' · Monthly':''}</option>)}
+            </select>
+          </div>
+          <div style={{ display:'flex', gap:8, alignItems:'center', marginLeft:'auto' }}>
+            <button onClick={()=>setShowFilters(f=>!f)}
+              style={{ background:showFilters?'rgba(59,130,246,0.12)':'var(--bg-card2)', border:`1px solid ${showFilters?'var(--accent)':'var(--border)'}`, borderRadius:8, color:showFilters?'var(--accent)':'var(--text-primary)', fontSize:13, padding:'9px 16px', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
+              ⚙ Filters
+            </button>
+            {/* Refresh All: reloads chain for current expiry */}
+            <button
+              onClick={() => { setChain([]); setSpot(null); setResults([]); setSearched(false); setRefreshTick(t => t+1); }}
+              disabled={loading}
+              title="Refresh chain data"
+              style={{ background:'var(--bg-card2)', border:'1px solid var(--border)', borderRadius:8, color:'var(--text-muted)', fontSize:13, padding:'9px 12px', cursor:loading?'not-allowed':'pointer', opacity:loading?0.5:1, display:'flex', alignItems:'center', gap:5 }}>
+              {loading
+                ? <span style={{ display:'inline-block', width:12, height:12, borderRadius:'50%', border:'2px solid var(--accent)', borderTopColor:'transparent', animation:'spin 0.7s linear infinite' }}/>
+                : '↻'}
+              {loading ? 'Loading…' : 'Refresh'}
+            </button>
+            <button onClick={go} disabled={!chain.length||computing}
+              style={{ background:'var(--accent)', border:'none', borderRadius:8, color:'#fff', fontSize:13, fontWeight:700, padding:'9px 32px', cursor:chain.length&&!computing?'pointer':'not-allowed', opacity:chain.length&&!computing?1:0.5 }}>
+              {computing?'Working…':'Go'}
+            </button>
+          </div>
         </div>
-        <div>
-          <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6 }}>Prediction</div>
-          <select value={prediction} onChange={e=>setPrediction(e.target.value)}
-            style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:13, padding:'8px 12px', cursor:'pointer', outline:'none', minWidth:100 }}>
-            <option value="above">Above</option>
-            <option value="below">Below</option>
-            <option value="between">Between</option>
-          </select>
+
+        {/* Row 2: status line */}
+        <div style={{ display:'flex', alignItems:'center', gap:12, marginTop:12, paddingTop:12, borderTop:'1px solid var(--border)' }}>
+          {loading && (
+            <span style={{ fontSize:12, color:'var(--accent)', display:'flex', alignItems:'center', gap:5 }}>
+              <span style={{ display:'inline-block', width:8, height:8, borderRadius:'50%', border:'2px solid var(--accent)', borderTopColor:'transparent', animation:'spin 0.7s linear infinite' }}/>
+              Loading chain…
+            </span>
+          )}
+          {chainErr && <span style={{ fontSize:12, color:'var(--loss)' }}>{chainErr}</span>}
+          {chain.length > 0 && !loading && (
+            <span style={{ fontSize:12, color:isMarketOpen()?'var(--profit)':'#FFA53D', display:'flex', alignItems:'center', gap:5 }}>
+              <span style={{ width:7, height:7, borderRadius:'50%', background:isMarketOpen()?'var(--profit)':'#FFA53D', display:'inline-block', flexShrink:0 }}/>
+              {isMarketOpen() ? 'Live data' : 'Last close'} · <strong>{chain.length}</strong> strikes loaded · {selectedExpiry ? fmtExp(selectedExpiry) : ''}
+            </span>
+          )}
+          {!chain.length && !loading && !chainErr && (
+            <span style={{ fontSize:12, color:'var(--text-muted)' }}>Select an expiry to load the option chain</span>
+          )}
         </div>
-        <div>
-          <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6 }}>{instrument} Target</div>
-          <input type="number" value={targetInput} onChange={e=>setTargetInput(e.target.value)}
-            placeholder={spot?String(Math.round(spot)):'e.g. 24500'}
-            style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:13, padding:'8px 12px', outline:'none', width:130 }} />
-        </div>
-        <div>
-          <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:6 }}>Target date</div>
-          <select value={selectedExpiry} onChange={e=>setSelectedExpiry(e.target.value)}
-            style={{ background:'var(--bg-card2)', border:'1px solid var(--border-hover)', borderRadius:8, color:'var(--text-primary)', fontSize:13, padding:'8px 12px', cursor:'pointer', outline:'none', minWidth:155 }}>
-            {expiries.map((e,i)=><option key={e} value={e}>{fmtExp(e)} ({daysUntil(e)} days){i===2?' · Monthly':''}</option>)}
-          </select>
-        </div>
-        <div style={{ display:'flex', gap:8, alignItems:'center' }}>
-          <button onClick={()=>setShowFilters(f=>!f)}
-            style={{ background:showFilters?'rgba(59,130,246,0.12)':'var(--bg-card2)', border:`1px solid ${showFilters?'var(--accent)':'var(--border)'}`, borderRadius:8, color:showFilters?'var(--accent)':'var(--text-primary)', fontSize:13, padding:'8px 16px', cursor:'pointer', display:'flex', alignItems:'center', gap:6 }}>
-            ⚙ Filters
-          </button>
-          <button onClick={go} disabled={!chain.length||computing}
-            style={{ background:'var(--accent)', border:'none', borderRadius:8, color:'#fff', fontSize:13, fontWeight:700, padding:'8px 28px', cursor:chain.length?'pointer':'not-allowed', opacity:chain.length?1:0.5 }}>
-            {computing?'Working…':'Go'}
-          </button>
-        </div>
-        {loading&&<span style={{ fontSize:12, color:'var(--accent)', alignSelf:'center', display:'flex', alignItems:'center', gap:5 }}>
-          <span style={{ display:'inline-block', width:10, height:10, borderRadius:'50%', border:'2px solid var(--accent)', borderTopColor:'transparent', animation:'spin 0.7s linear infinite' }}/>
-          Loading chain…
-        </span>}
-        {chainErr&&<span style={{ fontSize:12, color:'var(--loss)', alignSelf:'center' }}>{chainErr}</span>}
-        {chain.length>0&&!loading&&(
-          <span style={{ fontSize:11, color:isMarketOpen()?'var(--profit)':'#FFA53D', alignSelf:'center', display:'flex', alignItems:'center', gap:4 }}>
-            <span style={{ width:6, height:6, borderRadius:'50%', background:isMarketOpen()?'var(--profit)':'#FFA53D', display:'inline-block' }}/>
-            {isMarketOpen()?'live':'last close'} · {chain.length} strikes
-          </span>
-        )}
       </div>
 
       {/* Filters panel */}
