@@ -250,9 +250,12 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
             const maxBuy  = Math.max(...buyStrikes);
             const minSell = Math.min(...sellStrikes);
             const spreadWidth = Math.abs(maxBuy - minSell);
+            // Sensibull caps max spread width based on DTE:
+            // < 5d: max 300pt, 5-15d: max 600pt, 15-30d: max 900pt, 30d+: all widths
+            const daysLeft = Math.max((expiryMs - Date.now()) / 86400000, 0);
+            const maxWidth = daysLeft < 5 ? 300 : daysLeft < 15 ? 600 : daysLeft < 30 ? 900 : Infinity;
+            if (spreadWidth > maxWidth) { dbgGap++; continue; }
             // Spread gap filter: only apply when user has explicitly unchecked some options.
-            // When all 6 are checked (default), show ALL widths — matching Sensibull's behaviour
-            // where wide spreads (350pt, 400pt... 1800pt) are shown for longer expiries.
             const ALL_GAPS = [50,100,150,200,250,300];
             const allChecked = ALL_GAPS.every(g => spreadGaps.includes(g));
             if (!allChecked && !spreadGaps.includes(spreadWidth)) { dbgGap++; continue; }
