@@ -83,26 +83,23 @@ export default function Heatmap() {
   const [marketStatus, setMarketStatus]   = useState(marketStatusLabel());
   const intervalRef = useRef(null);
 
-  const load = useCallback(async (silent=false) => {
+  const load = useCallback(async (silent=false, force=false) => {
     if (!silent) setLoading(true);
     try {
-      const [r1, r2] = await Promise.all([
-        fetch(`${SERVER}/heatmap/nifty50`),
-        fetch(`${SERVER}/heatmap/indices`),
-      ]);
-      const [d1, d2] = await Promise.all([r1.json(), r2.json()]);
-      if (d1.success) {
-        _cache.stocks = d1.stocks;
-        setStocks(d1.stocks);
-      } else setError(d1.error || 'Failed to load stocks');
-      if (d2.success) {
-        _cache.indices = d2.indices;
-        setIndices(d2.indices);
+      const r = await fetch(`${SERVER}/heatmap/all${force ? '?force=true' : ''}`);
+      const d = await r.json();
+      if (d.success) {
+        _cache.stocks  = d.stocks;
+        _cache.indices = d.indices;
+        setStocks(d.stocks);
+        setIndices(d.indices);
+        const now = new Date();
+        _cache.lastUpdated = now;
+        setLastUpdated(now);
+        setError('');
+      } else {
+        setError(d.error || 'Failed to load heatmap');
       }
-      const now = new Date();
-      _cache.lastUpdated = now;
-      setLastUpdated(now);
-      if (d1.success) setError('');
     } catch { setError('Server not running — start server.py'); }
     setLoading(false);
   }, []);
@@ -256,7 +253,7 @@ export default function Heatmap() {
             <input type="checkbox" checked={groupBySector} onChange={e=>setGroupBySector(e.target.checked)}/>
             Group
           </label>
-          <button onClick={()=>load()}
+          <button onClick={()=>load(false, true)}
             style={{ fontSize:12, fontWeight:700, padding:'5px 14px', borderRadius:8,
               background:'var(--accent)', border:'none', color:'#fff', cursor:'pointer' }}>
             {loading ? '…' : 'Refresh'}
