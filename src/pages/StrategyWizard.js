@@ -189,8 +189,8 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
     // Max OTM distance from spot for sell anchor — piecewise between calibration pts
     let maxOtmPt;
     if (daysLeft <= 2)       maxOtmPt = 500;
-    else if (daysLeft <= 9)  maxOtmPt = Math.round((500 + (daysLeft-2)*(850-500)/7) / step) * step;
-    else if (daysLeft <= 37) maxOtmPt = Math.round((850 + (daysLeft-9)*(1350-850)/28) / step) * step;
+    else if (daysLeft <= 9)  maxOtmPt = Math.round((500 + (daysLeft-2)*(700-500)/7) / step) * step;
+    else if (daysLeft <= 37) maxOtmPt = Math.round((700 + (daysLeft-9)*(1350-700)/28) / step) * step;
     else                     maxOtmPt = Math.round(1350 * Math.pow(daysLeft/37, 0.7) / step) * step;
 
     // Max spread width — piecewise
