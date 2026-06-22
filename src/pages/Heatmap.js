@@ -161,20 +161,20 @@ export default function Heatmap() {
   const StockCard = ({ s }) => {
     const c = getColor(s.changePct);
     const sign = s.changePct >= 0 ? '+' : '';
-    const lbl = { fontSize:10, color:c.textMid, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:2 };
+    const lbl = { fontSize:11, color:c.textMid, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:3 };
     return (
       <div style={{ background:c.bg, border:`1px solid ${c.border}`, borderRadius:12,
-        padding:'12px 13px', cursor:'default', transition:'transform 0.1s', minWidth:0, overflow:'hidden' }}
+        padding:'14px 16px', cursor:'default', transition:'transform 0.1s', minWidth:0, overflow:'hidden' }}
         onMouseEnter={e => e.currentTarget.style.transform='scale(1.02)'}
         onMouseLeave={e => e.currentTarget.style.transform='scale(1)'}
       >
-        {/* Header: Symbol left, % right — both on one line, symbol truncates if needed */}
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:4, gap:4 }}>
-          <span style={{ fontSize:14, fontWeight:700, color:'#fff', minWidth:0,
+        {/* Header: Symbol + % */}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:6, gap:4 }}>
+          <span style={{ fontSize:16, fontWeight:700, color:'#fff', minWidth:0,
             overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
             {displaySymbol(s.symbol)}
           </span>
-          <span style={{ fontSize:15, fontWeight:700, color:c.text, flexShrink:0 }}>
+          <span style={{ fontSize:16, fontWeight:700, color:c.text, flexShrink:0 }}>
             {sign}{s.changePct.toFixed(2)}%
           </span>
         </div>
@@ -182,37 +182,37 @@ export default function Heatmap() {
         {/* Divider */}
         <div style={{ height:1, background:'rgba(255,255,255,0.18)', margin:'8px 0' }}/>
 
-        {/* Row 1: Open / LTP / Chg ₹ — equal 3 columns */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0 4px', marginBottom:8 }}>
+        {/* Row 1: Open / LTP / Chg ₹ */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0 6px', marginBottom:10 }}>
           <div>
             <div style={lbl}>Open</div>
-            <div style={{ fontSize:11, color:c.textMid, fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+            <div style={{ fontSize:12, color:c.textMid, fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
               {fmt(s.prevClose, 2)}
             </div>
           </div>
           <div>
             <div style={lbl}>LTP</div>
-            <div style={{ fontSize:11, fontWeight:700, color:c.textBright, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+            <div style={{ fontSize:13, fontWeight:700, color:c.textBright, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
               {fmt(s.ltp, 2)}
             </div>
           </div>
           <div>
             <div style={lbl}>Chg ₹</div>
-            <div style={{ fontSize:11, fontWeight:700, color:c.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+            <div style={{ fontSize:12, fontWeight:700, color:c.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
               {sign}{fmt(s.change, 2)}
             </div>
           </div>
         </div>
 
         {/* Row 2: Fut. Price / ATM IV */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 4px' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 6px' }}>
           <div>
             <div style={lbl}>Fut. Price</div>
-            <div style={{ fontSize:11, fontWeight:500, color:c.textMid }}>{fmt(s.ltp, 2)}</div>
+            <div style={{ fontSize:12, fontWeight:500, color:c.textMid }}>{fmt(s.ltp, 2)}</div>
           </div>
           <div>
             <div style={lbl}>ATM IV</div>
-            <div style={{ fontSize:11, fontWeight:700, color:c.textBright }}>—</div>
+            <div style={{ fontSize:12, fontWeight:700, color:c.textBright }}>—</div>
           </div>
         </div>
       </div>
@@ -220,7 +220,7 @@ export default function Heatmap() {
   };
 
   return (
-    <div style={{ maxWidth:1400, margin:'0 auto' }}>
+    <div style={{ width:'calc(100% + 64px)', margin:'-28px -32px', padding:'28px 32px' }}>
       {/* Header */}
       <div style={{ marginBottom:14, display:'flex', alignItems:'flex-start', justifyContent:'space-between', flexWrap:'wrap', gap:12 }}>
         <div>
@@ -360,14 +360,14 @@ export default function Heatmap() {
                     textTransform:'uppercase', letterSpacing:'0.06em' }}>
                     {sec} ({secStocks.length})
                   </div>
-                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(170px, 1fr))', gap:6 }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:6 }}>
                     {secStocks.map(s => <StockCard key={s.symbol} s={s}/>)}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(170px, 1fr))', gap:6 }}>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(220px, 1fr))', gap:10 }}>
               {filtered.map(s => <StockCard key={s.symbol} s={s}/>)}
             </div>
           )}
