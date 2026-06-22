@@ -177,38 +177,36 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
     if (uk && !enabledUnhegKeys[uk]) { dbgHedge++; return; }
 
     // Cover strikes within range of the target in each direction.
-    // All parameters scale with DTE, calibrated from Sensibull observations:
-    //   2d:  maxSpread=150pt, spreadRange=200pt → ~7 strategies
-    //   9d:  maxSpread=300pt, spreadRange=350pt → ~49 strategies
-    //   37d: maxSpread=1800pt, spreadRange=1100pt → ~167 strategies
+    // CRITICAL: anchor range to SPOT (not target) so we always cover OTM strikes
+    // regardless of where target is relative to spot.
+    // Sensibull observations (spot~23806, target=24300):
+    //   2d:  sell strikes up to spot+500pt, max spread 150pt → ~7 strategies
+    //   9d:  sell strikes up to spot+850pt, max spread 300pt → ~46 strategies
+    //   37d: sell strikes up to spot+1350pt, max spread 1800pt → ~167 strategies
     const naked = tmpl.type === 'unhedged';
     const daysLeft = Math.max((expiryMs - Date.now()) / 86400000, 1);
 
-    // Max spread: piecewise-linear between calibration points, then power-law beyond
-    // 2d→150, 9d→300, 37d→1800
+    // Max OTM distance from spot for sell anchor — piecewise between calibration pts
+    let maxOtmPt;
+    if (daysLeft <= 2)       maxOtmPt = 500;
+    else if (daysLeft <= 9)  maxOtmPt = Math.round((500 + (daysLeft-2)*(850-500)/7) / step) * step;
+    else if (daysLeft <= 37) maxOtmPt = Math.round((850 + (daysLeft-9)*(1350-850)/28) / step) * step;
+    else                     maxOtmPt = Math.round(1350 * Math.pow(daysLeft/37, 0.7) / step) * step;
+
+    // Max spread width — piecewise
     let maxSpreadPt;
     if (daysLeft <= 2)       maxSpreadPt = 150;
-    else if (daysLeft <= 9)  maxSpreadPt = Math.round((150 + (daysLeft - 2) * (300 - 150) / 7) / step) * step;
-    else if (daysLeft <= 37) maxSpreadPt = Math.round((300 + (daysLeft - 9) * (1800 - 300) / 28) / step) * step;
-    else                     maxSpreadPt = Math.round(1800 * Math.pow(daysLeft / 37, 0.85) / step) * step;
+    else if (daysLeft <= 9)  maxSpreadPt = Math.round((150 + (daysLeft-2)*(300-150)/7) / step) * step;
+    else if (daysLeft <= 37) maxSpreadPt = Math.round((300 + (daysLeft-9)*(1800-300)/28) / step) * step;
+    else                     maxSpreadPt = Math.round(1800 * Math.pow(daysLeft/37, 0.85) / step) * step;
 
-    // Sell anchor range above/below target
-    // 2d→200, 9d→350, 37d→1100
-    let RANGE_POINTS;
-    if (daysLeft <= 2)       RANGE_POINTS = naked ? 200 : 200;
-    else if (daysLeft <= 9)  RANGE_POINTS = naked
-      ? Math.round((200 + (daysLeft - 2) * (200 - 200) / 7) / step) * step
-      : Math.round((200 + (daysLeft - 2) * (350 - 200) / 7) / step) * step;
-    else if (daysLeft <= 37) RANGE_POINTS = naked
-      ? Math.round((200 + (daysLeft - 9) * (400 - 200) / 28) / step) * step
-      : Math.round((350 + (daysLeft - 9) * (1100 - 350) / 28) / step) * step;
-    else                     RANGE_POINTS = naked
-      ? Math.round(400 * Math.pow(daysLeft / 37, 0.5) / step) * step
-      : Math.round(1100 * Math.pow(daysLeft / 37, 0.7) / step) * step;
-
-    const baseMin = Math.round((targetSpot - RANGE_POINTS - effectiveSpot) / step);
-    const baseMax = Math.round((targetSpot + RANGE_POINTS - effectiveSpot) / step);
-    const bases = Array.from({ length: Math.max(0, baseMax - baseMin + 1) }, (_, i) => baseMin + i);
+    // Enumerate sell anchors: from spot (ATM) to spot+maxOtmPt
+    // atmIdx is already the index of the strike nearest spot
+    const maxAnchorIdx = Math.min(sorted.length - 1, atmIdx + Math.round(maxOtmPt / step));
+    const bases = [];
+    for (let i = atmIdx; i <= maxAnchorIdx; i++) {
+      bases.push(i - atmIdx); // offset from ATM
+    }
 
     const maxWidthSteps = Math.round(maxSpreadPt / step);
     const rawOffsets = tmpl.legs(n => n).map(t => t.stepsFromAtm);
@@ -224,16 +222,16 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
 
         const legTemplates = tmpl.legs(off);
         const legs = legTemplates.map(t => {
-          // Scale the relative offset by spread width, then shift by base
+          // base = offset from ATM for the anchor leg
+          // Scale the relative leg offset by spread width, then add to anchor
           const scaledStep = Math.round(t.stepsFromAtm * scale);
-          const strike = off(scaledStep + base);
-          const row = chain.find(r=>r.strike===strike);
+          const strikeIdx = Math.max(0, Math.min(sorted.length - 1, atmIdx + base + scaledStep));
+          const strike = sorted[strikeIdx];
+          const row = chain.find(r => r.strike === strike);
           const side = row?.[t.optionType];
           if (!side) return null;
 
           let ltp = side.ltp || 0;
-          // When LTP = 0 (option had no trades — common for far OTM)
-          // use a Black-Scholes theoretical price so the strategy is still evaluated.
           if (ltp <= 0 && effectiveSpot > 0 && T_live > 0) {
             const iv = (ivForExpiry || 12) / 100;
             ltp = blackScholes(effectiveSpot, strike, T_live, R, iv, t.optionType).price || 0;
@@ -241,14 +239,14 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
           if (ltp <= 0) return null;
 
           return {
-            id:`${tmpl.name}_${base}_${widthSteps}_${t.stepsFromAtm}`,
-            strike, optionType:t.optionType, transactionType:t.transactionType,
-            quantity:t.qty||1, lotSize, iv:side.iv||ivForExpiry||15,
-            premium:ltp, ltp, ltpIsLive: (side.ltp || 0) > 0,
+            id: `${tmpl.name}_${base}_${widthSteps}_${t.stepsFromAtm}`,
+            strike, optionType: t.optionType, transactionType: t.transactionType,
+            quantity: t.qty || 1, lotSize, iv: side.iv || ivForExpiry || 15,
+            premium: ltp, ltp, ltpIsLive: (side.ltp || 0) > 0,
           };
         });
         dbgTotal++;
-        if (legs.some(l=>!l)) { dbgLeg++; continue; }
+        if (legs.some(l => !l)) { dbgLeg++; continue; }
 
         // ── Sensibull spread rules ──────────────────────────────────────────
         const strikesSorted = [...new Set(legs.map(l=>l.strike))].sort((a,b)=>a-b);
@@ -256,9 +254,9 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
           const sellStrike = Math.min(...legs.filter(l=>l.transactionType==='SELL').map(l=>l.strike));
           const buyStrike  = Math.max(...legs.filter(l=>l.transactionType==='BUY').map(l=>l.strike));
           const spreadWidth = buyStrike - sellStrike;
-          // Cap scales with DTE — near-expiry tight, far-expiry wide
-          if (spreadWidth > maxSpreadPt) continue;
-          if (buyStrike > effectiveSpot + RANGE_POINTS * 2) continue;
+          if (spreadWidth > maxSpreadPt) { dbgGap++; continue; }
+          // Buy leg can't go beyond the furthest sell anchor + one more spread width
+          if (buyStrike > effectiveSpot + maxOtmPt + maxSpreadPt) { dbgGap++; continue; }
           // Spread gap filter (from filter panel)
           if (spreadGaps.length > 0 && !spreadGaps.includes(spreadWidth)) { dbgGap++; continue; }
         }
