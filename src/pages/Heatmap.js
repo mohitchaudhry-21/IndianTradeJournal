@@ -146,42 +146,58 @@ export default function Heatmap() {
   const StockCard = ({ s }) => {
     const c = getColor(s.changePct);
     const sign = s.changePct >= 0 ? '+' : '';
-    const lbl = { fontSize:10, color:c.textMid, textTransform:'uppercase', letterSpacing:'0.05em', marginBottom:3 };
+    const lbl = { fontSize:10, color:c.textMid, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:2 };
     return (
       <div style={{ background:c.bg, border:`1px solid ${c.border}`, borderRadius:12,
-        padding:'13px 15px', cursor:'default', transition:'transform 0.1s', minWidth:0 }}
+        padding:'12px 13px', cursor:'default', transition:'transform 0.1s', minWidth:0, overflow:'hidden' }}
         onMouseEnter={e => e.currentTarget.style.transform='scale(1.02)'}
         onMouseLeave={e => e.currentTarget.style.transform='scale(1)'}
       >
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:9 }}>
-          <span style={{ fontSize:16, fontWeight:700, color:'#fff' }}>{displaySymbol(s.symbol)}</span>
-          <span style={{ fontSize:18, fontWeight:700, color:c.text }}>{sign}{s.changePct.toFixed(2)}%</span>
+        {/* Header: Symbol left, % right — both on one line, symbol truncates if needed */}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:4, gap:4 }}>
+          <span style={{ fontSize:14, fontWeight:700, color:'#fff', minWidth:0,
+            overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+            {displaySymbol(s.symbol)}
+          </span>
+          <span style={{ fontSize:15, fontWeight:700, color:c.text, flexShrink:0 }}>
+            {sign}{s.changePct.toFixed(2)}%
+          </span>
         </div>
-        <div style={{ height:1, background:'rgba(255,255,255,0.18)', marginBottom:9 }}/>
-        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:9 }}>
+
+        {/* Divider */}
+        <div style={{ height:1, background:'rgba(255,255,255,0.18)', margin:'8px 0' }}/>
+
+        {/* Row 1: Open / LTP / Chg ₹ — equal 3 columns */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0 4px', marginBottom:8 }}>
           <div>
             <div style={lbl}>Open</div>
-            <div style={{ fontSize:12, fontWeight:500, color:c.textMid }}>{fmt(s.prevClose, 2)}</div>
+            <div style={{ fontSize:11, color:c.textMid, fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+              {fmt(s.prevClose, 2)}
+            </div>
           </div>
-          <span style={{ color:c.text, fontSize:12, marginTop:12, opacity:0.7 }}>›</span>
           <div>
             <div style={lbl}>LTP</div>
-            <div style={{ fontSize:12, fontWeight:700, color:c.textBright }}>{fmt(s.ltp, 2)}</div>
+            <div style={{ fontSize:11, fontWeight:700, color:c.textBright, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+              {fmt(s.ltp, 2)}
+            </div>
           </div>
-          <span style={{ color:c.text, fontSize:12, marginTop:12, opacity:0.7 }}>›</span>
           <div>
             <div style={lbl}>Chg ₹</div>
-            <div style={{ fontSize:12, fontWeight:700, color:c.text }}>{sign}{fmt(s.change, 2)}</div>
+            <div style={{ fontSize:11, fontWeight:700, color:c.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+              {sign}{fmt(s.change, 2)}
+            </div>
           </div>
         </div>
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end' }}>
+
+        {/* Row 2: Fut. Price / ATM IV */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 4px' }}>
           <div>
             <div style={lbl}>Fut. Price</div>
-            <div style={{ fontSize:12, fontWeight:500, color:c.textMid }}>{fmt(s.ltp, 2)}</div>
+            <div style={{ fontSize:11, fontWeight:500, color:c.textMid }}>{fmt(s.ltp, 2)}</div>
           </div>
-          <div style={{ textAlign:'right' }}>
-            <div style={{ ...lbl, textAlign:'right' }}>ATM IV</div>
-            <div style={{ fontSize:12, fontWeight:700, color:c.textBright }}>—</div>
+          <div>
+            <div style={lbl}>ATM IV</div>
+            <div style={{ fontSize:11, fontWeight:700, color:c.textBright }}>—</div>
           </div>
         </div>
       </div>
