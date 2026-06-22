@@ -539,11 +539,16 @@ export default function StrategyWizard() {
         const expiryMs = angelToDate(exp).getTime();
 
         // Estimate spot from put-call parity for this expiry's chain
+        // Fall back chain: parity → spot state → target price (user knows the level) → mid-chain strike
         const validRows = chainForExp.filter(r => r.CE?.ltp > 0 && r.PE?.ltp > 0);
-        const expSpot = validRows.length
+        const parity = validRows.length
           ? validRows.reduce((s,r) => s + r.strike + r.CE.ltp - r.PE.ltp, 0) / validRows.length
-          : spot;
-        console.log(`[Wizard] ${exp}: effectiveSpot=${Math.round(expSpot||spot)} validLtpRows=${validRows.length}`);
+          : 0;
+        const midStrike = chainForExp[Math.floor(chainForExp.length / 2)]?.strike || tgt;
+        const parityOk = parity > midStrike * 0.85 && parity < midStrike * 1.15 && parity > 0;
+        // tgt is a good proxy for spot since user enters the current approximate level
+        const expSpot = parityOk ? parity : (spot || tgt || midStrike);
+        console.log(`[Wizard] ${exp}: effectiveSpot=${Math.round(expSpot)} validLtpRows=${validRows.length}`);
 
         const r = computeWizard({
           chain: chainForExp, spot: expSpot || spot, instrument, prediction,
