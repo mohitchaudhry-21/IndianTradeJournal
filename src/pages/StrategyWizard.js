@@ -191,11 +191,12 @@ function computeWizard({ chain, spot, instrument, prediction, targetSpot, expiry
     const daysLeft = Math.max((expiryMs - Date.now()) / 86400000, 1);
 
     // maxOtmPt: how far OTM from spot we enumerate sell anchors
-    // Anchors: (1d, 500), (8d, 700), (36d, 1350)
+    // Anchors: (1d, 250), (8d, 550), (36d, 1350)
+    // Calibrated: 23Jun→28 need 7, 30Jun→63 need 46, 28Jul→167✓
     let maxOtmPt;
-    if      (daysLeft <= 2)  maxOtmPt = 500;
-    else if (daysLeft <= 9)  maxOtmPt = Math.round((500 + (daysLeft-2) * (700-500)  / 7)  / step) * step;
-    else if (daysLeft <= 37) maxOtmPt = Math.round((700 + (daysLeft-9) * (1350-700) / 28) / step) * step;
+    if      (daysLeft <= 2)  maxOtmPt = 250;
+    else if (daysLeft <= 9)  maxOtmPt = Math.round((250 + (daysLeft-2) * (550-250)  / 7)  / step) * step;
+    else if (daysLeft <= 37) maxOtmPt = Math.round((550 + (daysLeft-9) * (1350-550) / 28) / step) * step;
     else                     maxOtmPt = Math.round(1350 * Math.pow(daysLeft/37, 0.7) / step) * step;
 
     // maxSpreadPt: maximum spread width (buy leg - sell leg)
