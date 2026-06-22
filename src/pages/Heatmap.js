@@ -161,15 +161,17 @@ export default function Heatmap() {
   const StockCard = ({ s }) => {
     const c = getColor(s.changePct);
     const sign = s.changePct >= 0 ? '+' : '';
-    const lbl = { fontSize:11, color:c.textMid, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:3 };
+    const lbl = { fontSize:10, color:c.textMid, textTransform:'uppercase', letterSpacing:'0.04em', marginBottom:3 };
+    const vdiv = { width:1, background:'rgba(255,255,255,0.18)', alignSelf:'stretch' };
     return (
       <div style={{ background:c.bg, border:`1px solid ${c.border}`, borderRadius:12,
-        padding:'14px 16px', cursor:'default', transition:'transform 0.1s', minWidth:0, overflow:'hidden' }}
+        overflow:'hidden', cursor:'default', transition:'transform 0.1s', minWidth:0 }}
         onMouseEnter={e => e.currentTarget.style.transform='scale(1.02)'}
         onMouseLeave={e => e.currentTarget.style.transform='scale(1)'}
       >
         {/* Header: Symbol + % */}
-        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:6, gap:4 }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline',
+          padding:'12px 16px 10px', gap:4 }}>
           <span style={{ fontSize:16, fontWeight:700, color:'#fff', minWidth:0,
             overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
             {displaySymbol(s.symbol)}
@@ -180,37 +182,37 @@ export default function Heatmap() {
         </div>
 
         {/* Divider */}
-        <div style={{ height:1, background:'rgba(255,255,255,0.18)', margin:'8px 0' }}/>
+        <div style={{ height:1, background:'rgba(255,255,255,0.18)' }}/>
 
-        {/* Row 1: Open / LTP / Chg ₹ */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'0 6px', marginBottom:10 }}>
-          <div>
+        {/* Row 1: Open | LTP | Chg ₹ with vertical dividers */}
+        <div style={{ display:'flex', alignItems:'stretch', padding:'8px 0' }}>
+          <div style={{ flex:1, padding:'0 14px', textAlign:'center' }}>
             <div style={lbl}>Open</div>
-            <div style={{ fontSize:12, color:c.textMid, fontWeight:500, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-              {fmt(s.prevClose, 2)}
-            </div>
+            <div style={{ fontSize:12, color:c.textMid, fontWeight:500 }}>{fmt(s.prevClose, 2)}</div>
           </div>
-          <div>
+          <div style={vdiv}/>
+          <div style={{ flex:1, padding:'0 14px', textAlign:'center' }}>
             <div style={lbl}>LTP</div>
-            <div style={{ fontSize:13, fontWeight:700, color:c.textBright, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-              {fmt(s.ltp, 2)}
-            </div>
+            <div style={{ fontSize:13, fontWeight:700, color:c.textBright }}>{fmt(s.ltp, 2)}</div>
           </div>
-          <div>
+          <div style={vdiv}/>
+          <div style={{ flex:1, padding:'0 14px', textAlign:'center' }}>
             <div style={lbl}>Chg ₹</div>
-            <div style={{ fontSize:12, fontWeight:700, color:c.text, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
-              {sign}{fmt(s.change, 2)}
-            </div>
+            <div style={{ fontSize:12, fontWeight:700, color:c.text }}>{sign}{fmt(s.change, 2)}</div>
           </div>
         </div>
 
-        {/* Row 2: Fut. Price / ATM IV */}
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 6px' }}>
-          <div>
+        {/* Divider */}
+        <div style={{ height:1, background:'rgba(255,255,255,0.18)' }}/>
+
+        {/* Row 2: Fut. Price | ATM IV with vertical divider */}
+        <div style={{ display:'flex', alignItems:'stretch', padding:'8px 0' }}>
+          <div style={{ flex:1, padding:'0 14px', textAlign:'center' }}>
             <div style={lbl}>Fut. Price</div>
             <div style={{ fontSize:12, fontWeight:500, color:c.textMid }}>{fmt(s.ltp, 2)}</div>
           </div>
-          <div>
+          <div style={vdiv}/>
+          <div style={{ flex:1, padding:'0 14px', textAlign:'center' }}>
             <div style={lbl}>ATM IV</div>
             <div style={{ fontSize:12, fontWeight:700, color:c.textBright }}>—</div>
           </div>
