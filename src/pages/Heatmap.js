@@ -65,7 +65,10 @@ function displaySymbol(sym) {
 
 function fmt(n, decimals=2) {
   if (!n && n !== 0) return '—';
-  return n.toLocaleString('en-IN', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  // For large numbers drop decimals to save space
+  const abs = Math.abs(n);
+  const d = abs >= 10000 ? 0 : abs >= 1000 ? 1 : decimals;
+  return n.toLocaleString('en-IN', { minimumFractionDigits: d, maximumFractionDigits: d });
 }
 
 export default function Heatmap() {
@@ -186,19 +189,19 @@ export default function Heatmap() {
 
         {/* Row 1: Open | LTP | Chg ₹ with vertical dividers */}
         <div style={{ display:'flex', alignItems:'stretch', padding:'8px 0' }}>
-          <div style={{ flex:1, padding:'0 14px', textAlign:'center' }}>
+          <div style={{ flex:1, padding:'0 10px', textAlign:'center', minWidth:0 }}>
             <div style={lbl}>Open</div>
-            <div style={{ fontSize:12, color:c.textMid, fontWeight:500 }}>{fmt(s.prevClose, 2)}</div>
+            <div style={{ fontSize:12, color:c.textMid, fontWeight:500, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{fmt(s.prevClose, 2)}</div>
           </div>
           <div style={vdiv}/>
-          <div style={{ flex:1, padding:'0 14px', textAlign:'center' }}>
+          <div style={{ flex:1, padding:'0 10px', textAlign:'center', minWidth:0 }}>
             <div style={lbl}>LTP</div>
-            <div style={{ fontSize:13, fontWeight:700, color:c.textBright }}>{fmt(s.ltp, 2)}</div>
+            <div style={{ fontSize:13, fontWeight:700, color:c.textBright, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{fmt(s.ltp, 2)}</div>
           </div>
           <div style={vdiv}/>
-          <div style={{ flex:1, padding:'0 14px', textAlign:'center' }}>
+          <div style={{ flex:1, padding:'0 10px', textAlign:'center', minWidth:0 }}>
             <div style={lbl}>Chg ₹</div>
-            <div style={{ fontSize:12, fontWeight:700, color:c.text }}>{sign}{fmt(s.change, 2)}</div>
+            <div style={{ fontSize:12, fontWeight:700, color:c.text, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sign}{fmt(s.change, 2)}</div>
           </div>
         </div>
 
@@ -207,12 +210,12 @@ export default function Heatmap() {
 
         {/* Row 2: Fut. Price | ATM IV with vertical divider */}
         <div style={{ display:'flex', alignItems:'stretch', padding:'8px 0' }}>
-          <div style={{ flex:1, padding:'0 14px', textAlign:'center' }}>
+          <div style={{ flex:1, padding:'0 10px', textAlign:'center', minWidth:0 }}>
             <div style={lbl}>Fut. Price</div>
-            <div style={{ fontSize:12, fontWeight:500, color:c.textMid }}>{fmt(s.ltp, 2)}</div>
+            <div style={{ fontSize:12, fontWeight:500, color:c.textMid, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{fmt(s.ltp, 2)}</div>
           </div>
           <div style={vdiv}/>
-          <div style={{ flex:1, padding:'0 14px', textAlign:'center' }}>
+          <div style={{ flex:1, padding:'0 10px', textAlign:'center', minWidth:0 }}>
             <div style={lbl}>ATM IV</div>
             <div style={{ fontSize:12, fontWeight:700, color:c.textBright }}>—</div>
           </div>
