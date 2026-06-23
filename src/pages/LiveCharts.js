@@ -7,6 +7,7 @@ import {
 const SERVER = 'http://localhost:5001';
 
 const TIME_PRESETS = ['1m','5m','15m','30m','1hr','1d','Intraday'];
+const POLL_INTERVALS = {'1m':60,'5m':60,'15m':120,'30m':180,'1hr':180,'1d':300,'Intraday':60};
 
 const ALL_CHARTS = [
   { key:'atm_straddle',  label:'Auto ATM Straddle' },
@@ -268,6 +269,13 @@ export default function LiveCharts() {
   const [error, setError]           = useState('');
   const [marketOpen, setMarketOpen] = useState(false);
   const [timePreset, setTimePreset] = useState('1d');
+  const changeTimePreset = (p) => {
+    setTimePreset(p);
+    fetch(`${SERVER}/live-charts/set-interval`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({seconds: POLL_INTERVALS[p] || 60})
+    }).catch(()=>{});
+  };
   // Range navigator: indices into snaps[] — null means use full range
   const [rangeStart, setRangeStart] = useState(null);
   const [rangeEnd,   setRangeEnd]   = useState(null);
@@ -403,8 +411,6 @@ export default function LiveCharts() {
   const xP = { dataKey:'ts_label', tick:{fontSize:11,fill:'var(--text-muted)'}, tickLine:false, axisLine:false, interval:'preserveStartEnd' };
   const yP = (fn) => ({ tick:{fontSize:11,fill:'var(--text-muted)'}, tickFormatter:fn||fmt, tickLine:false, axisLine:false, width:68 });
   const gP = { stroke:'var(--border)', strokeDasharray:'3 3' };
-  const dotCfg = (color) => filtered.length <= 1 ? { r:5, fill:color, strokeWidth:0 } : false;
-  const chartData = filtered;
   const dotCfg = (color) => filtered.length <= 1 ? { r:5, fill:color, strokeWidth:0 } : false;
   // chartData = filtered (server already sends null for missing OI on yfinance/expiry-day snaps)
   const chartData = filtered;
@@ -605,7 +611,7 @@ export default function LiveCharts() {
         {/* Time presets */}
         <div style={{display:'flex',gap:1,background:'var(--bg-card2)',borderRadius:8,padding:2,border:'1px solid var(--border)'}}>
           {TIME_PRESETS.map(p=>(
-            <button key={p} onClick={()=>setTimePreset(p)}
+            <button key={p} onClick={()=>changeTimePreset(p)}
               style={{padding:'4px 10px',borderRadius:6,border:'none',cursor:'pointer',fontSize:12,fontWeight:500,
                 background:timePreset===p?'var(--accent)':'transparent',
                 color:timePreset===p?'#fff':'var(--text-muted)',transition:'all 0.1s'}}>
