@@ -93,19 +93,19 @@ export default function Sidebar() {
       {/* Quick stats */}
       <div style={{ padding: '12px 12px 10px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
 
-        {/* This Month + Total P&L — label left, value right */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>This Month</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 700, color: stats.thisMonthPnL >= 0 ? 'var(--profit)' : 'var(--loss)', letterSpacing: '-0.3px' }}>
+        {/* This Month + Total P&L — original side-by-side */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>This Month</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: stats.thisMonthPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
               {stats.thisMonthPnL >= 0 ? '+' : ''}{fmtSidebar(stats.thisMonthPnL)}
-            </span>
+            </div>
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
-            <span style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Total P&L</span>
-            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 700, color: stats.totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)', letterSpacing: '-0.3px' }}>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>Total P&L</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: stats.totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
               {stats.totalPnL >= 0 ? '+' : ''}{fmtSidebar(stats.totalPnL)}
-            </span>
+            </div>
           </div>
         </div>
 
@@ -118,7 +118,7 @@ export default function Sidebar() {
                 Live P&L{activeAccountId ? '' : ' · All'}
               </span>
             </div>
-            <span style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:700, color: liveUnrealizedPnL >= 0 ? 'var(--profit)' : 'var(--loss)', letterSpacing:'-0.3px' }}>
+            <span style={{ fontFamily:'var(--font-mono)', fontSize:17, fontWeight:700, color: liveUnrealizedPnL >= 0 ? 'var(--profit)' : 'var(--loss)', letterSpacing:'-0.5px' }}>
               {liveUnrealizedPnL >= 0 ? '+' : ''}{fmtSidebar(liveUnrealizedPnL)}
             </span>
           </div>
