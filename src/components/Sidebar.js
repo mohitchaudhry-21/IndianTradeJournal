@@ -91,34 +91,40 @@ export default function Sidebar() {
       </NavLink>
 
       {/* Quick stats */}
-      <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>This Month</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: stats.thisMonthPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+      <div style={{ padding: '12px 12px 10px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 10 }}>
+
+        {/* This Month + Total P&L — label left, value right */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>This Month</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 700, color: stats.thisMonthPnL >= 0 ? 'var(--profit)' : 'var(--loss)', letterSpacing: '-0.3px' }}>
               {stats.thisMonthPnL >= 0 ? '+' : ''}{fmtSidebar(stats.thisMonthPnL)}
-            </div>
+            </span>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>Total P&L</div>
-            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: stats.totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+            <span style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Total P&L</span>
+            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 15, fontWeight: 700, color: stats.totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)', letterSpacing: '-0.3px' }}>
               {stats.totalPnL >= 0 ? '+' : ''}{fmtSidebar(stats.totalPnL)}
-            </div>
+            </span>
           </div>
         </div>
+
+        {/* Live P&L pill */}
         {liveUnrealizedPnL !== null && (
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'6px 8px', background:'rgba(255,255,255,0.03)', borderRadius:6 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-              <span style={{ width:5, height:5, borderRadius:'50%', background:'var(--accent)', display:'inline-block' }} />
-              <span style={{ fontSize:10, color:'var(--text-muted)', letterSpacing:'0.06em', textTransform:'uppercase' }}>
-                Live P&L{activeAccountId ? '' : ' (All)'}
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'7px 10px', background:'rgba(255,255,255,0.04)', borderRadius:8, border:'1px solid rgba(255,255,255,0.07)' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+              <span style={{ width:6, height:6, borderRadius:'50%', background:'var(--accent)', display:'inline-block', boxShadow:'0 0 5px var(--accent)' }} />
+              <span style={{ fontSize:9, color:'var(--text-muted)', letterSpacing:'0.08em', textTransform:'uppercase', fontWeight:600 }}>
+                Live P&L{activeAccountId ? '' : ' · All'}
               </span>
             </div>
-            <div style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:600, color: liveUnrealizedPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+            <span style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:700, color: liveUnrealizedPnL >= 0 ? 'var(--profit)' : 'var(--loss)', letterSpacing:'-0.3px' }}>
               {liveUnrealizedPnL >= 0 ? '+' : ''}{fmtSidebar(liveUnrealizedPnL)}
-            </div>
+            </span>
           </div>
         )}
+
+        {/* Open / Win% / Expiring */}
         <div style={{ display: 'flex', gap: 0 }}>
           {[
             { label: 'Open', val: stats.openPositions, color: 'var(--text-primary)' },
@@ -126,16 +132,16 @@ export default function Sidebar() {
             { label: 'Expiring', val: stats.expiringThisWeek, color: stats.expiringThisWeek > 0 ? 'var(--accent)' : 'var(--text-secondary)' },
           ].map((st, i) => (
             <React.Fragment key={st.label}>
-              {i > 0 && <div style={{ width: 1, background: 'var(--border)', margin: '0 8px' }} />}
+              {i > 0 && <div style={{ width: 1, background: 'var(--border)', margin: '0 6px' }} />}
               <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>{st.label}</div>
-                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 500, color: st.color }}>{st.val}</div>
+                <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 3 }}>{st.label}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 14, fontWeight: 600, color: st.color }}>{st.val}</div>
               </div>
             </React.Fragment>
           ))}
         </div>
-      </div>
 
+      </div>
       {/* Account selector */}
       {accounts.length > 0 && (
         <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
