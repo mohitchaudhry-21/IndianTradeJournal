@@ -403,8 +403,19 @@ export default function LiveCharts() {
   const xP = { dataKey:'ts_label', tick:{fontSize:11,fill:'var(--text-muted)'}, tickLine:false, axisLine:false, interval:'preserveStartEnd' };
   const yP = (fn) => ({ tick:{fontSize:11,fill:'var(--text-muted)'}, tickFormatter:fn||fmt, tickLine:false, axisLine:false, width:68 });
   const gP = { stroke:'var(--border)', strokeDasharray:'3 3' };
-  // When only 1 datapoint exists recharts won't draw a line — render a dot so chart isn't blank
   const dotCfg = (color) => filtered.length <= 1 ? { r:5, fill:color, strokeWidth:0 } : false;
+  // For yfinance-only snaps, null out OI/straddle so they show as gaps not zero lines
+  const chartData = filtered.map(d => ({
+    ...d,
+    straddle:    d.source === 'yfinance' ? null : d.straddle,
+    call_oi:     d.source === 'yfinance' ? null : d.call_oi,
+    put_oi:      d.source === 'yfinance' ? null : d.put_oi,
+    call_oi_chg: d.source === 'yfinance' ? null : d.call_oi_chg,
+    put_oi_chg:  d.source === 'yfinance' ? null : d.put_oi_chg,
+    pcr:         d.source === 'yfinance' ? null : d.pcr,
+    max_pain:    d.source === 'yfinance' ? null : d.max_pain,
+    atm_iv:      d.source === 'yfinance' ? null : d.atm_iv,
+  }));
 
   // ── Render individual charts ────────────────────────────────────────────
   const renderChart = (key) => {
@@ -440,13 +451,13 @@ export default function LiveCharts() {
       case 'atm_straddle': return (
         <ChartPanel key={key} chartKey={key} title="Auto ATM Straddle" sidebar={sidebar} onClose={close}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={filtered} margin={{left:8,right:180,top:4,bottom:4}}>
+            <LineChart data={chartData} margin={{left:8,right:180,top:4,bottom:4}}>
               <CartesianGrid {...gP}/>
               <XAxis {...xP}/>
               <YAxis {...yP()} yAxisId="l"/>
               <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0}/>
               <Tooltip content={<CT/>}/>
-              <Line yAxisId="l" type="monotone" dataKey="straddle" name="ATM Straddle" stroke={C.straddle} dot={dotCfg(C.straddle)} strokeWidth={2} connectNulls/>
+              <Line yAxisId="l" type="monotone" dataKey="straddle" name="ATM Straddle" stroke={C.straddle} dot={dotCfg(C.straddle)} strokeWidth={2} connectNulls={false}/>
               <Line yAxisId="r" type="monotone" dataKey="spot" name="NIFTY" stroke={C.spot} dot={dotCfg(C.spot)} strokeWidth={1.5} strokeDasharray="5 3" connectNulls/>
             </LineChart>
           </ResponsiveContainer>
@@ -460,14 +471,14 @@ export default function LiveCharts() {
       case 'oi_options': return (
         <ChartPanel key={key} chartKey={key} title="Open Interest — Options" sidebar={sidebar} onClose={close}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={filtered} margin={{left:8,right:180,top:4,bottom:4}}>
+            <LineChart data={chartData} margin={{left:8,right:180,top:4,bottom:4}}>
               <CartesianGrid {...gP}/>
               <XAxis {...xP}/>
               <YAxis {...yP(fmt)} yAxisId="l"/>
               <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0}/>
               <Tooltip content={<CT/>}/>
-              <Line yAxisId="l" type="monotone" dataKey="call_oi" name="Call OI" stroke={C.call} dot={dotCfg(C.call)} strokeWidth={2} connectNulls/>
-              <Line yAxisId="l" type="monotone" dataKey="put_oi"  name="Put OI"  stroke={C.put}  dot={dotCfg(C.put)} strokeWidth={2} connectNulls/>
+              <Line yAxisId="l" type="monotone" dataKey="call_oi" name="Call OI" stroke={C.call} dot={dotCfg(C.call)} strokeWidth={2} connectNulls={false}/>
+              <Line yAxisId="l" type="monotone" dataKey="put_oi"  name="Put OI"  stroke={C.put}  dot={dotCfg(C.put)} strokeWidth={2} connectNulls={false}/>
               <Line yAxisId="r" type="monotone" dataKey="spot" name="NIFTY" stroke={C.spot} dot={dotCfg(C.spot)} strokeWidth={1.5} strokeDasharray="5 3" connectNulls/>
             </LineChart>
           </ResponsiveContainer>
@@ -483,7 +494,7 @@ export default function LiveCharts() {
       case 'oi_chg': return (
         <ChartPanel key={key} chartKey={key} title="Open Interest Change — Options" sidebar={sidebar} onClose={close}>
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={filtered} margin={{left:8,right:180,top:4,bottom:4}} barCategoryGap="30%">
+            <BarChart data={chartData} margin={{left:8,right:180,top:4,bottom:4}} barCategoryGap="30%">
               <CartesianGrid {...gP}/>
               <XAxis {...xP}/>
               <YAxis {...yP(fmt)} yAxisId="l"/>
@@ -507,14 +518,14 @@ export default function LiveCharts() {
       case 'pcr': return (
         <ChartPanel key={key} chartKey={key} title="Put-Call Ratio" sidebar={sidebar} onClose={close}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={filtered} margin={{left:8,right:180,top:4,bottom:4}}>
+            <LineChart data={chartData} margin={{left:8,right:180,top:4,bottom:4}}>
               <CartesianGrid {...gP}/>
               <XAxis {...xP}/>
               <YAxis {...yP(v=>v.toFixed(2))} yAxisId="l" domain={['auto','auto']}/>
               <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0}/>
               <Tooltip content={<CT/>}/>
               <ReferenceLine yAxisId="l" y={1} stroke="var(--text-muted)" strokeDasharray="4 2"/>
-              <Line yAxisId="l" type="monotone" dataKey="pcr" name="PCR" stroke={C.pcr} dot={dotCfg(C.pcr)} strokeWidth={2} connectNulls/>
+              <Line yAxisId="l" type="monotone" dataKey="pcr" name="PCR" stroke={C.pcr} dot={dotCfg(C.pcr)} strokeWidth={2} connectNulls={false}/>
               <Line yAxisId="r" type="monotone" dataKey="spot" name="NIFTY" stroke={C.spot} dot={dotCfg(C.spot)} strokeWidth={1.5} strokeDasharray="5 3" connectNulls/>
             </LineChart>
           </ResponsiveContainer>
@@ -529,13 +540,13 @@ export default function LiveCharts() {
       case 'max_pain': return (
         <ChartPanel key={key} chartKey={key} title="Max Pain" sidebar={sidebar} onClose={close}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={filtered} margin={{left:8,right:180,top:4,bottom:4}}>
+            <LineChart data={chartData} margin={{left:8,right:180,top:4,bottom:4}}>
               <CartesianGrid {...gP}/>
               <XAxis {...xP}/>
               <YAxis {...yP(v=>fmt(v,0))} yAxisId="l" domain={['auto','auto']}/>
               <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0}/>
               <Tooltip content={<CT/>}/>
-              <Line yAxisId="l" type="monotone" dataKey="max_pain" name="Max Pain" stroke={C.pain} dot={dotCfg(C.pain)} strokeWidth={2} connectNulls/>
+              <Line yAxisId="l" type="monotone" dataKey="max_pain" name="Max Pain" stroke={C.pain} dot={dotCfg(C.pain)} strokeWidth={2} connectNulls={false}/>
               <Line yAxisId="r" type="monotone" dataKey="spot" name="NIFTY" stroke={C.spot} dot={dotCfg(C.spot)} strokeWidth={1.5} strokeDasharray="5 3" connectNulls/>
             </LineChart>
           </ResponsiveContainer>
@@ -550,13 +561,13 @@ export default function LiveCharts() {
       case 'option_iv': return (
         <ChartPanel key={key} chartKey={key} title="Option IV" sidebar={sidebar} onClose={close}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={filtered} margin={{left:8,right:180,top:4,bottom:4}}>
+            <LineChart data={chartData} margin={{left:8,right:180,top:4,bottom:4}}>
               <CartesianGrid {...gP}/>
               <XAxis {...xP}/>
               <YAxis {...yP(v=>v.toFixed(1)+'%')} yAxisId="l" domain={['auto','auto']}/>
               <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0}/>
               <Tooltip content={<CT/>}/>
-              <Line yAxisId="l" type="monotone" dataKey="atm_iv" name="ATM IV" stroke={C.atm_iv} dot={dotCfg(C.atm_iv)} strokeWidth={2} connectNulls/>
+              <Line yAxisId="l" type="monotone" dataKey="atm_iv" name="ATM IV" stroke={C.atm_iv} dot={dotCfg(C.atm_iv)} strokeWidth={2} connectNulls={false}/>
               <Line yAxisId="r" type="monotone" dataKey="spot" name="NIFTY" stroke={C.spot} dot={dotCfg(C.spot)} strokeWidth={1.5} strokeDasharray="5 3" connectNulls/>
             </LineChart>
           </ResponsiveContainer>
