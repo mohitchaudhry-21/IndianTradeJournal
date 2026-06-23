@@ -404,18 +404,8 @@ export default function LiveCharts() {
   const yP = (fn) => ({ tick:{fontSize:11,fill:'var(--text-muted)'}, tickFormatter:fn||fmt, tickLine:false, axisLine:false, width:68 });
   const gP = { stroke:'var(--border)', strokeDasharray:'3 3' };
   const dotCfg = (color) => filtered.length <= 1 ? { r:5, fill:color, strokeWidth:0 } : false;
-  // For yfinance-only snaps, null out OI/straddle so they show as gaps not zero lines
-  const chartData = filtered.map(d => ({
-    ...d,
-    straddle:    d.source === 'yfinance' ? null : d.straddle,
-    call_oi:     d.source === 'yfinance' ? null : d.call_oi,
-    put_oi:      d.source === 'yfinance' ? null : d.put_oi,
-    call_oi_chg: d.source === 'yfinance' ? null : d.call_oi_chg,
-    put_oi_chg:  d.source === 'yfinance' ? null : d.put_oi_chg,
-    pcr:         d.source === 'yfinance' ? null : d.pcr,
-    max_pain:    d.source === 'yfinance' ? null : d.max_pain,
-    atm_iv:      d.source === 'yfinance' ? null : d.atm_iv,
-  }));
+  // chartData = filtered (server already sends null for missing OI on yfinance/expiry-day snaps)
+  const chartData = filtered;
 
   // ── Render individual charts ────────────────────────────────────────────
   const renderChart = (key) => {
@@ -455,7 +445,7 @@ export default function LiveCharts() {
               <CartesianGrid {...gP}/>
               <XAxis {...xP}/>
               <YAxis {...yP()} yAxisId="l"/>
-              <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0}/>
+              <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0} domain={["auto","auto"]}/>
               <Tooltip content={<CT/>}/>
               <Line yAxisId="l" type="monotone" dataKey="straddle" name="ATM Straddle" stroke={C.straddle} dot={dotCfg(C.straddle)} strokeWidth={2} connectNulls={false}/>
               <Line yAxisId="r" type="monotone" dataKey="spot" name="NIFTY" stroke={C.spot} dot={dotCfg(C.spot)} strokeWidth={1.5} strokeDasharray="5 3" connectNulls/>
@@ -475,7 +465,7 @@ export default function LiveCharts() {
               <CartesianGrid {...gP}/>
               <XAxis {...xP}/>
               <YAxis {...yP(fmt)} yAxisId="l"/>
-              <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0}/>
+              <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0} domain={["auto","auto"]}/>
               <Tooltip content={<CT/>}/>
               <Line yAxisId="l" type="monotone" dataKey="call_oi" name="Call OI" stroke={C.call} dot={dotCfg(C.call)} strokeWidth={2} connectNulls={false}/>
               <Line yAxisId="l" type="monotone" dataKey="put_oi"  name="Put OI"  stroke={C.put}  dot={dotCfg(C.put)} strokeWidth={2} connectNulls={false}/>
@@ -498,7 +488,7 @@ export default function LiveCharts() {
               <CartesianGrid {...gP}/>
               <XAxis {...xP}/>
               <YAxis {...yP(fmt)} yAxisId="l"/>
-              <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0}/>
+              <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0} domain={["auto","auto"]}/>
               <Tooltip content={<CT/>}/>
               <ReferenceLine yAxisId="l" y={0} stroke="var(--text-muted)" strokeOpacity={0.4}/>
               <Bar yAxisId="l" dataKey="call_oi_chg" name="Call OI Chg" fill={C.call} opacity={0.75}/>
@@ -522,7 +512,7 @@ export default function LiveCharts() {
               <CartesianGrid {...gP}/>
               <XAxis {...xP}/>
               <YAxis {...yP(v=>v.toFixed(2))} yAxisId="l" domain={['auto','auto']}/>
-              <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0}/>
+              <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0} domain={["auto","auto"]}/>
               <Tooltip content={<CT/>}/>
               <ReferenceLine yAxisId="l" y={1} stroke="var(--text-muted)" strokeDasharray="4 2"/>
               <Line yAxisId="l" type="monotone" dataKey="pcr" name="PCR" stroke={C.pcr} dot={dotCfg(C.pcr)} strokeWidth={2} connectNulls={false}/>
@@ -544,7 +534,7 @@ export default function LiveCharts() {
               <CartesianGrid {...gP}/>
               <XAxis {...xP}/>
               <YAxis {...yP(v=>fmt(v,0))} yAxisId="l" domain={['auto','auto']}/>
-              <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0}/>
+              <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0} domain={["auto","auto"]}/>
               <Tooltip content={<CT/>}/>
               <Line yAxisId="l" type="monotone" dataKey="max_pain" name="Max Pain" stroke={C.pain} dot={dotCfg(C.pain)} strokeWidth={2} connectNulls={false}/>
               <Line yAxisId="r" type="monotone" dataKey="spot" name="NIFTY" stroke={C.spot} dot={dotCfg(C.spot)} strokeWidth={1.5} strokeDasharray="5 3" connectNulls/>
@@ -565,7 +555,7 @@ export default function LiveCharts() {
               <CartesianGrid {...gP}/>
               <XAxis {...xP}/>
               <YAxis {...yP(v=>v.toFixed(1)+'%')} yAxisId="l" domain={['auto','auto']}/>
-              <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0}/>
+              <YAxis {...yP(v=>fmt(v,0))} yAxisId="r" orientation="right" width={0} domain={["auto","auto"]}/>
               <Tooltip content={<CT/>}/>
               <Line yAxisId="l" type="monotone" dataKey="atm_iv" name="ATM IV" stroke={C.atm_iv} dot={dotCfg(C.atm_iv)} strokeWidth={2} connectNulls={false}/>
               <Line yAxisId="r" type="monotone" dataKey="spot" name="NIFTY" stroke={C.spot} dot={dotCfg(C.spot)} strokeWidth={1.5} strokeDasharray="5 3" connectNulls/>
