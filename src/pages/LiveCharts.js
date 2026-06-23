@@ -194,7 +194,7 @@ function ChartSidebar({ chartKey, expiries, selectedExpiries, onToggleExpiry,
 }
 
 // ── Chart panel wrapper ─────────────────────────────────────────────────────
-function ChartPanel({ chartKey, title, children, sidebar, onClose, height=220 }) {
+function ChartPanel({ chartKey, title, children, sidebar, onClose, height=180 }) {
   return (
     <div style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:0,
       borderBottom:'1px solid var(--border)',display:'flex',overflow:'hidden'}}>
@@ -399,19 +399,6 @@ export default function LiveCharts() {
     setLoading(false);
   };
 
-  const clearAndRefresh = async ()=>{
-    setLoading(true);
-    try {
-      // Wipe stored snapshots for current instrument then re-poll
-      await fetch(`${SERVER}/live-charts/clear`,{method:'POST',
-        headers:{'Content-Type':'application/json'},body:JSON.stringify({instrument})});
-      await fetch(`${SERVER}/live-charts/poll-now`,{method:'POST',
-        headers:{'Content-Type':'application/json'},body:JSON.stringify({instrument})});
-      await load(true);
-    } catch { setError('Server not reachable'); }
-    setLoading(false);
-  };
-
   // Shared chart props
   const xP = { dataKey:'ts_label', tick:{fontSize:11,fill:'var(--text-muted)'}, tickLine:false, axisLine:false, interval:'preserveStartEnd' };
   const yP = (fn) => ({ tick:{fontSize:11,fill:'var(--text-muted)'}, tickFormatter:fn||fmt, tickLine:false, axisLine:false, width:68 });
@@ -506,6 +493,7 @@ export default function LiveCharts() {
               <Bar yAxisId="l" dataKey="call_oi_chg" name="Call OI Chg" fill={C.call} opacity={0.75}/>
               <Bar yAxisId="l" dataKey="put_oi_chg"  name="Put OI Chg"  fill={C.put}  opacity={0.75}/>
               <Line yAxisId="r" type="monotone" dataKey="spot" name="NIFTY" stroke={C.spot} dot={dotCfg(C.spot)} strokeWidth={1.5} strokeDasharray="5 3" connectNulls/>
+            </BarChart>
           </ResponsiveContainer>
           <div style={{position:'absolute',top:8,right:8}}>
             <RightLegend ts={last?.ts} spot={last?.spot} items={[
@@ -697,13 +685,6 @@ export default function LiveCharts() {
             display:'flex',alignItems:'center',gap:5,opacity:loading?0.5:1,whiteSpace:'nowrap'}}>
           {loading?<span style={{display:'inline-block',width:10,height:10,borderRadius:'50%',
             border:'2px solid var(--accent)',borderTopColor:'transparent',animation:'spin 0.7s linear infinite'}}/>:'↻'} Refresh
-        </button>
-
-        <button onClick={clearAndRefresh} disabled={loading}
-          style={{background:'var(--bg-card2)',border:'1px solid rgba(239,68,68,0.4)',borderRadius:8,
-            color:'var(--loss)',fontSize:12,padding:'5px 12px',cursor:'pointer',
-            opacity:loading?0.5:1,whiteSpace:'nowrap'}} title="Wipe stored snapshots and fetch fresh data">
-          ✕ Clear & Refresh
         </button>
 
         <button onClick={()=>setShowSettings(s=>!s)}
