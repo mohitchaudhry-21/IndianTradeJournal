@@ -404,6 +404,8 @@ export default function LiveCharts() {
   const yP = (fn) => ({ tick:{fontSize:11,fill:'var(--text-muted)'}, tickFormatter:fn||fmt, tickLine:false, axisLine:false, width:68 });
   const gP = { stroke:'var(--border)', strokeDasharray:'3 3' };
   const dotCfg = (color) => filtered.length <= 1 ? { r:5, fill:color, strokeWidth:0 } : false;
+  const chartData = filtered;
+  const dotCfg = (color) => filtered.length <= 1 ? { r:5, fill:color, strokeWidth:0 } : false;
   // chartData = filtered (server already sends null for missing OI on yfinance/expiry-day snaps)
   const chartData = filtered;
 
