@@ -500,7 +500,7 @@ function NotesPanel({ position, onClose, onSave }) {
     onClose();
   };
 
-  const pnl       = position.realizedPnL;
+  const pnl       = calcBookedPnL(position);
   const maxProfit = calcMaxProfit(position);
   const marginVal = margin ? parseFloat(margin) : null;
   const chargesVal = charges ? parseFloat(charges) : null;
@@ -697,6 +697,29 @@ function AccountTag({ accountId }) {
       {acc.name}
     </span>
   );
+}
+
+// Compute booked (realized) P&L from leg exits — accurate, used for net P&L column
+function calcBookedPnL(position) {
+  const legs = position.legs || [];
+  let total = 0;
+  let hasAny = false;
+  for (const leg of legs) {
+    const entry   = leg.premium;
+    const exits   = leg.exits || [];
+    const exit    = leg.exitPremium;
+    const lotSize = leg.lotSize || 1;
+    const sign    = leg.transactionType === 'SELL' ? 1 : -1;
+    if (exits.length > 0) {
+      const legBooked = exits.reduce((s, e) => s + sign * (entry - e.exitPremium) * e.quantity * lotSize, 0);
+      total += legBooked;
+      hasAny = true;
+    } else if (exit !== undefined && exit !== null) {
+      total += sign * (entry - exit) * (leg.quantity || 1) * lotSize;
+      hasAny = true;
+    }
+  }
+  return hasAny ? total : (position.realizedPnL ?? null);
 }
 
 export default function TradeHistory() {
@@ -991,12 +1014,12 @@ export default function TradeHistory() {
             </thead>
             <tbody>
               {all.map(p => {
-                const pnl       = p.realizedPnL;
+                const pnl       = calcBookedPnL(p);
                 const maxProfit = calcMaxProfit(p);
                 const maxLoss   = calcMaxLoss(p);
                 const margin    = p.margin || null;
                 const charges   = p.charges || null;
-                const netPnl    = pnl !== null && charges ? pnl - charges : pnl;
+                const netPnl    = pnl !== null ? pnl - (charges || 0) : null;
                 const isOpen    = p.status === 'OPEN';
                 const hasNotes  = !!(p.notes && p.notes.trim());
 
