@@ -273,6 +273,7 @@ export default function BrokerConnect() {
       // so the Booked summary reflects the complete picture
       // totalLegCharges = entry fills charges + exit fills charges from Excel (full round-trip)
       const allTranchesCharges = m.legMatches.reduce((sum, lm) => sum + (lm.totalLegCharges || 0), 0);
+      console.log('[Excel charges] positionId:', m.positionId, 'allTranchesCharges:', allTranchesCharges, 'legMatches:', m.legMatches.map(lm=>({totalLegCharges:lm.totalLegCharges})));
       if (allTranchesCharges > 0) {
         updatePositionMeta(m.positionId, { charges: Math.round(allTranchesCharges * 100) / 100 });
       }
