@@ -30,18 +30,20 @@ export default function TickerBar() {
     <div style={{
       position: 'sticky',
       top: 0,
-      zIndex: 40,
+      zIndex: 200,
       display: 'flex',
       alignItems: 'center',
       height: 42,
       padding: '0 14px',
       borderBottom: '1px solid var(--border)',
       background: 'var(--bg-secondary)',
+      backgroundImage: 'none',
       width: '100%',
       boxSizing: 'border-box',
       fontFamily: "'Nunito Sans', 'Inter', sans-serif",
       WebkitFontSmoothing: 'antialiased',
       MozOsxFontSmoothing: 'grayscale',
+      isolation: 'isolate',
     }}>
 
       {/* Ticker items */}
