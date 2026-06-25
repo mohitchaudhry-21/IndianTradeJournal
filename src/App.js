@@ -104,7 +104,7 @@ export default function App() {
         <TitleUpdater />
         <div className="app-layout" style={{ minHeight:'100vh', display:'flex' }}>
           <Sidebar />
-          <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, marginLeft:'var(--sidebar-w)' }}>
+          <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, marginLeft:'var(--sidebar-w)', height:'100vh', overflow:'auto' }}>
             <TickerBar />
             <main className="main-content" style={{ flex:1, marginLeft:0 }}>
               {/* StrategyBuilder is always mounted (never unmounted on navigation)
