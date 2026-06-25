@@ -259,14 +259,30 @@ export default function BrokerConnect() {
   const applyExcelMatches = (selectedIds, matchData) => {
     let applied = 0;
     matchData.matches.filter(m => selectedIds.has(m.positionId)).forEach(m => {
+      let newTranchesCharges = 0;
       m.legMatches.forEach(({ leg, tranches }) => {
         const existingIds = new Set((leg.exits||[]).map(e=>e.orderId).filter(Boolean));
         tranches.forEach(t => {
           if (t.alreadyImported || (t.orderId && existingIds.has(t.orderId))) return;
           addLegExit(m.positionId, leg.id, { quantity:t.quantity, exitPremium:t.exitPremium, exitDate:t.exitDate, charges:t.charges, orderId:t.orderId });
+          newTranchesCharges += Math.abs(t.charges || 0);
           applied++;
         });
       });
+      // Sum ALL tranche charges across all legs (existing + new) and save to p.charges
+      // so the Booked summary reflects the complete picture
+      const allTranchesCharges = m.legMatches.reduce((sum, { leg, tranches }) => {
+        // existing exits charges
+        const existingChg = (leg.exits||[]).reduce((s,e) => s + Math.abs(e.charges||0), 0);
+        // new tranches charges (not already imported)
+        const existingIds = new Set((leg.exits||[]).map(e=>e.orderId).filter(Boolean));
+        const newChg = tranches.filter(t => !t.alreadyImported && !(t.orderId && existingIds.has(t.orderId)))
+                               .reduce((s,t) => s + Math.abs(t.charges||0), 0);
+        return sum + existingChg + newChg;
+      }, 0);
+      if (allTranchesCharges > 0) {
+        updatePositionMeta(m.positionId, { charges: allTranchesCharges });
+      }
     });
     setExcelModal(null);
     alert(applied > 0 ? `Applied ${applied} exit tranche(s).` : 'No new tranches — all already imported.');
