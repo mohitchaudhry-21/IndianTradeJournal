@@ -116,13 +116,27 @@ export async function mergeAndSave(localAccounts, localTrades, localSettings, ex
     const cloudAccounts = cloudData?.accounts || [];
     const cloudSettings = cloudData?.settings || {};
 
-    // Merge trades by id — cloud first, then overlay local (local wins).
-    // Trades explicitly deleted locally (excludeIds) are removed even if
-    // the cloud snapshot still has them — this makes deletes authoritative
-    // and immune to races with the cloud not having caught up yet.
+    // Merge trades by id.
+    // Deleted locally (excludeIds) → always removed, immune to cloud race.
+    // For conflicts: pick the "more complete" version — whichever has exit
+    // data wins; if both do, the more recently updated one wins; otherwise local wins.
+    const hasExitData = (t) =>
+      t?.status === 'CLOSED' && t?.legs?.some(l => l?.exitPremium != null || (l?.exits||[]).length > 0);
+
     const tradeMap = new Map();
     cloudTrades.forEach(t => { if (t?.id && !excludeIds.has(t.id)) tradeMap.set(t.id, t); });
-    localTrades.forEach(t => { if (t?.id && !excludeIds.has(t.id)) tradeMap.set(t.id, t); });
+    localTrades.forEach(t => {
+      if (!t?.id || excludeIds.has(t.id)) return;
+      const existing = tradeMap.get(t.id); // cloud version
+      if (!existing) { tradeMap.set(t.id, t); return; }
+      // Pick more complete version
+      const localHasExit = hasExitData(t);
+      const cloudHasExit = hasExitData(existing);
+      if (localHasExit && !cloudHasExit) { tradeMap.set(t.id, t); return; } // local has exit
+      if (cloudHasExit && !localHasExit) { return; } // cloud has exit, keep cloud
+      // Both same completeness — local wins (most recent edit)
+      tradeMap.set(t.id, t);
+    });
     const mergedTrades = Array.from(tradeMap.values());
 
     // Merge accounts by id — union, local wins for conflicts
