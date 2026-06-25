@@ -4,7 +4,7 @@ import { useJournal } from '../context/JournalContext';
 
 const SERVER_URL = 'http://localhost:5001';
 
-function BrokerSection({ name, broker, logo, color, fields, onSync, existingPositions, savedAccounts, savedCredentials }) {
+function BrokerSection({ name, broker, logo, color, fields, onSync, onRecover, onExcelImport, existingPositions, savedAccounts, savedCredentials }) {
   const firstAcc = savedAccounts[0];
   const [selectedAccId, setSelectedAccId] = useState(firstAcc?.id || '');
   const [creds, setCreds] = useState(
@@ -157,18 +157,21 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, existingPosi
           {status === 'connecting' ? 'Connecting...' : status === 'connected' ? '↺ Reconnect' : '⚡ Connect'}
         </button>
         {status === 'connected' && (
-          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
-            <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
-              {syncing ? 'Syncing...' : '⟳ Sync Trades'}
-            </button>
-            {onRecover && broker === 'angelone' && (
-              <button className="btn btn-outline" onClick={onRecover} disabled={syncing}
-                title="Recover exit prices for stuck OPEN positions using stored P&L or expiry data"
-                style={{ fontSize:12 }}>
-                ⟳ Recover Closed
-              </button>
-            )}
-          </div>
+          <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
+            {syncing ? 'Syncing...' : '⟳ Sync Trades'}
+          </button>
+          {onRecover && (
+            <button className="btn btn-outline" onClick={onRecover} disabled={syncing}
+              title="Recover exit prices for OPEN positions using stored P&L or expiry data"
+              style={{ fontSize:12 }}>⟳ Recover Closed</button>
+          )}
+          {onExcelImport && (
+            <label title="Import AngelOne TradesAndCharges Excel" style={{ cursor:'pointer' }}>
+              <input type="file" accept=".xlsx,.xls" style={{ display:'none' }}
+                onChange={e => { if (e.target.files[0]) onExcelImport(e.target.files[0]); e.target.value=''; }} />
+              <span className="btn btn-outline" style={{ fontSize:12 }}>↑ Import Excel</span>
+            </label>
+          )}
         )}
       </div>
     </div>
@@ -177,16 +180,181 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, existingPosi
 
 export default function BrokerConnect() {
   const { addTrades, accounts, positions, addAccount, deleteAccount, settings, closePosition, updatePositionMeta, addLegExit, reopenPosition } = useJournal();
+  const handleRecover = async () => {
+    try {
+      const res = await fetch(`${SERVER_URL}/sync/recover-closed`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ existingPositions: positions.filter(p => p.status === 'OPEN') }),
+      });
+      const data = await res.json();
+      if (!data.success) { alert(`Recovery failed: ${data.error}`); return; }
+      if (!data.recovered) {
+        alert('No positions could be auto-recovered. Use ↑ Import Excel or add exits manually via the + exit button.');
+        return;
+      }
+      handleSync('angelone')([], data.closePositions || [], []);
+      alert(`Recovered ${data.recovered} position(s).`);
+    } catch (e) { alert(`Recovery error: ${e.message}`); }
+  };
+
+  const handleExcelImport = async (file) => {
+    if (!file) return;
+    try {
+      // Client-side parse using SheetJS — no server needed
+      const XLSX = await import('xlsx');
+      const buf  = await file.arrayBuffer();
+      const wb   = XLSX.read(buf, { type: 'array', cellDates: true });
+      const ws   = wb.Sheets['TradesAndCharges'];
+      if (!ws) { alert('Sheet "TradesAndCharges" not found. Make sure you uploaded the AngelOne trade report.'); return; }
+
+      // Find header row (contains 'Scrip/Contract')
+      const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd' });
+      const headerIdx = aoa.findIndex(r => r[0] === 'Scrip/Contract');
+      if (headerIdx < 0) { alert('Could not find trade data header in Excel.'); return; }
+
+      const headers   = aoa[headerIdx];
+      const col       = {};
+      headers.forEach((h, i) => { if (h) col[h] = i; });
+
+      const CHARGE_COLS = ['Brokerage','GST','STT','Sebi Tax',
+                           'Exchange Turnover Charges','Stamp Duty','Other Charges','IPFT Charges'];
+      const MONTH_MAP   = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,
+                           Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+
+      const parseSymbol = (sym) => {
+        if (!sym || !sym.includes('OPTIDX')) return null;
+        const m = sym.trim().match(/OPTIDX\s+(\S+)\s+(\w+)\s+(\d+)\s+(\d{4})\s+([\d.]+)\s+(CE|PE)/);
+        if (!m) return null;
+        const [, inst, mon, day, year, strike, opt] = m;
+        const mo = MONTH_MAP[mon];
+        if (!mo) return null;
+        return {
+          instrument: inst,
+          expiry:     `${year}-${String(mo).padStart(2,'0')}-${day.padStart(2,'0')}`,
+          strike:     parseFloat(strike),
+          optionType: opt,
+        };
+      };
+
+      // Parse fills — skip brokerage-only rows (Trade ID blank or Qty = 0)
+      const fills = [];
+      for (let i = headerIdx + 1; i < aoa.length; i++) {
+        const row     = aoa[i];
+        const sym     = row[col['Scrip/Contract']];
+        const parsed  = parseSymbol(sym);
+        if (!parsed) continue;
+        const tradeId = String(row[col['Trade ID']] || '').trim();
+        const qty     = parseInt(row[col['Quantity']] || 0);
+        if (!tradeId || qty === 0) continue;   // brokerage-only row
+
+        const side      = String(row[col['Buy/Sell']] || '').trim();
+        const buyPrice  = parseFloat(row[col['Buy Price']]  || 0);
+        const sellPrice = parseFloat(row[col['Sell Price']] || 0);
+        const price     = side === 'Buy' ? buyPrice : sellPrice;
+        if (price <= 0) continue;
+
+        const charges = CHARGE_COLS.reduce((s, c) => s + parseFloat(row[col[c]] || 0), 0);
+        let dateStr   = String(row[col['Date']] || '').slice(0, 10);
+
+        fills.push({ ...parsed, side, price, qty, charges: Math.round(charges * 100) / 100,
+                     date: dateStr, orderId: String(row[col['Order ID']] || '') });
+      }
+
+      if (!fills.length) { alert('No option fills found in Excel.'); return; }
+
+      // Group by (instrument, expiry, strike, optionType, side)
+      const byKey = {};
+      fills.forEach(f => {
+        const k = `${f.instrument}|${f.expiry}|${f.strike}|${f.optionType}|${f.side}`;
+        (byKey[k] = byKey[k] || []).push(f);
+      });
+
+      // Normalise expiry for comparison
+      const normExp = (s) => {
+        if (!s) return '';
+        const str = String(s).trim();
+        if (str.length >= 10 && str[4] === '-') return str.slice(0, 10);
+        const m = str.match(/^(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2,4})$/i);
+        if (m) {
+          const mm = {JAN:'01',FEB:'02',MAR:'03',APR:'04',MAY:'05',JUN:'06',
+                      JUL:'07',AUG:'08',SEP:'09',OCT:'10',NOV:'11',DEC:'12'}[m[2].toUpperCase()];
+          const yr = m[3].length === 2 ? '20'+m[3] : m[3];
+          return `${yr}-${mm}-${m[1]}`;
+        }
+        return str.slice(0, 10);
+      };
+
+      // Match fills to OPEN journal positions only
+      const openPositions = positions.filter(p => p.status === 'OPEN');
+      let matched = 0;
+
+      openPositions.forEach(ep => {
+        (ep.legs || []).forEach(leg => {
+          if (leg.status === 'CLOSED') return;
+          const inst     = leg.instrument || '';
+          const expiry   = normExp(leg.expiry);
+          const strike   = parseFloat(leg.strike || 0);
+          const opt      = leg.optionType || '';
+          const legTx    = (leg.transactionType || '').toUpperCase();
+          const lotSize  = parseInt(leg.lotSize || 1);
+          const closeSide = legTx === 'SELL' ? 'Buy' : 'Sell';
+
+          // Find matching fills
+          let closeFills = null;
+          for (const k of Object.keys(byKey)) {
+            const [ki, ke, ks, ko, kside] = k.split('|');
+            if (ki === inst && normExp(ke) === expiry &&
+                Math.abs(parseFloat(ks) - strike) < 0.01 &&
+                ko === opt && kside === closeSide) {
+              closeFills = byKey[k];
+              break;
+            }
+          }
+          if (!closeFills?.length) return;
+
+          // Group by Order ID → each order = one exit tranche
+          const byOrder = {};
+          closeFills.forEach(f => { (byOrder[f.orderId] = byOrder[f.orderId] || []).push(f); });
+
+          Object.values(byOrder).forEach(orderFills => {
+            const totalQty  = orderFills.reduce((s, f) => s + f.qty, 0);
+            const totalLots = lotSize ? Math.floor(totalQty / lotSize) : totalQty;
+            if (totalLots <= 0) return;
+            const avgPrice  = orderFills.reduce((s, f) => s + f.price * f.qty, 0) / totalQty;
+            const totalChg  = orderFills.reduce((s, f) => s + f.charges, 0);
+            const exitDate  = orderFills.map(f => f.date).sort().reverse()[0];
+
+            addLegExit(ep.positionId, leg.id, {
+              quantity:    totalLots,
+              exitPremium: Math.round(avgPrice * 10000) / 10000,
+              exitDate,
+              charges:     Math.round(totalChg * 100) / 100,
+            });
+            matched++;
+          });
+        });
+      });
+
+      if (matched === 0) {
+        alert(`Parsed ${fills.length} fills but no matches with OPEN positions. Check that the positions are still OPEN in the journal.`);
+      } else {
+        alert(`Excel import complete: ${matched} exit tranche(s) applied across OPEN positions from ${fills.length} fills.`);
+      }
+    } catch (e) {
+      console.error('Excel import error:', e);
+      alert(`Excel import error: ${e.message}`);
+    }
+  };
+
   const handleSync = (broker) => (trades, closePositions, partialExits) => {
-    // 1. Apply full exits to closed positions (with auto-computed charges)
+    // 1. Apply full exits to closed positions
     if (closePositions && closePositions.length > 0) {
-      closePositions.forEach(({ positionId, exitDate, exitLegs, charges }) => {
+      closePositions.forEach(({ positionId, exitDate, exitLegs }) => {
         if (!positionId) return;
         const exitData = {};
-        (exitLegs || []).forEach(({ legId, exitPrice, entryPrice, remainingQty }) => {
+        (exitLegs || []).forEach(({ legId, exitPrice, remainingQty }) => {
           if (legId && exitPrice !== undefined) {
-            exitData[legId] = { exitPremium: exitPrice, exitDate, remainingQty,
-              ...(entryPrice !== undefined ? { entryPrice } : {}) };
+            exitData[legId] = { exitPremium: exitPrice, exitDate, remainingQty };
           }
         });
         if (Object.keys(exitData).length === 0) {
@@ -199,10 +367,6 @@ export default function BrokerConnect() {
         }
         if (Object.keys(exitData).length > 0) {
           closePosition(positionId, exitData);
-          // Apply auto-computed charges if provided by server
-          if (charges != null && charges > 0) {
-            updatePositionMeta(positionId, { charges });
-          }
         }
       });
     }
@@ -262,6 +426,8 @@ export default function BrokerConnect() {
         color="#F59E0B"
         existingPositions={positions}
         onSync={handleSync('angelone')}
+        onRecover={handleRecover}
+        onExcelImport={handleExcelImport}
         savedAccounts={accounts.filter(a => a.broker === 'angelone')}
         savedCredentials={settings.brokerCredentials || {}}
         fields={[
