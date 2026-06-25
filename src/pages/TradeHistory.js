@@ -11,8 +11,8 @@ function fmtMoney(n) {
   const abs = Math.abs(n);
   const sign = n < 0 ? '-' : '+';
   if (abs >= 100000) return sign + '₹' + (abs / 100000).toFixed(2) + 'L';
-  if (abs >= 1000)   return sign + '₹' + (abs / 1000).toFixed(1) + 'K';
-  return sign + '₹' + Math.round(abs).toLocaleString('en-IN');
+  if (abs >= 1000)   return sign + '₹' + (abs / 1000).toFixed(2) + 'K';
+  return sign + '₹' + abs.toFixed(2);
 }
 
 function fmtDate(d) {
@@ -56,8 +56,8 @@ function PartialExitPopup({ leg, positionId, onClose, onSave }) {
             {prevExits.map((e,i) => (
               <div key={i} style={{ fontFamily:'var(--font-mono)', color:'var(--text-secondary)', display:'flex', gap:8 }}>
                 <span>{e.quantity}L @ ₹{e.exitPremium?.toFixed(2)}</span>
-                <span style={{ color:'var(--text-muted)' }}>{e.exitDate}</span>
-                {e.charges ? <span style={{ color:'var(--loss)' }}>−₹{e.charges.toFixed(0)}</span> : null}
+                <span style={{ color:'var(--text-muted)' }}>{e.exitDate ? e.exitDate.split('-').reverse().join('/') : ''}</span>
+                {e.charges ? <span style={{ color:'var(--loss)' }}>−₹{Math.abs(e.charges).toFixed(2)}</span> : null}
               </div>
             ))}
             {prevChargesTotal > 0 && (
@@ -197,8 +197,8 @@ function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditL
                     <div key={ei} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:11, color:'var(--text-muted)', background:'rgba(255,255,255,0.03)', borderRadius:5, padding:'3px 7px' }}>
                       <span style={{ display:'flex', alignItems:'center', gap:5 }}>
                         <span style={{ fontFamily:'var(--font-mono)', color:'var(--text-secondary)' }}>{e.quantity}L @ ₹{e.exitPremium?.toFixed(2)}</span>
-                        <span style={{ opacity:0.4, fontSize:9 }}>{e.exitDate}</span>
-                        {e.charges ? <span style={{ color:'var(--loss)', fontSize:9, opacity:0.8 }}>−₹{Math.abs(e.charges).toFixed(0)}</span> : null}
+                        <span style={{ opacity:0.4, fontSize:9 }}>{e.exitDate ? e.exitDate.split('-').reverse().join('/') : ''}</span>
+                        {e.charges ? <span style={{ color:'var(--loss)', fontSize:9, opacity:0.8 }}>−₹{Math.abs(e.charges).toFixed(2)}</span> : null}
                         {isOpen && onRemoveExit && (
                           <button onClick={() => onRemoveExit(positionId, leg.id, ei)}
                             style={{ background:'none', border:'none', color:'var(--loss)', cursor:'pointer', fontSize:9, padding:'0 2px', opacity:0.5 }}>✕</button>
@@ -229,8 +229,11 @@ function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditL
 
       {/* Position-level booked + running summary — shown when there are partial exits */}
       {(totalBooked !== 0 || hasRunning) && legs.some(l => (l.exits||[]).length > 0) && (() => {
-        // charges may be stored as negative (debit) — always treat as positive deduction
-        const trancheCharges = Math.abs(legs.reduce((s,l) => s + (l.exits||[]).reduce((s2,e) => s2+(e.charges||0), 0), 0));
+        // charges may be at tranche level (from Excel import) or position level (from broker fetch)
+        // use whichever has data — prefer tranche-level as it's more granular
+        const trancheChargesRaw = legs.reduce((s,l) => s + (l.exits||[]).reduce((s2,e) => s2+(e.charges||0), 0), 0);
+        const posCharges = position.charges ? Math.abs(parseFloat(position.charges)) : 0;
+        const trancheCharges = trancheChargesRaw !== 0 ? Math.abs(trancheChargesRaw) : posCharges;
         const bookedNet = totalBooked - trancheCharges;
         return (
         <div style={{ display:'flex', gap:8, marginTop:4 }}>
@@ -241,7 +244,7 @@ function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditL
             </div>
             {trancheCharges > 0 && (
               <div style={{ fontFamily:'var(--font-mono)', fontSize:10, color:'var(--text-muted)', marginTop:2 }}>
-                after ₹{trancheCharges.toFixed(0)} chg →{' '}
+                after ₹{trancheCharges.toFixed(2)} chg →{' '}
                 <span style={{ color: bookedNet>=0 ? 'var(--profit)' : 'var(--loss)', fontWeight:700 }}>
                   {bookedNet>=0?'+':'−'}₹{Math.abs(bookedNet).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
                 </span>
@@ -328,7 +331,7 @@ function MarginCell({ value, onSave, position }) {
         title="Click to set margin used">
         {value
           ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>
-              {value >= 100000 ? '₹' + (value / 100000).toFixed(1) + 'L' : value >= 1000 ? '₹' + (value / 1000).toFixed(0) + 'K' : '₹' + value}
+              {value >= 100000 ? '₹' + (value / 100000).toFixed(2) + 'L' : value >= 1000 ? '₹' + (value / 1000).toFixed(2) + 'K' : '₹' + parseFloat(value).toFixed(2)}
             </span>
           : <span style={{ fontSize: 11, color: 'var(--text-muted)', borderBottom: '1px dashed var(--text-muted)' }}>+ add</span>}
       </div>
@@ -349,7 +352,7 @@ function ChargesCell({ value, onSave, position }) {
   const [draft, setDraft] = useState(value ? String(value) : '');
   const [fetching, setFetching] = useState(false);
   const save = () => { const v = parseFloat(draft); onSave(isNaN(v) ? null : v); setEditing(false); };
-  const fmt = n => n >= 100000 ? '₹'+(n/100000).toFixed(1)+'L' : n >= 1000 ? '₹'+(n/1000).toFixed(0)+'K' : '₹'+n;
+  const fmt = n => n >= 100000 ? '₹'+(n/100000).toFixed(2)+'L' : n >= 1000 ? '₹'+(n/1000).toFixed(2)+'K' : '₹'+parseFloat(n).toFixed(2);
   const hasBrokerLegs = position?.legs?.some(l => l.brokerTradeId);
   const isOpen = position?.status === 'OPEN';
   const fetchFromBroker = async (e) => {
@@ -575,7 +578,7 @@ function NotesPanel({ position, onClose, onSave }) {
           {[
             { label: 'Max Profit', value: fmtMoney(maxProfit), color: 'var(--profit)' },
             { label: 'P&L', value: pnl !== null ? fmtMoney(pnl) : '—', color: pnl >= 0 ? 'var(--profit)' : 'var(--loss)' },
-            { label: 'Charges', value: position.charges ? '-₹'+Math.round(position.charges).toLocaleString('en-IN') : '—', color: 'var(--loss)' },
+            { label: 'Charges', value: position.charges ? '-₹'+Math.abs(parseFloat(position.charges)).toFixed(2) : '—', color: 'var(--loss)' },
           { label: 'Net P&L', value: pnl !== null && position.charges ? fmtMoney(pnl - position.charges) : '—', color: (pnl||0) - (position.charges||0) >= 0 ? 'var(--profit)' : 'var(--loss)' },
           { label: 'Return on Premium', value: retOnPremium !== null ? (retOnPremium >= 0 ? '+' : '') + retOnPremium.toFixed(1) + '%' : '—', color: retOnPremium >= 0 ? 'var(--profit)' : 'var(--loss)' },
             { label: 'Return on Margin', value: retOnMargin !== null ? (retOnMargin >= 0 ? '+' : '') + retOnMargin.toFixed(2) + '%' : '—', color: retOnMargin !== null ? (retOnMargin >= 0 ? 'var(--profit)' : 'var(--loss)') : 'var(--text-muted)' },
@@ -820,7 +823,7 @@ export default function TradeHistory() {
     if (!all.length) return;
 
     const fmtD = d => d ? new Date(d + 'T12:00:00').toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—';
-    const fmtM = n => n != null ? Math.round(n) : '';
+    const fmtM = n => n != null ? parseFloat(n).toFixed(2) : '';
 
     // Sheet 1: Positions summary
     const posRows = all.map(p => {
@@ -845,7 +848,7 @@ export default function TradeHistory() {
         'R:R':               maxLoss != null && maxLoss !== 0 ? parseFloat((Math.abs(maxLoss) / maxProfit).toFixed(2)) : '',
         'Margin Used (₹)':   margin ? fmtM(margin) : '',
         'P&L (₹)':           pnl != null && p.status !== 'OPEN' ? fmtM(pnl) : '',
-        'Charges (₹)':          p.charges ? Math.round(p.charges) : '',
+        'Charges (₹)':          p.charges ? Math.abs(parseFloat(p.charges)).toFixed(2) : '',
         'Net P&L (₹)':           pnl != null && p.status !== 'OPEN' ? fmtM(pnl - (p.charges || 0)) : '',
         'Return on Premium %': retPrem != null && p.status !== 'OPEN' ? parseFloat(retPrem.toFixed(2)) : '',
         'Return on Margin %':  retMargin != null ? parseFloat(retMargin.toFixed(2)) : '',
@@ -878,7 +881,7 @@ export default function TradeHistory() {
           'Total Qty':       (leg.quantity || 0) * lotSize,
           'Entry Premium ₹': entry,
           'Exit Premium ₹':  hasExit ? exit : '',
-          'Leg P&L ₹':       legPnl != null ? Math.round(legPnl) : '',
+          'Leg P&L ₹':       legPnl != null ? parseFloat(legPnl).toFixed(2) : '',
           'Status':          p.status,
         });
       });
@@ -914,7 +917,7 @@ export default function TradeHistory() {
       { 'Metric': 'Winners', 'Value': wins },
       { 'Metric': 'Losers', 'Value': closed.filter(p => (p.realizedPnL||0) < 0).length },
       { 'Metric': 'Win Rate %', 'Value': closed.length ? parseFloat(((wins/closed.length)*100).toFixed(1)) : 0 },
-      { 'Metric': 'Total P&L (₹)', 'Value': Math.round(totalPnL) },
+      { 'Metric': 'Total P&L (₹)', 'Value': parseFloat(totalPnL).toFixed(2) },
       { 'Metric': 'Exported On', 'Value': new Date().toLocaleDateString('en-IN') },
     ];
     const ws3 = XLSX.utils.json_to_sheet(summaryData);
