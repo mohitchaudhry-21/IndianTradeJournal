@@ -22,49 +22,77 @@ function fmtDate(d) {
 
 
 function PartialExitPopup({ leg, positionId, onClose, onSave }) {
-  const [qty, setQty] = useState('');
-  const [price, setPrice] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().slice(0,10));
+  const [qty,    setQty]    = useState('');
+  const [price,  setPrice]  = useState('');
+  const [date,   setDate]   = useState(new Date().toISOString().slice(0,10));
+  const [charges, setCharges] = useState('');
   const totalExited = (leg.exits||[]).reduce((s,e) => s+(e.quantity||0), 0);
   const remaining = (leg.quantity||1) - totalExited;
   const handleSave = () => {
     const q = parseInt(qty); const p = parseFloat(price);
     if (!q || !p || q > remaining) return;
-    onSave(positionId, leg.id, { quantity: q, exitPremium: p, exitDate: date });
+    onSave(positionId, leg.id, {
+      quantity:    q,
+      exitPremium: p,
+      exitDate:    date,
+      charges:     charges ? parseFloat(charges) : undefined,
+    });
     onClose();
   };
+  const prevExits = leg.exits || [];
+  const prevChargesTotal = prevExits.reduce((s,e) => s+(e.charges||0), 0);
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center' }}
       onClick={e => { if (e.target===e.currentTarget) onClose(); }}>
-      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:24, width:320, boxShadow:'0 16px 48px rgba(0,0,0,0.5)' }}>
-        <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)', marginBottom:4 }}>Add Partial Exit</div>
+      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:24, width:340, boxShadow:'0 16px 48px rgba(0,0,0,0.5)' }}>
+        <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)', marginBottom:4 }}>Add Exit Tranche</div>
         <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:16 }}>
           {leg.optionType} {leg.transactionType} {leg.strike?.toLocaleString('en-IN')} · {remaining} lot{remaining!==1?'s':''} remaining
         </div>
-        {(leg.exits||[]).length > 0 && (
+
+        {prevExits.length > 0 && (
           <div style={{ marginBottom:12, padding:'8px 10px', background:'var(--bg-primary)', borderRadius:6, fontSize:11 }}>
-            <div style={{ color:'var(--text-muted)', marginBottom:4 }}>Previous exits:</div>
-            {(leg.exits||[]).map((e,i) => (
-              <div key={i} style={{ fontFamily:'var(--font-mono)', color:'var(--text-secondary)' }}>
-                {e.quantity}L @ ₹{e.exitPremium?.toFixed(2)} on {e.exitDate}
+            <div style={{ color:'var(--text-muted)', marginBottom:4 }}>Previous tranches:</div>
+            {prevExits.map((e,i) => (
+              <div key={i} style={{ fontFamily:'var(--font-mono)', color:'var(--text-secondary)', display:'flex', gap:8 }}>
+                <span>{e.quantity}L @ ₹{e.exitPremium?.toFixed(2)}</span>
+                <span style={{ color:'var(--text-muted)' }}>{e.exitDate}</span>
+                {e.charges ? <span style={{ color:'var(--loss)' }}>−₹{e.charges.toFixed(0)}</span> : null}
               </div>
             ))}
+            {prevChargesTotal > 0 && (
+              <div style={{ marginTop:4, color:'var(--text-muted)', fontSize:10 }}>
+                Charges so far: −₹{prevChargesTotal.toFixed(2)}
+              </div>
+            )}
           </div>
         )}
-        <div className="form-group" style={{ marginBottom:10 }}>
-          <label className="form-label">Lots to exit (max {remaining})</label>
-          <input className="form-input" type="number" min="1" max={remaining} value={qty}
-            onChange={e => setQty(e.target.value)} placeholder={`1–${remaining}`} />
+
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+          <div className="form-group">
+            <label className="form-label">Lots (max {remaining})</label>
+            <input className="form-input" type="number" min="1" max={remaining} value={qty}
+              onChange={e => setQty(e.target.value)} placeholder={`1–${remaining}`} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Exit Price (₹)</label>
+            <input className="form-input" type="number" step="0.05" value={price}
+              onChange={e => setPrice(e.target.value)} placeholder="e.g. 45.50" />
+          </div>
         </div>
-        <div className="form-group" style={{ marginBottom:10 }}>
-          <label className="form-label">Exit Price (₹)</label>
-          <input className="form-input" type="number" step="0.05" value={price}
-            onChange={e => setPrice(e.target.value)} placeholder="e.g. 45.50" />
+
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16 }}>
+          <div className="form-group">
+            <label className="form-label">Exit Date</label>
+            <input className="form-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Charges ₹ <span style={{ color:'var(--text-muted)', fontWeight:400 }}>(optional)</span></label>
+            <input className="form-input" type="number" step="0.01" value={charges}
+              onChange={e => setCharges(e.target.value)} placeholder="e.g. 45.00" />
+          </div>
         </div>
-        <div className="form-group" style={{ marginBottom:16 }}>
-          <label className="form-label">Exit Date</label>
-          <input className="form-input" type="date" value={date} onChange={e => setDate(e.target.value)} />
-        </div>
+
         <div style={{ display:'flex', gap:10 }}>
           <button className="btn btn-outline" style={{ flex:1 }} onClick={onClose}>Cancel</button>
           <button className="btn btn-primary" style={{ flex:2 }} onClick={handleSave}
@@ -167,10 +195,11 @@ function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditL
                   const tranchePnl = sign * (entry - e.exitPremium) * e.quantity * lotSize;
                   return (
                     <div key={ei} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:11, color:'var(--text-muted)', background:'rgba(255,255,255,0.03)', borderRadius:5, padding:'3px 7px' }}>
-                      <span style={{ display:'flex', alignItems:'center', gap:6 }}>
+                      <span style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
                         <span style={{ fontFamily:'var(--font-mono)' }}>{e.quantity}L @ ₹{e.exitPremium?.toFixed(2)}</span>
                         <span style={{ opacity:0.5 }}>·</span>
                         <span>{e.exitDate}</span>
+                        {e.charges ? <span style={{ color:'var(--loss)', fontSize:10 }}>−₹{e.charges.toFixed(2)} chg</span> : null}
                         {isOpen && onRemoveExit && (
                           <button onClick={() => onRemoveExit(positionId, leg.id, ei)}
                             style={{ background:'none', border:'none', color:'var(--loss)', cursor:'pointer', fontSize:10, padding:'0 2px', opacity:0.6 }}>✕</button>
@@ -178,6 +207,7 @@ function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditL
                       </span>
                       <span style={{ fontFamily:'var(--font-mono)', fontWeight:600, color: tranchePnl>=0 ? 'var(--profit)' : 'var(--loss)' }}>
                         {tranchePnl>=0?'+':'−'}₹{Math.abs(tranchePnl).toLocaleString('en-IN', {minimumFractionDigits:2,maximumFractionDigits:2})}
+                        {e.charges ? <span style={{ fontSize:9, color:'var(--loss)', fontWeight:400, marginLeft:3 }}>net: {(tranchePnl - (e.charges||0))>=0?'+':'−'}₹{Math.abs(tranchePnl-(e.charges||0)).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}</span> : null}
                       </span>
                     </div>
                   );
@@ -200,13 +230,21 @@ function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditL
       })}
 
       {/* Position-level booked + running summary — shown when there are partial exits */}
-      {(totalBooked !== 0 || hasRunning) && legs.some(l => (l.exits||[]).length > 0) && (
+      {(totalBooked !== 0 || hasRunning) && legs.some(l => (l.exits||[]).length > 0) && (() => {
+        const trancheCharges = legs.reduce((s,l) => s + (l.exits||[]).reduce((s2,e) => s2+(e.charges||0), 0), 0);
+        const bookedNet = totalBooked - trancheCharges;
+        return (
         <div style={{ display:'flex', gap:8, marginTop:4 }}>
           <div style={{ flex:1, background:'rgba(16,217,160,0.07)', border:'1px solid rgba(16,217,160,0.15)', borderRadius:6, padding:'6px 10px' }}>
             <div style={{ fontSize:10, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:2 }}>Booked</div>
             <div style={{ fontFamily:'var(--font-mono)', fontWeight:700, fontSize:13, color: totalBooked>=0 ? 'var(--profit)' : 'var(--loss)' }}>
               {totalBooked>=0?'+':'−'}₹{Math.abs(totalBooked).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
             </div>
+            {trancheCharges > 0 && (
+              <div style={{ fontFamily:'var(--font-mono)', fontSize:10, color:'var(--loss)', marginTop:1 }}>
+                −₹{trancheCharges.toFixed(2)} chg → Net: {bookedNet>=0?'+':'−'}₹{Math.abs(bookedNet).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2})}
+              </div>
+            )}
           </div>
           {hasRunning && (
             <div style={{ flex:1, background:'rgba(59,130,246,0.07)', border:'1px solid rgba(59,130,246,0.15)', borderRadius:6, padding:'6px 10px' }}>
@@ -225,7 +263,8 @@ function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditL
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
@@ -500,7 +539,7 @@ function NotesPanel({ position, onClose, onSave }) {
     onClose();
   };
 
-  const pnl       = calcBookedPnL(position);
+  const pnl       = position.realizedPnL;
   const maxProfit = calcMaxProfit(position);
   const marginVal = margin ? parseFloat(margin) : null;
   const chargesVal = charges ? parseFloat(charges) : null;
@@ -697,29 +736,6 @@ function AccountTag({ accountId }) {
       {acc.name}
     </span>
   );
-}
-
-// Compute booked (realized) P&L from leg exits — accurate, used for net P&L column
-function calcBookedPnL(position) {
-  const legs = position.legs || [];
-  let total = 0;
-  let hasAny = false;
-  for (const leg of legs) {
-    const entry   = leg.premium;
-    const exits   = leg.exits || [];
-    const exit    = leg.exitPremium;
-    const lotSize = leg.lotSize || 1;
-    const sign    = leg.transactionType === 'SELL' ? 1 : -1;
-    if (exits.length > 0) {
-      const legBooked = exits.reduce((s, e) => s + sign * (entry - e.exitPremium) * e.quantity * lotSize, 0);
-      total += legBooked;
-      hasAny = true;
-    } else if (exit !== undefined && exit !== null) {
-      total += sign * (entry - exit) * (leg.quantity || 1) * lotSize;
-      hasAny = true;
-    }
-  }
-  return hasAny ? total : (position.realizedPnL ?? null);
 }
 
 export default function TradeHistory() {
@@ -1014,12 +1030,12 @@ export default function TradeHistory() {
             </thead>
             <tbody>
               {all.map(p => {
-                const pnl       = calcBookedPnL(p);
+                const pnl       = p.realizedPnL;
                 const maxProfit = calcMaxProfit(p);
                 const maxLoss   = calcMaxLoss(p);
                 const margin    = p.margin || null;
                 const charges   = p.charges || null;
-                const netPnl    = pnl !== null ? pnl - (charges || 0) : null;
+                const netPnl    = pnl !== null && charges ? pnl - charges : pnl;
                 const isOpen    = p.status === 'OPEN';
                 const hasNotes  = !!(p.notes && p.notes.trim());
 
@@ -1177,7 +1193,15 @@ export default function TradeHistory() {
                     {td(
                       <div style={{ display: 'flex', alignItems: 'center', gap: 5, whiteSpace: 'nowrap' }}>
                         {isOpen
-                          ? <span style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 600 }}>● Active</span>
+                          ? (() => {
+                              const expPast = p.expiry && new Date(p.expiry) < new Date();
+                              return expPast
+                                ? <span style={{ color:'var(--accent)', fontSize:11, fontWeight:600, display:'flex', alignItems:'center', gap:4 }}>
+                                    <span style={{ color:'#f59e0b' }}>⚠</span>
+                                    <span style={{ color:'#f59e0b' }}>Expiry passed</span>
+                                  </span>
+                                : <span style={{ color: 'var(--accent)', fontSize: 11, fontWeight: 600 }}>● Active</span>;
+                            })()
                           : <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-muted)' }}>{fmtDate(p.closeDate)}</span>
                         }
                         {!isOpen && p.closeDate && p.expiry && (
