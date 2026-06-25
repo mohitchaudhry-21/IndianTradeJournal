@@ -93,14 +93,32 @@ export async function fetchPartialExitCharges(legs) {
 // charges once legs are fully closed, plus partial exit charges for any
 // tranches that have already been exited (even if position is still OPEN).
 export async function fetchTotalCharges(position) {
+  // Sum any charges already stored on exit tranches (from Excel import)
+  // These are exact broker-reported charges so use them directly
+  const storedTrancheCharges = (position.legs || []).reduce((sum, leg) =>
+    sum + (leg.exits || []).reduce((s, e) => s + (Math.abs(e.charges || 0)), 0), 0
+  );
+
   const entryResult = await fetchEntryCharges(position.legs);
-  if (!entryResult.ok) return entryResult;
+  if (!entryResult.ok) {
+    // If we can't fetch from broker but have stored tranche charges, use those
+    if (storedTrancheCharges > 0) return { ok: true, charges: storedTrancheCharges };
+    return entryResult;
+  }
 
   // Always include partial exit charges — they represent real completed trades
   // regardless of whether the position as a whole is still open.
   const hasPartialExits = position.legs.some(l => l.exits && l.exits.length > 0);
-  const partialExitResult = hasPartialExits ? await fetchPartialExitCharges(position.legs) : null;
-  const partialExitCharges = partialExitResult?.ok ? partialExitResult.charges : 0;
+  // Only fetch partial exit charges for legs that have brokerTradeId
+  // For Excel-imported legs, we already have storedTrancheCharges above
+  const brokerSyncedLegsWithExits = position.legs.filter(l => l.brokerTradeId && l.exits?.length > 0);
+  const partialExitResult = brokerSyncedLegsWithExits.length > 0
+    ? await fetchPartialExitCharges(brokerSyncedLegsWithExits)
+    : null;
+  // Use stored tranche charges for excel-imported legs that broker can't price
+  const excelOnlyLegsCharges = (position.legs || []).filter(l => !l.brokerTradeId)
+    .reduce((sum, leg) => sum + (leg.exits || []).reduce((s, e) => s + Math.abs(e.charges || 0), 0), 0);
+  const partialExitCharges = (partialExitResult?.ok ? partialExitResult.charges : 0) + excelOnlyLegsCharges;
 
   const isClosed = position.status !== 'OPEN';
   if (!isClosed) {
