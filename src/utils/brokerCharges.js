@@ -7,7 +7,8 @@
 const SYNC_SERVER = 'http://localhost:5001';
 
 // Build the {token, quantity, lotSize, price, transactionType} list for an
-// array of legs, skipping any leg that lacks a usable broker token.
+// array of legs. Uses brokerTradeId if available, otherwise resolves token
+// from scrip master via the sync server (for Excel-imported legs).
 function buildLegPayload(legs) {
   return legs
     .filter(l => l.brokerTradeId) // only broker-synced legs have a token
@@ -21,10 +22,63 @@ function buildLegPayload(legs) {
     }));
 }
 
+// Resolve tokens for Excel-imported legs via scrip master, then build payload
+async function buildLegPayloadWithLookup(legs) {
+  const result = [];
+  const noToken = legs.filter(l => !l.brokerTradeId);
+  const hasToken = legs.filter(l => l.brokerTradeId);
+
+  // Add broker-synced legs directly
+  hasToken.forEach(l => result.push({
+    token: l.brokerTradeId,
+    quantity: l.quantity || 1,
+    lotSize: l.lotSize || 1,
+    price: l.premium || 0,
+    transactionType: l.transactionType || 'BUY',
+    symbolName: l.tradingSymbol || '',
+  }));
+
+  // Resolve tokens for Excel-imported legs
+  if (noToken.length > 0) {
+    try {
+      const res = await fetch(`${SYNC_SERVER}/optionchain/resolve-tokens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ legs: noToken.map(l => ({
+          instrument: l.instrument,
+          strike: l.strike,
+          optionType: l.optionType,
+          expiry: l.expiry,
+        })) }),
+      });
+      const data = await res.json();
+      if (data.success && data.tokens) {
+        noToken.forEach(l => {
+          const key = `${l.instrument}_${l.strike}_${l.optionType}_${l.expiry}`;
+          const token = data.tokens[key];
+          if (token) {
+            result.push({
+              token,
+              quantity: l.quantity || 1,
+              lotSize: l.lotSize || 1,
+              price: l.premium || 0,
+              transactionType: l.transactionType || 'BUY',
+              symbolName: `${l.instrument}${l.strike}${l.optionType}`,
+            });
+          }
+        });
+      }
+    } catch (e) {
+      // Token lookup failed — fall back to Excel tranche charges
+    }
+  }
+  return result;
+}
+
 // Fetch ENTRY-side charges only (uses entry premium + entry transaction type)
 export async function fetchEntryCharges(legs) {
-  const payload = buildLegPayload(legs);
-  if (!payload.length) return { ok: false, error: 'No broker-synced legs to price' };
+  const payload = await buildLegPayloadWithLookup(legs);
+  if (!payload.length) return { ok: false, error: 'No legs with resolvable tokens' };
   try {
     const res = await fetch(`${SYNC_SERVER}/charges/angelone`, {
       method: 'POST',
