@@ -271,17 +271,10 @@ export default function BrokerConnect() {
       });
       // Sum ALL tranche charges across all legs (existing + new) and save to p.charges
       // so the Booked summary reflects the complete picture
-      const allTranchesCharges = m.legMatches.reduce((sum, { leg, tranches }) => {
-        // existing exits charges
-        const existingChg = (leg.exits||[]).reduce((s,e) => s + Math.abs(e.charges||0), 0);
-        // new tranches charges (not already imported)
-        const existingIds = new Set((leg.exits||[]).map(e=>e.orderId).filter(Boolean));
-        const newChg = tranches.filter(t => !t.alreadyImported && !(t.orderId && existingIds.has(t.orderId)))
-                               .reduce((s,t) => s + Math.abs(t.charges||0), 0);
-        return sum + existingChg + newChg;
-      }, 0);
+      // totalLegCharges = entry fills charges + exit fills charges from Excel (full round-trip)
+      const allTranchesCharges = m.legMatches.reduce((sum, lm) => sum + (lm.totalLegCharges || 0), 0);
       if (allTranchesCharges > 0) {
-        updatePositionMeta(m.positionId, { charges: allTranchesCharges });
+        updatePositionMeta(m.positionId, { charges: Math.round(allTranchesCharges * 100) / 100 });
       }
     });
     setExcelModal(null);
@@ -322,14 +315,22 @@ export default function BrokerConnect() {
       const acctId = accounts.find(a=>a.broker==='angelone')?.id || '';
       const importDate = (settings.accountImportDates||{})[acctId] || '';
       const fills = [];
+      const brokerageCharges = {}; // symbol key -> charges from brokerage-only rows (qty=0)
       for (let i=hi+1; i<aoa.length; i++) {
         const row=aoa[i], p=parseSym(row[col['Scrip/Contract']]); if (!p) continue;
         const tid=String(row[col['Trade ID']]||'').trim(), qty=parseInt(row[col['Quantity']]||0);
-        if (!tid||qty===0) continue;
+        const chg=CHG.reduce((s,c)=>s+parseFloat(row[col[c]]||0),0);
+        if (!tid||qty===0) {
+          // Brokerage-only row — has charges but no fill qty/price
+          if (chg>0) {
+            const bk=`${p.instrument}|${normExp(p.expiry)}|${p.strike}|${p.optionType}`;
+            brokerageCharges[bk]=(brokerageCharges[bk]||0)+chg;
+          }
+          continue;
+        }
         const side=String(row[col['Buy/Sell']]||'').trim();
         const price=side==='Buy'?parseFloat(row[col['Buy Price']]||0):parseFloat(row[col['Sell Price']]||0);
         if (price<=0) continue;
-        const chg=CHG.reduce((s,c)=>s+parseFloat(row[col[c]]||0),0);
         const rawDate = row[col['Date']];
         let dt = '';
         if (rawDate instanceof Date) {
@@ -361,13 +362,26 @@ export default function BrokerConnect() {
           const byOrd={};
           cf.forEach(f=>{(byOrd[f.orderId]=byOrd[f.orderId]||[]).push(f);});
           const existIds=new Set((leg.exits||[]).map(e=>e.orderId).filter(Boolean));
+          // Also get entry-side fills charges (same symbol, opposite side)
+          const entrySide = cs==='Buy'?'Sell':'Buy';
+          let entryFillsCharges=0;
+          for (const k of Object.keys(byKey)){
+            const[ki,ke,ks,ko,kside]=k.split('|');
+            if(ki===inst&&normExp(ke)===exp&&Math.abs(parseFloat(ks)-str)<0.01&&ko===opt&&kside===entrySide){
+              entryFillsCharges=byKey[k].reduce((s,f)=>s+f.charges,0); break;
+            }
+          }
+          const exitFillsCharges=cf.reduce((s,f)=>s+f.charges,0);
+          const brokKey=`${inst}|${exp}|${str}|${opt}`;
+          const brokOnlyChg=brokerageCharges[brokKey]||0;
+          const totalLegCharges=entryFillsCharges+exitFillsCharges+brokOnlyChg;
           const tranches=Object.entries(byOrd).map(([oid,ofs])=>{
             const tq=ofs.reduce((s,f)=>s+f.qty,0),tl=ls?Math.floor(tq/ls):tq;
             const ap=ofs.reduce((s,f)=>s+f.price*f.qty,0)/tq,tc=ofs.reduce((s,f)=>s+f.charges,0);
             const ed=ofs.map(f=>f.date).sort().reverse()[0];
             return {orderId:oid,quantity:tl,exitPremium:Math.round(ap*10000)/10000,exitDate:ed,charges:Math.round(tc*100)/100,alreadyImported:oid&&existIds.has(oid)};
           }).filter(t=>t.quantity>0);
-          if (tranches.length) legMatches.push({leg,tranches});
+          if (tranches.length) legMatches.push({leg,tranches,totalLegCharges});
         });
         if (legMatches.length) {
           const hasNew=legMatches.some(lm=>lm.tranches.some(t=>!t.alreadyImported));
