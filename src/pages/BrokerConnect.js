@@ -45,8 +45,8 @@ function ExcelImportModal({ modal, onApply, onClose }) {
                           <span style={{fontFamily:'var(--font-mono)',color:t.alreadyImported?'var(--text-muted)':'var(--text-secondary)',textDecoration:t.alreadyImported?'line-through':'none'}}>
                             {t.quantity}L @ {fmt(t.exitPremium)}
                           </span>
-                          <span style={{color:'var(--text-muted)',fontSize:10}}>{t.exitDate}</span>
-                          {t.charges>0&&<span style={{color:'var(--loss)',fontSize:10}}>−₹{t.charges.toFixed(0)}</span>}
+                          <span style={{color:'var(--text-muted)',fontSize:10}}>{t.exitDate ? t.exitDate.split('-').reverse().join('/') : ''}</span>
+                          {t.charges>0&&<span style={{color:'var(--loss)',fontSize:10}}>−₹{t.charges.toFixed(2)}</span>}
                           <span style={{marginLeft:'auto',fontSize:10,color:t.alreadyImported?'var(--text-muted)':'var(--profit)'}}>{t.alreadyImported?'✓ done':'new'}</span>
                         </div>
                       ))}
@@ -314,7 +314,17 @@ export default function BrokerConnect() {
         const price=side==='Buy'?parseFloat(row[col['Buy Price']]||0):parseFloat(row[col['Sell Price']]||0);
         if (price<=0) continue;
         const chg=CHG.reduce((s,c)=>s+parseFloat(row[col[c]]||0),0);
-        const dt=String(row[col['Date']]||'').slice(0,10);
+        const rawDate = row[col['Date']];
+        let dt = '';
+        if (rawDate instanceof Date) {
+          // SheetJS returned a Date object — format as YYYY-MM-DD
+          const yr = rawDate.getFullYear();
+          const mo = String(rawDate.getMonth()+1).padStart(2,'0');
+          const dy = String(rawDate.getDate()).padStart(2,'0');
+          dt = `${yr}-${mo}-${dy}`;
+        } else if (rawDate) {
+          dt = String(rawDate).slice(0,10);
+        }
         if (importDate&&dt&&dt<importDate) continue;
         fills.push({...p,side,price,qty,charges:Math.round(chg*100)/100,date:dt,orderId:String(row[col['Order ID']]||'')});
       }
