@@ -157,21 +157,23 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onRecover, o
           {status === 'connecting' ? 'Connecting...' : status === 'connected' ? '↺ Reconnect' : '⚡ Connect'}
         </button>
         {status === 'connected' && (
-          <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
-            {syncing ? 'Syncing...' : '⟳ Sync Trades'}
-          </button>
-          {onRecover && (
-            <button className="btn btn-outline" onClick={onRecover} disabled={syncing}
-              title="Recover exit prices for OPEN positions using stored P&L or expiry data"
-              style={{ fontSize:12 }}>⟳ Recover Closed</button>
-          )}
-          {onExcelImport && (
-            <label title="Import AngelOne TradesAndCharges Excel" style={{ cursor:'pointer' }}>
-              <input type="file" accept=".xlsx,.xls" style={{ display:'none' }}
-                onChange={e => { if (e.target.files[0]) onExcelImport(e.target.files[0]); e.target.value=''; }} />
-              <span className="btn btn-outline" style={{ fontSize:12 }}>↑ Import Excel</span>
-            </label>
-          )}
+          <>
+            <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
+              {syncing ? 'Syncing...' : '⟳ Sync Trades'}
+            </button>
+            {onRecover && (
+              <button className="btn btn-outline" onClick={onRecover} disabled={syncing}
+                title="Recover exit prices for OPEN positions using stored P&L or expiry data"
+                style={{ fontSize:12 }}>⟳ Recover Closed</button>
+            )}
+            {onExcelImport && (
+              <label title="Import AngelOne TradesAndCharges Excel" style={{ cursor:'pointer' }}>
+                <input type="file" accept=".xlsx,.xls" style={{ display:'none' }}
+                  onChange={e => { if (e.target.files[0]) onExcelImport(e.target.files[0]); e.target.value=''; }} />
+                <span className="btn btn-outline" style={{ fontSize:12 }}>↑ Import Excel</span>
+              </label>
+            )}
+          </>
         )}
       </div>
     </div>
