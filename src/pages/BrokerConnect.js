@@ -169,14 +169,15 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, existingPosi
 export default function BrokerConnect() {
   const { addTrades, accounts, positions, addAccount, deleteAccount, settings, closePosition, updatePositionMeta, addLegExit, reopenPosition } = useJournal();
   const handleSync = (broker) => (trades, closePositions, partialExits) => {
-    // 1. Apply full exits to closed positions
+    // 1. Apply full exits to closed positions (with auto-computed charges)
     if (closePositions && closePositions.length > 0) {
-      closePositions.forEach(({ positionId, exitDate, exitLegs }) => {
+      closePositions.forEach(({ positionId, exitDate, exitLegs, charges }) => {
         if (!positionId) return;
         const exitData = {};
-        (exitLegs || []).forEach(({ legId, exitPrice, remainingQty }) => {
+        (exitLegs || []).forEach(({ legId, exitPrice, entryPrice, remainingQty }) => {
           if (legId && exitPrice !== undefined) {
-            exitData[legId] = { exitPremium: exitPrice, exitDate, remainingQty };
+            exitData[legId] = { exitPremium: exitPrice, exitDate, remainingQty,
+              ...(entryPrice !== undefined ? { entryPrice } : {}) };
           }
         });
         if (Object.keys(exitData).length === 0) {
@@ -189,6 +190,10 @@ export default function BrokerConnect() {
         }
         if (Object.keys(exitData).length > 0) {
           closePosition(positionId, exitData);
+          // Apply auto-computed charges if provided by server
+          if (charges != null && charges > 0) {
+            updatePositionMeta(positionId, { charges });
+          }
         }
       });
     }
