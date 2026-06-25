@@ -7,8 +7,7 @@
 const SYNC_SERVER = 'http://localhost:5001';
 
 // Build the {token, quantity, lotSize, price, transactionType} list for an
-// array of legs. Uses brokerTradeId if available, otherwise resolves token
-// from scrip master via the sync server (for Excel-imported legs).
+// array of legs, skipping any leg that lacks a usable broker token.
 function buildLegPayload(legs) {
   return legs
     .filter(l => l.brokerTradeId) // only broker-synced legs have a token
@@ -22,63 +21,10 @@ function buildLegPayload(legs) {
     }));
 }
 
-// Resolve tokens for Excel-imported legs via scrip master, then build payload
-async function buildLegPayloadWithLookup(legs) {
-  const result = [];
-  const noToken = legs.filter(l => !l.brokerTradeId);
-  const hasToken = legs.filter(l => l.brokerTradeId);
-
-  // Add broker-synced legs directly
-  hasToken.forEach(l => result.push({
-    token: l.brokerTradeId,
-    quantity: l.quantity || 1,
-    lotSize: l.lotSize || 1,
-    price: l.premium || 0,
-    transactionType: l.transactionType || 'BUY',
-    symbolName: l.tradingSymbol || '',
-  }));
-
-  // Resolve tokens for Excel-imported legs
-  if (noToken.length > 0) {
-    try {
-      const res = await fetch(`${SYNC_SERVER}/optionchain/resolve-tokens`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ legs: noToken.map(l => ({
-          instrument: l.instrument,
-          strike: l.strike,
-          optionType: l.optionType,
-          expiry: l.expiry,
-        })) }),
-      });
-      const data = await res.json();
-      if (data.success && data.tokens) {
-        noToken.forEach(l => {
-          const key = `${l.instrument}_${l.strike}_${l.optionType}_${l.expiry}`;
-          const token = data.tokens[key];
-          if (token) {
-            result.push({
-              token,
-              quantity: l.quantity || 1,
-              lotSize: l.lotSize || 1,
-              price: l.premium || 0,
-              transactionType: l.transactionType || 'BUY',
-              symbolName: `${l.instrument}${l.strike}${l.optionType}`,
-            });
-          }
-        });
-      }
-    } catch (e) {
-      // Token lookup failed — fall back to Excel tranche charges
-    }
-  }
-  return result;
-}
-
 // Fetch ENTRY-side charges only (uses entry premium + entry transaction type)
 export async function fetchEntryCharges(legs) {
-  const payload = await buildLegPayloadWithLookup(legs);
-  if (!payload.length) return { ok: false, error: 'No legs with resolvable tokens' };
+  const payload = buildLegPayload(legs);
+  if (!payload.length) return { ok: false, error: 'No broker-synced legs to price' };
   try {
     const res = await fetch(`${SYNC_SERVER}/charges/angelone`, {
       method: 'POST',
@@ -147,32 +93,14 @@ export async function fetchPartialExitCharges(legs) {
 // charges once legs are fully closed, plus partial exit charges for any
 // tranches that have already been exited (even if position is still OPEN).
 export async function fetchTotalCharges(position) {
-  // Sum any charges already stored on exit tranches (from Excel import)
-  // These are exact broker-reported charges so use them directly
-  const storedTrancheCharges = (position.legs || []).reduce((sum, leg) =>
-    sum + (leg.exits || []).reduce((s, e) => s + (Math.abs(e.charges || 0)), 0), 0
-  );
-
   const entryResult = await fetchEntryCharges(position.legs);
-  if (!entryResult.ok) {
-    // If we can't fetch from broker but have stored tranche charges, use those
-    if (storedTrancheCharges > 0) return { ok: true, charges: storedTrancheCharges };
-    return entryResult;
-  }
+  if (!entryResult.ok) return entryResult;
 
   // Always include partial exit charges — they represent real completed trades
   // regardless of whether the position as a whole is still open.
   const hasPartialExits = position.legs.some(l => l.exits && l.exits.length > 0);
-  // Only fetch partial exit charges for legs that have brokerTradeId
-  // For Excel-imported legs, we already have storedTrancheCharges above
-  const brokerSyncedLegsWithExits = position.legs.filter(l => l.brokerTradeId && l.exits?.length > 0);
-  const partialExitResult = brokerSyncedLegsWithExits.length > 0
-    ? await fetchPartialExitCharges(brokerSyncedLegsWithExits)
-    : null;
-  // Use stored tranche charges for excel-imported legs that broker can't price
-  const excelOnlyLegsCharges = (position.legs || []).filter(l => !l.brokerTradeId)
-    .reduce((sum, leg) => sum + (leg.exits || []).reduce((s, e) => s + Math.abs(e.charges || 0), 0), 0);
-  const partialExitCharges = (partialExitResult?.ok ? partialExitResult.charges : 0) + excelOnlyLegsCharges;
+  const partialExitResult = hasPartialExits ? await fetchPartialExitCharges(position.legs) : null;
+  const partialExitCharges = partialExitResult?.ok ? partialExitResult.charges : 0;
 
   const isClosed = position.status !== 'OPEN';
   if (!isClosed) {
