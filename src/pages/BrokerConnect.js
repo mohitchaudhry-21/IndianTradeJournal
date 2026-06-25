@@ -157,9 +157,18 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, existingPosi
           {status === 'connecting' ? 'Connecting...' : status === 'connected' ? '↺ Reconnect' : '⚡ Connect'}
         </button>
         {status === 'connected' && (
-          <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
-            {syncing ? 'Syncing...' : '⟳ Sync Trades'}
-          </button>
+          <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+            <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
+              {syncing ? 'Syncing...' : '⟳ Sync Trades'}
+            </button>
+            {onRecover && broker === 'angelone' && (
+              <button className="btn btn-outline" onClick={onRecover} disabled={syncing}
+                title="Recover exit prices for stuck OPEN positions using stored P&L or expiry data"
+                style={{ fontSize:12 }}>
+                ⟳ Recover Closed
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
