@@ -5,66 +5,49 @@ import { useJournal } from '../context/JournalContext';
 const SERVER_URL = 'http://localhost:5001';
 
 function ExcelImportModal({ modal, onApply, onClose }) {
-  const [selected, setSelected] = React.useState(() => new Set(
-    modal.matches.filter(m => m.allNew).map(m => m.positionId)
-  ));
-  const toggle = (id) => setSelected(s => {
-    const n = new Set(s);
-    n.has(id) ? n.delete(id) : n.add(id);
-    return n;
-  });
-  const fmtPrice = (p) => p != null ? `₹${Number(p).toFixed(2)}` : '—';
-
+  const [selected, setSelected] = React.useState(() =>
+    new Set(modal.matches.filter(m => m.hasNew).map(m => m.positionId))
+  );
+  const toggle = id => setSelected(s => { const n=new Set(s); n.has(id)?n.delete(id):n.add(id); return n; });
+  const fmt = p => p!=null ? `₹${Number(p).toFixed(2)}` : '—';
   return (
-    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, width:620, maxHeight:'82vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 64px rgba(0,0,0,0.6)' }}>
-        {/* Header */}
-        <div style={{ padding:'16px 20px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between', flexShrink:0 }}>
+    <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.65)',zIndex:500,display:'flex',alignItems:'center',justifyContent:'center'}}
+      onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:12,width:580,maxHeight:'80vh',display:'flex',flexDirection:'column',boxShadow:'0 24px 64px rgba(0,0,0,0.6)'}}>
+        <div style={{padding:'14px 18px',borderBottom:'1px solid var(--border)',display:'flex',alignItems:'center',justifyContent:'space-between',flexShrink:0}}>
           <div>
-            <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)' }}>Import from Excel</div>
-            <div style={{ fontSize:12, color:'var(--text-muted)', marginTop:2 }}>
-              {modal.matches.length} position{modal.matches.length !== 1 ? 's' : ''} found
-              {modal.importDate ? ` · after ${modal.importDate}` : ''}
-            </div>
+            <div style={{fontWeight:700,fontSize:14,color:'var(--text-primary)'}}>Select positions to import</div>
+            <div style={{fontSize:11,color:'var(--text-muted)',marginTop:2}}>{modal.matches.length} matched · {modal.importDate?`from ${modal.importDate}`:'all dates'}</div>
           </div>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:18, lineHeight:1 }}>✕</button>
+          <button onClick={onClose} style={{background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:18}}>✕</button>
         </div>
-
-        {/* Position list */}
-        <div style={{ overflowY:'auto', flex:1, padding:'10px 20px' }}>
-          {modal.matches.map(m => {
-            const isSel = selected.has(m.positionId);
-            const hasNew = m.legMatches.some(lm => lm.tranches.some(t => !t.alreadyImported));
+        <div style={{overflowY:'auto',flex:1,padding:'8px 16px'}}>
+          {modal.matches.map(m=>{
+            const isSel=selected.has(m.positionId);
             return (
-              <div key={m.positionId} style={{ marginBottom:10, border:`1px solid ${isSel ? 'rgba(99,102,241,0.4)' : 'var(--border)'}`, borderRadius:8, overflow:'hidden', opacity: hasNew ? 1 : 0.6 }}>
-                {/* Position header row */}
-                <label style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', background: isSel ? 'rgba(99,102,241,0.07)' : 'var(--bg-primary)', cursor:'pointer' }}>
-                  <input type="checkbox" checked={isSel} onChange={() => toggle(m.positionId)}
-                    style={{ width:14, height:14, accentColor:'var(--accent)', flexShrink:0 }} />
-                  <div style={{ flex:1, minWidth:0 }}>
-                    <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{m.label}</div>
-                    <div style={{ fontSize:11, color:'var(--text-muted)' }}>{m.entryDate}</div>
+              <div key={m.positionId} style={{marginBottom:8,border:`1px solid ${isSel?'rgba(99,102,241,0.35)':'var(--border)'}`,borderRadius:8,overflow:'hidden',opacity:m.hasNew?1:0.55}}>
+                <label style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',background:isSel?'rgba(99,102,241,0.07)':'var(--bg-primary)',cursor:'pointer'}}>
+                  <input type="checkbox" checked={isSel} onChange={()=>toggle(m.positionId)} style={{width:14,height:14,accentColor:'var(--accent)',flexShrink:0}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:'var(--text-primary)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{m.label}</div>
+                    <div style={{fontSize:11,color:'var(--text-muted)'}}>{m.entryDate}</div>
                   </div>
-                  {!hasNew && <span style={{ fontSize:10, background:'rgba(255,255,255,0.07)', color:'var(--text-muted)', borderRadius:4, padding:'2px 7px', flexShrink:0 }}>already imported</span>}
+                  {!m.hasNew&&<span style={{fontSize:10,color:'var(--text-muted)',background:'rgba(255,255,255,0.06)',borderRadius:4,padding:'2px 6px',flexShrink:0}}>already imported</span>}
                 </label>
-                {/* Tranches per leg */}
-                <div style={{ borderTop:'1px solid var(--border)', padding:'6px 12px 8px', background:'var(--bg-primary)' }}>
-                  {m.legMatches.map(({ leg, tranches }, li) => (
-                    <div key={leg.id || li} style={{ marginBottom: li < m.legMatches.length-1 ? 8 : 0 }}>
-                      <div style={{ fontSize:10, color:'var(--text-muted)', letterSpacing:'.05em', textTransform:'uppercase', marginBottom:4 }}>
-                        {leg.transactionType} {leg.strike}{leg.optionType} · {leg.quantity}L
+                <div style={{padding:'6px 12px 8px',background:'rgba(0,0,0,0.15)',borderTop:'1px solid var(--border)'}}>
+                  {m.legMatches.map(({leg,tranches},li)=>(
+                    <div key={li} style={{marginBottom:li<m.legMatches.length-1?6:0}}>
+                      <div style={{fontSize:10,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:3}}>
+                        {leg.transactionType} {leg.strike}{leg.optionType} · {leg.quantity}L @ ₹{leg.premium}
                       </div>
-                      {tranches.map((t, ti) => (
-                        <div key={ti} style={{ display:'flex', alignItems:'center', gap:10, fontSize:11, padding:'3px 0', borderTop: ti > 0 ? '1px solid rgba(255,255,255,0.04)' : 'none' }}>
-                          <span style={{ fontFamily:'var(--font-mono)', color: t.alreadyImported ? 'var(--text-muted)' : 'var(--text-secondary)', textDecoration: t.alreadyImported ? 'line-through' : 'none' }}>
-                            {t.quantity}L @ {fmtPrice(t.exitPremium)}
+                      {tranches.map((t,ti)=>(
+                        <div key={ti} style={{display:'flex',alignItems:'center',gap:8,fontSize:11,padding:'2px 0',borderTop:ti>0?'1px solid rgba(255,255,255,0.04)':'none'}}>
+                          <span style={{fontFamily:'var(--font-mono)',color:t.alreadyImported?'var(--text-muted)':'var(--text-secondary)',textDecoration:t.alreadyImported?'line-through':'none'}}>
+                            {t.quantity}L @ {fmt(t.exitPremium)}
                           </span>
-                          <span style={{ color:'var(--text-muted)' }}>{t.exitDate}</span>
-                          {t.charges > 0 && <span style={{ color:'var(--loss)', fontSize:10 }}>−₹{t.charges.toFixed(0)} chg</span>}
-                          {t.alreadyImported
-                            ? <span style={{ fontSize:10, color:'var(--text-muted)', marginLeft:'auto' }}>✓ imported</span>
-                            : <span style={{ fontSize:10, color:'var(--profit)', marginLeft:'auto' }}>new</span>}
+                          <span style={{color:'var(--text-muted)',fontSize:10}}>{t.exitDate}</span>
+                          {t.charges>0&&<span style={{color:'var(--loss)',fontSize:10}}>−₹{t.charges.toFixed(0)}</span>}
+                          <span style={{marginLeft:'auto',fontSize:10,color:t.alreadyImported?'var(--text-muted)':'var(--profit)'}}>{t.alreadyImported?'✓ done':'new'}</span>
                         </div>
                       ))}
                     </div>
@@ -74,16 +57,11 @@ function ExcelImportModal({ modal, onApply, onClose }) {
             );
           })}
         </div>
-
-        {/* Footer */}
-        <div style={{ padding:'12px 20px', borderTop:'1px solid var(--border)', display:'flex', gap:10, alignItems:'center', flexShrink:0 }}>
-          <span style={{ fontSize:12, color:'var(--text-muted)', flex:1 }}>
-            {selected.size} position{selected.size !== 1 ? 's' : ''} selected
-          </span>
-          <button onClick={onClose} className="btn btn-outline" style={{ fontSize:13 }}>Cancel</button>
-          <button onClick={() => onApply(selected, modal)} className="btn btn-primary" style={{ fontSize:13 }}
-            disabled={selected.size === 0}>
-            Apply {selected.size > 0 ? `(${selected.size})` : ''}
+        <div style={{padding:'10px 16px',borderTop:'1px solid var(--border)',display:'flex',gap:8,alignItems:'center',flexShrink:0}}>
+          <span style={{fontSize:12,color:'var(--text-muted)',flex:1}}>{selected.size} selected</span>
+          <button onClick={onClose} className="btn btn-outline" style={{fontSize:13}}>Cancel</button>
+          <button onClick={()=>onApply(selected,modal)} className="btn btn-primary" style={{fontSize:13}} disabled={selected.size===0}>
+            Apply {selected.size>0?`(${selected.size})`:''}
           </button>
         </div>
       </div>
@@ -239,218 +217,141 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 10 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
         <button className="btn btn-outline" onClick={handleConnect} disabled={status === 'connecting'}>
           {status === 'connecting' ? 'Connecting...' : status === 'connected' ? '↺ Reconnect' : '⚡ Connect'}
         </button>
-        {/* Per-account import date filter for Excel */}
-        {broker === 'angelone' && onSetImportDate && (
-          <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:8 }}>
-            <label style={{ fontSize:11, color:'var(--text-muted)', whiteSpace:'nowrap' }}>Excel import from</label>
-            <input type="date"
-              value={(settings?.accountImportDates || {})[selectedAccId] || ''}
-              onChange={e => onSetImportDate(selectedAccId, e.target.value)}
-              style={{ fontSize:11, padding:'2px 6px', borderRadius:5, border:'1px solid var(--border)', background:'var(--bg-primary)', color:'var(--text-primary)', cursor:'pointer' }} />
-            {(settings?.accountImportDates || {})[selectedAccId] && (
-              <button onClick={() => onSetImportDate(selectedAccId, '')}
-                style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:11, padding:0 }}>✕</button>
-            )}
-          </div>
-        )}
         {status === 'connected' && (
           <>
             <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
               {syncing ? 'Syncing...' : '⟳ Sync Trades'}
             </button>
-
             {onExcelImport && (
-              <label title="Import AngelOne TradesAndCharges Excel" style={{ cursor:'pointer' }}>
+              <label style={{ cursor:'pointer', display:'inline-flex', alignItems:'center' }}>
                 <input type="file" accept=".xlsx,.xls" style={{ display:'none' }}
                   onChange={e => { if (e.target.files[0]) onExcelImport(e.target.files[0]); e.target.value=''; }} />
-                <span className="btn btn-outline" style={{ fontSize:12 }}>↑ Import Excel</span>
+                <span className="btn btn-outline" style={{ fontSize:13 }}>↑ Import Excel</span>
               </label>
             )}
           </>
         )}
       </div>
+      {onSetImportDate && broker === 'angelone' && (
+        <div style={{ marginTop:10, display:'flex', alignItems:'center', gap:8, padding:'7px 10px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--border)', borderRadius:7, width:'fit-content' }}>
+          <span style={{ fontSize:11, color:'var(--text-muted)', fontWeight:600, whiteSpace:'nowrap' }}>Import fills from:</span>
+          <input type="date"
+            value={(settings?.accountImportDates || {})[selectedAccId] || ''}
+            onChange={e => onSetImportDate(selectedAccId, e.target.value)}
+            style={{ fontSize:12, padding:'3px 8px', borderRadius:5, border:'1px solid var(--border)', background:'var(--bg-card)', color:'var(--text-primary)', cursor:'pointer' }} />
+          {(settings?.accountImportDates || {})[selectedAccId]
+            ? <button onClick={() => onSetImportDate(selectedAccId, '')} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:12, padding:0 }}>✕</button>
+            : <span style={{ fontSize:10, color:'var(--text-muted)' }}>all dates</span>}
+        </div>
+      )}
     </div>
   );
 }
 
 export default function BrokerConnect() {
-  const { addTrades, accounts, positions, addAccount, deleteAccount, settings, closePosition, updatePositionMeta, addLegExit, reopenPosition } = useJournal();
-  // ── Excel import state ───────────────────────────────────────────────────────
-  const [excelModal, setExcelModal] = React.useState(null); // {matches, byKey, normExp, importDate}
+  const { addTrades, accounts, positions, addAccount, deleteAccount, settings, updateSettings, closePosition, updatePositionMeta, addLegExit, reopenPosition } = useJournal();
+  const [excelModal, setExcelModal] = React.useState(null);
 
   const applyExcelMatches = (selectedIds, matchData) => {
-    const { matches, importDate } = matchData;
     let applied = 0;
-    matches.filter(m => selectedIds.has(m.positionId)).forEach(m => {
+    matchData.matches.filter(m => selectedIds.has(m.positionId)).forEach(m => {
       m.legMatches.forEach(({ leg, tranches }) => {
-        // Dedupe: skip tranches whose Order ID already exists in this leg's exits
-        const existingOrderIds = new Set(
-          (leg.exits || []).map(e => e.orderId).filter(Boolean)
-        );
+        const existingIds = new Set((leg.exits||[]).map(e=>e.orderId).filter(Boolean));
         tranches.forEach(t => {
-          if (t.orderId && existingOrderIds.has(t.orderId)) return; // already imported
-          addLegExit(m.positionId, leg.id, {
-            quantity:    t.quantity,
-            exitPremium: t.exitPremium,
-            exitDate:    t.exitDate,
-            charges:     t.charges,
-            orderId:     t.orderId, // store for future dedupe
-          });
+          if (t.alreadyImported || (t.orderId && existingIds.has(t.orderId))) return;
+          addLegExit(m.positionId, leg.id, { quantity:t.quantity, exitPremium:t.exitPremium, exitDate:t.exitDate, charges:t.charges, orderId:t.orderId });
           applied++;
         });
       });
     });
     setExcelModal(null);
-    alert(applied > 0 ? `Applied ${applied} exit tranche(s).` : 'No new tranches to apply — all already imported.');
+    alert(applied > 0 ? `Applied ${applied} exit tranche(s).` : 'No new tranches — all already imported.');
   };
+
+  const setAccountImportDate = (acctId, date) =>
+    updateSettings({ accountImportDates: { ...(settings.accountImportDates||{}), [acctId]: date } });
 
   const handleExcelImport = async (file) => {
     if (!file) return;
     try {
       const XLSX = await import('xlsx');
-      const buf  = await file.arrayBuffer();
-      const wb   = XLSX.read(buf, { type: 'array', cellDates: true });
-      const ws   = wb.Sheets['TradesAndCharges'];
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type:'array', cellDates:true });
+      const ws = wb.Sheets['TradesAndCharges'];
       if (!ws) { alert('Sheet "TradesAndCharges" not found.'); return; }
-
-      const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, raw: false, dateNF: 'yyyy-mm-dd' });
-      const headerIdx = aoa.findIndex(r => r[0] === 'Scrip/Contract');
-      if (headerIdx < 0) { alert('Could not find trade data header.'); return; }
-
-      const headers = aoa[headerIdx];
-      const col = {};
-      headers.forEach((h, i) => { if (h) col[h] = i; });
-
-      const CHARGE_COLS = ['Brokerage','GST','STT','Sebi Tax',
-                           'Exchange Turnover Charges','Stamp Duty','Other Charges','IPFT Charges'];
-      const MONTH_MAP = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
-
-      const parseSymbol = (sym) => {
-        if (!sym || !sym.includes('OPTIDX')) return null;
-        const m = sym.trim().match(/OPTIDX\s+(\S+)\s+(\w+)\s+(\d+)\s+(\d{4})\s+([\d.]+)\s+(CE|PE)/);
+      const aoa = XLSX.utils.sheet_to_json(ws, { header:1, raw:false, dateNF:'yyyy-mm-dd' });
+      const hi = aoa.findIndex(r => r[0] === 'Scrip/Contract');
+      if (hi < 0) { alert('Header not found.'); return; }
+      const col = {}; aoa[hi].forEach((h,i) => { if (h) col[h]=i; });
+      const CHG = ['Brokerage','GST','STT','Sebi Tax','Exchange Turnover Charges','Stamp Duty','Other Charges','IPFT Charges'];
+      const MM = {Jan:1,Feb:2,Mar:3,Apr:4,May:5,Jun:6,Jul:7,Aug:8,Sep:9,Oct:10,Nov:11,Dec:12};
+      const parseSym = sym => {
+        if (!sym||!sym.includes('OPTIDX')) return null;
+        const m=sym.trim().match(/OPTIDX\s+(\S+)\s+(\w+)\s+(\d+)\s+(\d{4})\s+([\d.]+)\s+(CE|PE)/);
         if (!m) return null;
-        const [, inst, mon, day, year, strike, opt] = m;
-        const mo = MONTH_MAP[mon];
-        if (!mo) return null;
-        return { instrument: inst, expiry: `${year}-${String(mo).padStart(2,'0')}-${day.padStart(2,'0')}`, strike: parseFloat(strike), optionType: opt };
+        const [,inst,mon,day,year,strike,opt]=m, mo=MM[mon]; if (!mo) return null;
+        return {instrument:inst, expiry:`${year}-${String(mo).padStart(2,'0')}-${day.padStart(2,'0')}`, strike:parseFloat(strike), optionType:opt};
       };
-
-      const normExp = (s) => {
-        if (!s) return '';
-        const str = String(s).trim();
-        if (str.length >= 10 && str[4] === '-') return str.slice(0, 10);
-        const m = str.match(/^(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2,4})$/i);
-        if (m) {
-          const mm = {JAN:'01',FEB:'02',MAR:'03',APR:'04',MAY:'05',JUN:'06',JUL:'07',AUG:'08',SEP:'09',OCT:'10',NOV:'11',DEC:'12'}[m[2].toUpperCase()];
-          const yr = m[3].length === 2 ? '20'+m[3] : m[3];
-          return `${yr}-${mm}-${m[1]}`;
-        }
-        return str.slice(0, 10);
+      const normExp = s => {
+        if (!s) return ''; const str=String(s).trim();
+        if (str.length>=10&&str[4]==='-') return str.slice(0,10);
+        const m=str.match(/^(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2,4})$/i);
+        if (m) { const mm={JAN:'01',FEB:'02',MAR:'03',APR:'04',MAY:'05',JUN:'06',JUL:'07',AUG:'08',SEP:'09',OCT:'10',NOV:'11',DEC:'12'}[m[2].toUpperCase()]; return `${m[3].length===2?'20'+m[3]:m[3]}-${mm}-${m[1]}`; }
+        return str.slice(0,10);
       };
-
-      // Get per-account import date filter
-      const acctId = accounts.find(a => a.broker === 'angelone')?.id || '';
-      const importDate = (settings.accountImportDates || {})[acctId] || '';
-
-      // Parse fills
+      const acctId = accounts.find(a=>a.broker==='angelone')?.id || '';
+      const importDate = (settings.accountImportDates||{})[acctId] || '';
       const fills = [];
-      for (let i = headerIdx + 1; i < aoa.length; i++) {
-        const row = aoa[i];
-        const sym = row[col['Scrip/Contract']];
-        const parsed = parseSymbol(sym);
-        if (!parsed) continue;
-        const tradeId = String(row[col['Trade ID']] || '').trim();
-        const qty = parseInt(row[col['Quantity']] || 0);
-        if (!tradeId || qty === 0) continue;
-        const side = String(row[col['Buy/Sell']] || '').trim();
-        const buyPrice = parseFloat(row[col['Buy Price']] || 0);
-        const sellPrice = parseFloat(row[col['Sell Price']] || 0);
-        const price = side === 'Buy' ? buyPrice : sellPrice;
-        if (price <= 0) continue;
-        const charges = CHARGE_COLS.reduce((s, c) => s + parseFloat(row[col[c]] || 0), 0);
-        const dateStr = String(row[col['Date']] || '').slice(0, 10);
-        // Apply per-account date filter
-        if (importDate && dateStr && dateStr < importDate) continue;
-        fills.push({ ...parsed, side, price, qty, charges: Math.round(charges * 100) / 100,
-                     date: dateStr, orderId: String(row[col['Order ID']] || '') });
+      for (let i=hi+1; i<aoa.length; i++) {
+        const row=aoa[i], p=parseSym(row[col['Scrip/Contract']]); if (!p) continue;
+        const tid=String(row[col['Trade ID']]||'').trim(), qty=parseInt(row[col['Quantity']]||0);
+        if (!tid||qty===0) continue;
+        const side=String(row[col['Buy/Sell']]||'').trim();
+        const price=side==='Buy'?parseFloat(row[col['Buy Price']]||0):parseFloat(row[col['Sell Price']]||0);
+        if (price<=0) continue;
+        const chg=CHG.reduce((s,c)=>s+parseFloat(row[col[c]]||0),0);
+        const dt=String(row[col['Date']]||'').slice(0,10);
+        if (importDate&&dt&&dt<importDate) continue;
+        fills.push({...p,side,price,qty,charges:Math.round(chg*100)/100,date:dt,orderId:String(row[col['Order ID']]||'')});
       }
-
-      if (!fills.length) { alert(`No option fills found${importDate ? ` after ${importDate}` : ''}.`); return; }
-
-      // Group fills by symbol+side key
-      const byKey = {};
-      fills.forEach(f => {
-        const k = `${f.instrument}|${f.expiry}|${f.strike}|${f.optionType}|${f.side}`;
-        (byKey[k] = byKey[k] || []).push(f);
-      });
-
-      // Match to OPEN positions
-      const openPositions = positions.filter(p => p.status === 'OPEN');
-      const matches = [];
-
-      openPositions.forEach(ep => {
-        const legMatches = [];
-        (ep.legs || []).forEach(leg => {
-          if (leg.status === 'CLOSED') return;
-          const inst = leg.instrument || '';
-          const expiry = normExp(leg.expiry);
-          const strike = parseFloat(leg.strike || 0);
-          const opt = leg.optionType || '';
-          const legTx = (leg.transactionType || '').toUpperCase();
-          const lotSize = parseInt(leg.lotSize || 1);
-          const closeSide = legTx === 'SELL' ? 'Buy' : 'Sell';
-
-          let closeFills = null;
-          for (const k of Object.keys(byKey)) {
-            const [ki, ke, ks, ko, kside] = k.split('|');
-            if (ki === inst && normExp(ke) === expiry && Math.abs(parseFloat(ks) - strike) < 0.01 && ko === opt && kside === closeSide) {
-              closeFills = byKey[k]; break;
-            }
-          }
-          if (!closeFills?.length) return;
-
-          // Group by Order ID → tranches
-          const byOrder = {};
-          closeFills.forEach(f => { (byOrder[f.orderId] = byOrder[f.orderId] || []).push(f); });
-          const tranches = Object.entries(byOrder).map(([orderId, orderFills]) => {
-            const totalQty = orderFills.reduce((s, f) => s + f.qty, 0);
-            const totalLots = lotSize ? Math.floor(totalQty / lotSize) : totalQty;
-            const avgPrice = orderFills.reduce((s, f) => s + f.price * f.qty, 0) / totalQty;
-            const totalChg = orderFills.reduce((s, f) => s + f.charges, 0);
-            const exitDate = orderFills.map(f => f.date).sort().reverse()[0];
-            // Check if already imported
-            const existingOrderIds = new Set((leg.exits || []).map(e => e.orderId).filter(Boolean));
-            const alreadyImported = orderId && existingOrderIds.has(orderId);
-            return { orderId, quantity: totalLots, exitPremium: Math.round(avgPrice * 10000) / 10000,
-                     exitDate, charges: Math.round(totalChg * 100) / 100, alreadyImported };
-          }).filter(t => t.quantity > 0);
-
-          if (tranches.length) legMatches.push({ leg, tranches });
+      if (!fills.length) { alert(`No fills found${importDate?` after ${importDate}`:''}.`); return; }
+      const byKey={};
+      fills.forEach(f=>{const k=`${f.instrument}|${f.expiry}|${f.strike}|${f.optionType}|${f.side}`;(byKey[k]=byKey[k]||[]).push(f);});
+      const matches=[];
+      positions.filter(p=>p.status==='OPEN').forEach(ep=>{
+        const legMatches=[];
+        (ep.legs||[]).forEach(leg=>{
+          if (leg.status==='CLOSED') return;
+          const inst=leg.instrument||'',exp=normExp(leg.expiry),str=parseFloat(leg.strike||0),opt=leg.optionType||'';
+          const tx=(leg.transactionType||'').toUpperCase(),ls=parseInt(leg.lotSize||1);
+          const cs=tx==='SELL'?'Buy':'Sell';
+          let cf=null;
+          for (const k of Object.keys(byKey)){const[ki,ke,ks,ko,kside]=k.split('|');if(ki===inst&&normExp(ke)===exp&&Math.abs(parseFloat(ks)-str)<0.01&&ko===opt&&kside===cs){cf=byKey[k];break;}}
+          if (!cf?.length) return;
+          const byOrd={};
+          cf.forEach(f=>{(byOrd[f.orderId]=byOrd[f.orderId]||[]).push(f);});
+          const existIds=new Set((leg.exits||[]).map(e=>e.orderId).filter(Boolean));
+          const tranches=Object.entries(byOrd).map(([oid,ofs])=>{
+            const tq=ofs.reduce((s,f)=>s+f.qty,0),tl=ls?Math.floor(tq/ls):tq;
+            const ap=ofs.reduce((s,f)=>s+f.price*f.qty,0)/tq,tc=ofs.reduce((s,f)=>s+f.charges,0);
+            const ed=ofs.map(f=>f.date).sort().reverse()[0];
+            return {orderId:oid,quantity:tl,exitPremium:Math.round(ap*10000)/10000,exitDate:ed,charges:Math.round(tc*100)/100,alreadyImported:oid&&existIds.has(oid)};
+          }).filter(t=>t.quantity>0);
+          if (tranches.length) legMatches.push({leg,tranches});
         });
-
         if (legMatches.length) {
-          const allNew = legMatches.some(lm => lm.tranches.some(t => !t.alreadyImported));
-          matches.push({
-            positionId: ep.positionId,
-            label: `${ep.instrument || ep.legs?.[0]?.instrument} ${ep.strategy || ep.legs?.map(l => `${l.transactionType} ${l.strike}${l.optionType}`).join(' / ')}`,
-            entryDate: ep.date || ep.legs?.[0]?.date || '',
-            legMatches,
-            allNew,
-          });
+          const hasNew=legMatches.some(lm=>lm.tranches.some(t=>!t.alreadyImported));
+          const legs=ep.legs||[];
+          matches.push({positionId:ep.positionId,hasNew,label:`${legs[0]?.instrument||''} ${legs.map(l=>`${l.transactionType} ${l.strike}${l.optionType}`).join(' / ')}`,entryDate:ep.date||legs[0]?.date||'',legMatches});
         }
       });
-
-      if (!matches.length) { alert(`No matches found with OPEN positions${importDate ? ` after ${importDate}` : ''}.`); return; }
-
-      setExcelModal({ matches, importDate });
-    } catch (e) {
-      console.error('Excel import error:', e);
-      alert(`Excel import error: ${e.message}`);
-    }
+      if (!matches.length) { alert('No matches with OPEN positions.'); return; }
+      setExcelModal({matches,importDate});
+    } catch(e){console.error(e);alert(`Excel import error: ${e.message}`);}
   };
 
   const handleSync = (broker) => (trades, closePositions, partialExits) => {
@@ -510,16 +411,10 @@ export default function BrokerConnect() {
     setShowAddAcc(false);
   };
 
-  const setAccountImportDate = (acctId, date) => {
-    updateSettings({ accountImportDates: { ...(settings.accountImportDates || {}), [acctId]: date } });
-  };
-
   return (
     <>
-    {excelModal && (
-      <ExcelImportModal modal={excelModal} onApply={applyExcelMatches} onClose={() => setExcelModal(null)} />
-    )}
-    <div style={{ maxWidth: 780 }}>
+      {excelModal && <ExcelImportModal modal={excelModal} onApply={applyExcelMatches} onClose={()=>setExcelModal(null)}/>}
+      <div style={{ maxWidth: 780 }}>
       <div className="page-header">
         <div className="page-title">Broker Connect</div>
         <div className="page-subtitle">Auto-sync trades from Angel One SmartAPI and Kotak Neo</div>
@@ -617,7 +512,7 @@ export default function BrokerConnect() {
       <div className="alert alert-info">
         Manage accounts and credentials in <strong>Settings</strong> → Accounts &amp; Broker Credentials.
       </div>
-    </div>
+      </div>
     </>
   );
 }
