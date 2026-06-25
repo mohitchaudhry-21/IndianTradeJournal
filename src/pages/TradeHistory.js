@@ -15,6 +15,23 @@ function fmtMoney(n) {
   return sign + '₹' + abs.toFixed(2);
 }
 
+function fmtExitDate(d) {
+  if (!d) return '';
+  const s = String(d).trim();
+  // YYYY-MM-DD (standard stored format)
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+    const [yr, mo, dy] = s.slice(0,10).split('-');
+    return `${dy}/${mo}/${yr}`;
+  }
+  // M/D/YYYY or M/D/YYYY H:MM:SS (corrupted SheetJS Date format)
+  const mSlash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (mSlash) {
+    const [, mo, dy, yr] = mSlash;
+    return `${dy.padStart(2,'0')}/${mo.padStart(2,'0')}/${yr}`;
+  }
+  return s.slice(0,10);
+}
+
 function fmtDate(d) {
   if (!d) return '—';
   return new Date(d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -56,7 +73,7 @@ function PartialExitPopup({ leg, positionId, onClose, onSave }) {
             {prevExits.map((e,i) => (
               <div key={i} style={{ fontFamily:'var(--font-mono)', color:'var(--text-secondary)', display:'flex', gap:8 }}>
                 <span>{e.quantity}L @ ₹{e.exitPremium?.toFixed(2)}</span>
-                <span style={{ color:'var(--text-muted)' }}>{e.exitDate ? e.exitDate.split('-').reverse().join('/') : ''}</span>
+                <span style={{ color:'var(--text-muted)' }}>{fmtExitDate(e.exitDate)}</span>
                 {e.charges ? <span style={{ color:'var(--loss)' }}>−₹{Math.abs(e.charges).toFixed(2)}</span> : null}
               </div>
             ))}
@@ -197,7 +214,7 @@ function LegsInline({ legs, positionId, positionCharges, onAddExit, onRemoveExit
                     <div key={ei} style={{ display:'flex', alignItems:'center', justifyContent:'space-between', fontSize:11, color:'var(--text-muted)', background:'rgba(255,255,255,0.03)', borderRadius:5, padding:'3px 7px' }}>
                       <span style={{ display:'flex', alignItems:'center', gap:5 }}>
                         <span style={{ fontFamily:'var(--font-mono)', color:'var(--text-secondary)' }}>{e.quantity}L @ ₹{e.exitPremium?.toFixed(2)}</span>
-                        <span style={{ opacity:0.4, fontSize:9 }}>{e.exitDate ? e.exitDate.split('-').reverse().join('/') : ''}</span>
+                        <span style={{ opacity:0.4, fontSize:9 }}>{fmtExitDate(e.exitDate)}</span>
                         {e.charges ? <span style={{ color:'var(--loss)', fontSize:9, opacity:0.8 }}>−₹{Math.abs(e.charges).toFixed(2)}</span> : null}
                         {isOpen && onRemoveExit && (
                           <button onClick={() => onRemoveExit(positionId, leg.id, ei)}
@@ -231,9 +248,11 @@ function LegsInline({ legs, positionId, positionCharges, onAddExit, onRemoveExit
       {(totalBooked !== 0 || hasRunning) && legs.some(l => (l.exits||[]).length > 0) && (() => {
         // charges may be at tranche level (from Excel import) or position level (from broker fetch)
         // use whichever has data — prefer tranche-level as it's more granular
-        const trancheChargesRaw = legs.reduce((s,l) => s + (l.exits||[]).reduce((s2,e) => s2+(e.charges||0), 0), 0);
+        const trancheChargesRaw = legs.reduce((s,l) => s + (l.exits||[]).reduce((s2,e) => s2+(Math.abs(e.charges||0)), 0), 0);
         const posCharges = positionCharges ? Math.abs(parseFloat(positionCharges)) : 0;
-        const trancheCharges = trancheChargesRaw !== 0 ? Math.abs(trancheChargesRaw) : posCharges;
+        // Prefer position-level charges (full broker fetch = entry+exit) over
+        // per-tranche charges (Excel import = exit only, partial picture)
+        const trancheCharges = posCharges > 0 ? posCharges : (trancheChargesRaw > 0 ? trancheChargesRaw : 0);
         const bookedNet = totalBooked - trancheCharges;
         return (
         <div style={{ display:'flex', gap:8, marginTop:4 }}>
