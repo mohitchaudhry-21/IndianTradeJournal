@@ -105,7 +105,7 @@ function PartialExitPopup({ leg, positionId, onClose, onSave }) {
   );
 }
 
-function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditLeg, liveLtps }) {
+function LegsInline({ legs, positionId, positionCharges, onAddExit, onRemoveExit, isOpen, onEditLeg, liveLtps }) {
   // liveLtps: { "NIFTY_24200_CE_2026-06-23": 66.5, ... } — same format as liveQuotes in context
   const getLiveLtp = (leg) => {
     if (!liveLtps) return null;
@@ -232,7 +232,7 @@ function LegsInline({ legs, positionId, onAddExit, onRemoveExit, isOpen, onEditL
         // charges may be at tranche level (from Excel import) or position level (from broker fetch)
         // use whichever has data — prefer tranche-level as it's more granular
         const trancheChargesRaw = legs.reduce((s,l) => s + (l.exits||[]).reduce((s2,e) => s2+(e.charges||0), 0), 0);
-        const posCharges = position.charges ? Math.abs(parseFloat(position.charges)) : 0;
+        const posCharges = positionCharges ? Math.abs(parseFloat(positionCharges)) : 0;
         const trancheCharges = trancheChargesRaw !== 0 ? Math.abs(trancheChargesRaw) : posCharges;
         const bookedNet = totalBooked - trancheCharges;
         return (
@@ -681,6 +681,7 @@ function NotesPanel({ position, onClose, onSave }) {
           <LegsInline
             legs={position.legs}
             positionId={position.positionId}
+            positionCharges={position.charges}
             isOpen={position.status === 'OPEN'}
             liveLtps={liveQuotes}
             onAddExit={leg => { onClose(); setTimeout(() => document.dispatchEvent(new CustomEvent('openPartialExit', { detail: { leg, positionId: position.positionId } })), 50); }}
@@ -1112,6 +1113,7 @@ export default function TradeHistory() {
                       <LegsInline
                         legs={p.legs}
                         positionId={p.positionId}
+                        positionCharges={p.charges}
                         isOpen={isOpen}
                         liveLtps={liveQuotes}
                         onAddExit={leg => setPartialExitLeg({ leg, positionId: p.positionId })}
