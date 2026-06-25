@@ -4,7 +4,7 @@ import { useJournal } from '../context/JournalContext';
 
 const SERVER_URL = 'http://localhost:5001';
 
-function BrokerSection({ name, broker, logo, color, fields, onSync, onRecover, onExcelImport, existingPositions, savedAccounts, savedCredentials }) {
+function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImport, existingPositions, savedAccounts, savedCredentials }) {
   const firstAcc = savedAccounts[0];
   const [selectedAccId, setSelectedAccId] = useState(firstAcc?.id || '');
   const [creds, setCreds] = useState(
@@ -161,11 +161,7 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onRecover, o
             <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
               {syncing ? 'Syncing...' : '⟳ Sync Trades'}
             </button>
-            {onRecover && (
-              <button className="btn btn-outline" onClick={onRecover} disabled={syncing}
-                title="Recover exit prices for OPEN positions using stored P&L or expiry data"
-                style={{ fontSize:12 }}>⟳ Recover Closed</button>
-            )}
+
             {onExcelImport && (
               <label title="Import AngelOne TradesAndCharges Excel" style={{ cursor:'pointer' }}>
                 <input type="file" accept=".xlsx,.xls" style={{ display:'none' }}
@@ -182,23 +178,6 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onRecover, o
 
 export default function BrokerConnect() {
   const { addTrades, accounts, positions, addAccount, deleteAccount, settings, closePosition, updatePositionMeta, addLegExit, reopenPosition } = useJournal();
-  const handleRecover = async () => {
-    try {
-      const res = await fetch(`${SERVER_URL}/sync/recover-closed`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ existingPositions: positions.filter(p => p.status === 'OPEN') }),
-      });
-      const data = await res.json();
-      if (!data.success) { alert(`Recovery failed: ${data.error}`); return; }
-      if (!data.recovered) {
-        alert('No positions could be auto-recovered. Use ↑ Import Excel or add exits manually via the + exit button.');
-        return;
-      }
-      handleSync('angelone')([], data.closePositions || [], []);
-      alert(`Recovered ${data.recovered} position(s).`);
-    } catch (e) { alert(`Recovery error: ${e.message}`); }
-  };
-
   const handleExcelImport = async (file) => {
     if (!file) return;
     try {
@@ -428,7 +407,6 @@ export default function BrokerConnect() {
         color="#F59E0B"
         existingPositions={positions}
         onSync={handleSync('angelone')}
-        onRecover={handleRecover}
         onExcelImport={handleExcelImport}
         savedAccounts={accounts.filter(a => a.broker === 'angelone')}
         savedCredentials={settings.brokerCredentials || {}}
