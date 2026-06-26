@@ -1266,34 +1266,32 @@ export default function TradeHistory() {
                           </div>
                         );
                       })}
+
+                      {/* Note section — fills empty space at bottom right */}
+                      {hasNotes ? (
+                        <div
+                          onClick={() => setNotesPos(p)}
+                          style={{ marginTop:'auto', padding:'11px 14px', background:'rgba(245,158,11,0.05)', border:'0.5px solid rgba(245,158,11,0.2)', borderRadius:8, cursor:'pointer' }}
+                        >
+                          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+                            <span style={{ fontSize:10, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'rgba(245,158,11,0.8)' }}>Note</span>
+                            <div style={{ flex:1, height:'0.5px', background:'rgba(245,158,11,0.15)' }}></div>
+                            <span style={{ fontSize:10, color:'rgba(245,158,11,0.5)' }}>✎ edit</span>
+                          </div>
+                          <div style={{ fontSize:12, color:'var(--text-secondary)', lineHeight:1.6, display:'-webkit-box', WebkitLineClamp:4, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
+                            {p.notes}
+                          </div>
+                        </div>
+                      ) : (
+                        <div
+                          onClick={() => setNotesPos(p)}
+                          style={{ marginTop:'auto', padding:'11px 14px', border:'0.5px dashed var(--border-hover)', borderRadius:8, display:'flex', alignItems:'center', gap:10, cursor:'pointer', opacity:0.45 }}
+                        >
+                          <span style={{ fontSize:15 }}>📝</span>
+                          <span style={{ fontSize:12, color:'var(--text-muted)' }}>Add a note — reasoning, what did you learn?</span>
+                        </div>
+                      )}
                     </div>
-
-                    {/* Note section — fills empty space at bottom right */}
-                    {hasNotes ? (
-                      <div
-                        onClick={() => setNotesPos(p)}
-                        style={{ marginTop:'auto', padding:'11px 14px', background:'rgba(245,158,11,0.05)', border:'0.5px solid rgba(245,158,11,0.2)', borderRadius:8, cursor:'pointer' }}
-                      >
-                        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
-                          <span style={{ fontSize:10, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'rgba(245,158,11,0.8)' }}>Note</span>
-                          <div style={{ flex:1, height:'0.5px', background:'rgba(245,158,11,0.15)' }}></div>
-                          <span style={{ fontSize:10, color:'rgba(245,158,11,0.5)' }}>✎ edit</span>
-                        </div>
-                        <div style={{ fontSize:12, color:'var(--text-secondary)', lineHeight:1.6, display:'-webkit-box', WebkitLineClamp:4, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
-                          {p.notes}
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        onClick={() => setNotesPos(p)}
-                        style={{ marginTop:'auto', padding:'11px 14px', border:'0.5px dashed var(--border-hover)', borderRadius:8, display:'flex', alignItems:'center', gap:10, cursor:'pointer', opacity:0.45 }}
-                      >
-                        <span style={{ fontSize:15 }}>📝</span>
-                        <span style={{ fontSize:12, color:'var(--text-muted)' }}>Add a note — reasoning, what did you learn?</span>
-                      </div>
-                    )}
-
-                  </div>
                 );
               })}
         </div>
