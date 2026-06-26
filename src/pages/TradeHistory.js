@@ -23,11 +23,16 @@ function fmtExitDate(d) {
     const [yr, mo, dy] = s.slice(0,10).split('-');
     return `${dy}/${mo}/${yr}`;
   }
-  // M/D/YYYY or M/D/YYYY H:MM:SS (corrupted SheetJS Date format)
-  const mSlash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  if (mSlash) {
-    const [, mo, dy, yr] = mSlash;
+  // M/D/YYYY H:MM:SS or M/DD/YY H:MM:SS (corrupted SheetJS formats)
+  const mSlash4 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (mSlash4) {
+    const [, mo, dy, yr] = mSlash4;
     return `${dy.padStart(2,'0')}/${mo.padStart(2,'0')}/${yr}`;
+  }
+  const mSlash2 = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})/);
+  if (mSlash2) {
+    const [, mo, dy, yr] = mSlash2;
+    return `${dy.padStart(2,'0')}/${mo.padStart(2,'0')}/20${yr}`;
   }
   return s.slice(0,10);
 }
@@ -1085,7 +1090,7 @@ export default function TradeHistory() {
                   }}>
 
                     {/* ── LEFT PANEL ── */}
-                    <div style={{ borderRight:'1px solid var(--border)', display:'flex', flexDirection:'column', background:'rgba(0,0,0,0.08)' }}>
+                    <div style={{ borderRight:'1px solid var(--border)', display:'flex', flexDirection:'column', background:'rgba(0,0,0,0.08)', WebkitFontSmoothing:'antialiased', MozOsxFontSmoothing:'grayscale' }}>
 
                       {/* Instrument + strategy */}
                       <div style={{ padding:'16px 18px 12px' }}>
@@ -1103,63 +1108,64 @@ export default function TradeHistory() {
                       <div style={{ height:'0.5px', background:'var(--border)', margin:'0 18px' }}></div>
 
                       {/* Dates */}
-                      <div style={{ padding:'12px 18px', borderBottom:'0.5px solid var(--border)' }}>
-                        <div style={{ marginBottom:10 }}>
-                          <div style={{ fontSize:10, letterSpacing:'.07em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:3 }}>Entry date</div>
-                          <div style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:700, color:'var(--text-primary)' }}>{fmtDate(p.openDate)}</div>
+                      <div style={{ padding:'14px 18px', borderBottom:'0.5px solid var(--border)' }}>
+                        <div style={{ marginBottom:12 }}>
+                          <div style={{ fontSize:10, letterSpacing:'.07em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:5 }}>Entry date</div>
+                          <div style={{ fontFamily:'var(--font-mono)', fontSize:16, fontWeight:700, color:'var(--text-primary)' }}>{fmtDate(p.openDate)}</div>
                         </div>
                         {daysHeld !== null && (
-                          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
                             <div style={{ flex:1, height:'0.5px', background:'var(--border)' }}></div>
-                            <span style={{ fontSize:10, color:'var(--text-muted)' }}>{daysHeld} day{daysHeld !== 1 ? 's' : ''} held</span>
+                            <span style={{ fontSize:11, color:'var(--text-muted)' }}>{daysHeld} day{daysHeld !== 1 ? 's' : ''} held</span>
                             <div style={{ flex:1, height:'0.5px', background:'var(--border)' }}></div>
                           </div>
                         )}
                         <div>
-                          <div style={{ fontSize:10, letterSpacing:'.07em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:3 }}>Exit date</div>
-                          <div style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:700, color: isOpen ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+                          <div style={{ fontSize:10, letterSpacing:'.07em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:5 }}>Exit date</div>
+                          <div style={{ fontFamily:'var(--font-mono)', fontSize:16, fontWeight:700, color: isOpen ? 'var(--text-muted)' : 'var(--text-primary)' }}>
                             {isOpen ? '—' : fmtDate(p.closeDate)}
                           </div>
                         </div>
                       </div>
 
                       {/* Meta */}
-                      <div style={{ padding:'10px 18px', borderBottom:'0.5px solid var(--border)', display:'flex', flexDirection:'column', gap:0 }}>
+                      <div style={{ padding:'12px 18px', borderBottom:'0.5px solid var(--border)', display:'flex', flexDirection:'column', gap:8 }}>
                         {[
                           { k:'Expiry', v: fmtDate(p.expiry), c:'var(--text-secondary)' },
-                          { k:'Margin used', v: p.margin ? fmtMoney(p.margin).replace('+','').replace('-','') : '—', c:'var(--text-secondary)' },
+                          { k:'Margin', v: p.margin ? fmtMoney(p.margin).replace('+','').replace('-','') : '—', c:'var(--text-secondary)' },
                           { k:'R:R', v: (maxLoss && maxProfit) ? (Math.abs(maxLoss)/maxProfit).toFixed(2)+' : 1' : '—', c:'var(--text-secondary)' },
                           { k:'Max profit', v: maxProfit != null ? fmtMoney(maxProfit) : '—', c:'var(--profit)' },
                           { k:'Max loss', v: maxLoss != null ? fmtMoney(-Math.abs(maxLoss)) : '—', c:'var(--loss)' },
                         ].map(({ k, v, c }) => (
-                          <div key={k} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'4px 0', borderBottom:'0.5px solid var(--border)' }}>
-                            <span style={{ fontSize:11, color:'var(--text-muted)' }}>{k}</span>
-                            <span style={{ fontFamily:'var(--font-mono)', fontSize:11, fontWeight:600, color:c }}>{v}</span>
+                          <div key={k} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                            <span style={{ fontSize:12, color:'var(--text-muted)' }}>{k}</span>
+                            <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:600, color:c }}>{v}</span>
                           </div>
                         ))}
                       </div>
 
                       {/* P&L summary */}
-                      <div style={{ padding:'12px 18px', borderBottom:'0.5px solid var(--border)' }}>
-                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
-                          <span style={{ fontSize:11, color:'var(--text-muted)' }}>Booked P&L</span>
-                          <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:600, color: pnl > 0 ? 'var(--profit)' : pnl < 0 ? 'var(--loss)' : 'var(--text-muted)' }}>{fmtMoney(pnl)}</span>
+                      <div style={{ padding:'14px 18px', borderBottom:'0.5px solid var(--border)', display:'flex', flexDirection:'column', gap:10 }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                          <span style={{ fontSize:12, color:'var(--text-muted)' }}>Booked P&L</span>
+                          <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color: pnl > 0 ? 'var(--profit)' : pnl < 0 ? 'var(--loss)' : 'var(--text-muted)' }}>{fmtMoney(pnl)}</span>
                         </div>
-                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-                          <span style={{ fontSize:11, color:'var(--text-muted)' }}>Charges</span>
-                          <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:600, color:'var(--loss)' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                          <span style={{ fontSize:12, color:'var(--text-muted)' }}>Charges</span>
+                          <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color:'var(--loss)' }}>
                             {charges != null ? `−₹${charges.toFixed(2)}` : '—'}
                           </span>
                         </div>
-                        <div style={{ height:'0.5px', background:'var(--border)', marginBottom:10 }}></div>
-                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:3 }}>
-                          <span style={{ fontSize:11, color:'var(--text-muted)' }}>Net P&L</span>
-                          <span style={{ fontFamily:'var(--font-mono)', fontSize:17, fontWeight:700, color: netPnl > 0 ? 'var(--profit)' : netPnl < 0 ? 'var(--loss)' : 'var(--text-muted)' }}>{fmtMoney(netPnl)}</span>
+                        <div style={{ height:'0.5px', background:'var(--border)' }}></div>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline' }}>
+                          <span style={{ fontSize:12, color:'var(--text-muted)' }}>Net P&L</span>
+                          <span style={{ fontFamily:'var(--font-mono)', fontSize:19, fontWeight:700, color: netPnl > 0 ? 'var(--profit)' : netPnl < 0 ? 'var(--loss)' : 'var(--text-muted)' }}>{fmtMoney(netPnl)}</span>
                         </div>
                         {ret !== null && (
-                          <div style={{ textAlign:'right' }}>
-                            <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:600, color: ret > 0 ? 'var(--profit)' : ret < 0 ? 'var(--loss)' : 'var(--text-muted)' }}>
-                              {ret >= 0 ? '+' : ''}{ret.toFixed(2)}% {retLabel}
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                            <span style={{ fontSize:12, color:'var(--text-muted)' }}>{retLabel === 'on margin' ? 'On margin' : 'On premium'}</span>
+                            <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color: ret > 0 ? 'var(--profit)' : ret < 0 ? 'var(--loss)' : 'var(--text-muted)' }}>
+                              {ret >= 0 ? '+' : ''}{ret.toFixed(2)}%
                             </span>
                           </div>
                         )}
@@ -1175,7 +1181,7 @@ export default function TradeHistory() {
                     </div>
 
                     {/* ── RIGHT PANEL: legs ── */}
-                    <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:16 }}>
+                    <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:16, WebkitFontSmoothing:'antialiased', MozOsxFontSmoothing:'grayscale' }}>
                       {(p.legs || []).map((leg, li) => {
                         const legTx = (leg.transactionType || '').toUpperCase();
                         const exits = leg.exits || [];
@@ -1239,12 +1245,11 @@ export default function TradeHistory() {
                                       const ep = parseFloat(e.exitPremium || 0);
                                       const ePnl = (legTx === 'SELL' ? 1 : -1) * (leg.premium - ep) * e.quantity * (leg.lotSize || 1);
                                       return (
-                                        <div key={ei} style={{ display:'grid', gridTemplateColumns:'54px 96px 36px 84px 1fr 120px', gap:10, alignItems:'center', height: ROW_H + 'px', borderTop:'0.5px solid var(--border)', paddingLeft:4 }}>
+                                        <div key={ei} style={{ display:'grid', gridTemplateColumns:'56px 100px 1fr 100px 120px', gap:12, alignItems:'center', height: ROW_H + 'px', borderTop:'0.5px solid var(--border)', paddingLeft:4 }}>
                                           <span style={{ fontSize:11, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>Exit {ei+1}</span>
                                           <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{ep.toFixed(2)}</span>
-                                          <span style={{ fontSize:12, color:'var(--text-muted)' }}>{e.quantity}L</span>
-                                          <span style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'var(--text-muted)' }}>{fmtExitDate(e.exitDate)}</span>
-                                          <span style={{ fontSize:11, color:'var(--text-muted)' }}>{e.charges ? `−₹${Math.abs(e.charges).toFixed(2)} chg` : ''}</span>
+                                          <span style={{ fontSize:11, color:'var(--text-muted)' }}>{e.quantity}L &nbsp;·&nbsp; {fmtExitDate(e.exitDate)}</span>
+                                          <span style={{ fontSize:11, color:'var(--text-muted)', textAlign:'right' }}>{e.charges ? `−₹${Math.abs(parseFloat(e.charges)).toFixed(2)} chg` : ''}</span>
                                           <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, textAlign:'right', color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{fmtMoney(ePnl)}</span>
                                         </div>
                                       );
@@ -1252,11 +1257,10 @@ export default function TradeHistory() {
 
                                     {/* Single exit */}
                                     {exits.length === 0 && leg.exitPremium != null && (
-                                      <div style={{ display:'grid', gridTemplateColumns:'54px 96px 36px 84px 1fr 120px', gap:10, alignItems:'center', height: ROW_H + 'px', borderTop:'0.5px solid var(--border)', paddingLeft:4 }}>
+                                      <div style={{ display:'grid', gridTemplateColumns:'56px 100px 1fr 100px 120px', gap:12, alignItems:'center', height: ROW_H + 'px', borderTop:'0.5px solid var(--border)', paddingLeft:4 }}>
                                         <span style={{ fontSize:11, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>Exit</span>
                                         <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{parseFloat(leg.exitPremium).toFixed(2)}</span>
-                                        <span style={{ fontSize:12, color:'var(--text-muted)' }}>{leg.quantity}L</span>
-                                        <span style={{ fontFamily:'var(--font-mono)', fontSize:11, color:'var(--text-muted)' }}>{fmtExitDate(leg.exitDate)}</span>
+                                        <span style={{ fontSize:11, color:'var(--text-muted)' }}>{leg.quantity}L &nbsp;·&nbsp; {fmtExitDate(leg.exitDate)}</span>
                                         <span></span>
                                         <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, textAlign:'right', color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{fmtMoney(legPnl)}</span>
                                       </div>
