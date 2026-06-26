@@ -1052,7 +1052,7 @@ export default function TradeHistory() {
         <div className="card"><div className="empty-state"><div className="icon">📋</div><p>No positions yet.</p></div></div>
       ) : (
         <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
-          {all.map(p => {
+          {all.map((p, posIdx) => {
                 const pnl       = calcBookedPnL(p);
                 const maxProfit = calcMaxProfit(p);
                 const maxLoss   = calcMaxLoss(p);
@@ -1079,7 +1079,7 @@ export default function TradeHistory() {
 
                 return (
                   <div key={p.positionId} style={{
-                    display:'grid', gridTemplateColumns:'220px minmax(0,1fr)',
+                    display:'grid', gridTemplateColumns:'200px minmax(0,1fr)',
                     background:'var(--bg-card)', border:'1px solid var(--border)',
                     borderRadius:12, overflow:'hidden',
                   }}>
@@ -1089,6 +1089,7 @@ export default function TradeHistory() {
 
                       {/* Instrument + strategy */}
                       <div style={{ padding:'16px 18px 12px' }}>
+                        <div style={{ fontSize:10, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:6 }}>Trade #{all.length - posIdx}</div>
                         <div style={{ fontSize:21, fontWeight:700, color:'var(--text-primary)', lineHeight:1, marginBottom:3 }}>{p.instrument || p.legs?.[0]?.instrument}</div>
                         <div style={{ fontSize:12, fontWeight:600, color:'var(--text-muted)', marginBottom:10 }}>{p.strategyName || 'Custom'}</div>
                         <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
@@ -1174,7 +1175,7 @@ export default function TradeHistory() {
                     </div>
 
                     {/* ── RIGHT PANEL: legs ── */}
-                    <div style={{ padding:'14px 16px', display:'flex', flexDirection:'column', gap:14 }}>
+                    <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:16 }}>
                       {(p.legs || []).map((leg, li) => {
                         const legTx = (leg.transactionType || '').toUpperCase();
                         const exits = leg.exits || [];
@@ -1224,7 +1225,7 @@ export default function TradeHistory() {
                                   <span style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 5px', borderRadius:4, flexShrink:0, background:'rgba(59,130,246,0.15)', color:'#60a5fa' }}>{leg.optionType || 'CE'}</span>
                                   <span style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 5px', borderRadius:4, flexShrink:0, background: legTx === 'SELL' ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)', color: legTx === 'SELL' ? '#f87171' : '#4ade80' }}>{legTx}</span>
                                   <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color:'var(--text-primary)', flexShrink:0 }}>{leg.strike}</span>
-                                  <span style={{ fontSize:11, color:'var(--text-muted)', flexShrink:0 }}>{leg.quantity}L · avg ₹{leg.premium}</span>
+                                  <span style={{ fontSize:11, color:'var(--text-muted)', flexShrink:0 }}>{leg.quantity} lots · entry avg <span style={{ fontFamily:'var(--font-mono)', color:'var(--text-secondary)', fontWeight:600 }}>₹{leg.premium}</span></span>
                                   <div style={{ flex:1, minWidth:8 }}></div>
                                   <button onClick={() => setPartialExitLeg({ leg, positionId: p.positionId })} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 8px', fontSize:10, fontFamily:'var(--font-sans)', flexShrink:0 }}>+ exit</button>
                                   <div style={{ width:'0.5px', background:'var(--border)', alignSelf:'stretch', flexShrink:0, margin:'0 6px' }}></div>
@@ -1238,7 +1239,7 @@ export default function TradeHistory() {
                                   const ep = parseFloat(e.exitPremium || 0);
                                   const ePnl = (legTx === 'SELL' ? 1 : -1) * (leg.premium - ep) * e.quantity * (leg.lotSize || 1);
                                   return (
-                                    <div key={ei} style={{ display:'grid', gridTemplateColumns:'52px 80px 28px 76px 1fr 96px', gap:6, alignItems:'center', padding:'5px 0 5px 8px', borderTop:'0.5px solid var(--border)' }}>
+                                    <div key={ei} style={{ display:'grid', gridTemplateColumns:'52px 86px 30px 82px 1fr 110px', gap:6, alignItems:'center', padding:'5px 0 5px 8px', borderTop:'0.5px solid var(--border)' }}>
                                       <span style={{ fontSize:10, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>Exit {ei+1}</span>
                                       <span style={{ fontFamily:'var(--font-mono)', fontSize:11, fontWeight:600, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{ep.toFixed(2)}</span>
                                       <span style={{ fontSize:11, color:'var(--text-muted)' }}>{e.quantity}L</span>
@@ -1251,7 +1252,7 @@ export default function TradeHistory() {
 
                                 {/* Single exit row (no tranches) */}
                                 {exits.length === 0 && leg.exitPremium != null && (
-                                  <div style={{ display:'grid', gridTemplateColumns:'52px 80px 28px 76px 1fr 96px', gap:6, alignItems:'center', padding:'5px 0 5px 8px', borderTop:'0.5px solid var(--border)' }}>
+                                  <div style={{ display:'grid', gridTemplateColumns:'52px 86px 30px 82px 1fr 110px', gap:6, alignItems:'center', padding:'5px 0 5px 8px', borderTop:'0.5px solid var(--border)' }}>
                                     <span style={{ fontSize:10, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>Exit</span>
                                     <span style={{ fontFamily:'var(--font-mono)', fontSize:11, fontWeight:600, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{parseFloat(leg.exitPremium).toFixed(2)}</span>
                                     <span style={{ fontSize:11, color:'var(--text-muted)' }}>{leg.quantity}L</span>
@@ -1266,6 +1267,32 @@ export default function TradeHistory() {
                         );
                       })}
                     </div>
+
+                    {/* Note section — fills empty space at bottom right */}
+                    {hasNotes ? (
+                      <div
+                        onClick={() => setNotesPos(p)}
+                        style={{ marginTop:'auto', padding:'11px 14px', background:'rgba(245,158,11,0.05)', border:'0.5px solid rgba(245,158,11,0.2)', borderRadius:8, cursor:'pointer' }}
+                      >
+                        <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:6 }}>
+                          <span style={{ fontSize:10, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'rgba(245,158,11,0.8)' }}>Note</span>
+                          <div style={{ flex:1, height:'0.5px', background:'rgba(245,158,11,0.15)' }}></div>
+                          <span style={{ fontSize:10, color:'rgba(245,158,11,0.5)' }}>✎ edit</span>
+                        </div>
+                        <div style={{ fontSize:12, color:'var(--text-secondary)', lineHeight:1.6, display:'-webkit-box', WebkitLineClamp:4, WebkitBoxOrient:'vertical', overflow:'hidden' }}>
+                          {p.notes}
+                        </div>
+                      </div>
+                    ) : (
+                      <div
+                        onClick={() => setNotesPos(p)}
+                        style={{ marginTop:'auto', padding:'11px 14px', border:'0.5px dashed var(--border-hover)', borderRadius:8, display:'flex', alignItems:'center', gap:10, cursor:'pointer', opacity:0.45 }}
+                      >
+                        <span style={{ fontSize:15 }}>📝</span>
+                        <span style={{ fontSize:12, color:'var(--text-muted)' }}>Add a note — reasoning, what did you learn?</span>
+                      </div>
+                    )}
+
                   </div>
                 );
               })}
