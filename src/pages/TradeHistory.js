@@ -1051,31 +1051,8 @@ export default function TradeHistory() {
       {all.length === 0 ? (
         <div className="card"><div className="empty-state"><div className="icon">📋</div><p>No positions yet.</p></div></div>
       ) : (
-        <div className="table-scroll-container" style={{ overflowX: 'scroll', overflowY: 'visible', borderRadius: 10, border: '1px solid var(--border)', WebkitOverflowScrolling: 'touch' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr>
-                <TH>Entry Date</TH>
-                <TH>Strategy</TH>
-                <TH>Instrument</TH>
-                <TH>Strikes</TH>
-                <TH>Expiry</TH>
-                <TH className="col-hide-lg">Max Profit</TH>
-                <TH className="col-hide-lg">Max Loss</TH>
-                <TH className="col-hide-lg">R:R</TH>
-                <TH className="col-hide-md">Margin Used</TH>
-                <TH>P&amp;L</TH>
-                <TH className="col-hide-lg">Charges</TH>
-                <TH>Net P&amp;L</TH>
-                <TH className="col-hide-sm">Return %</TH>
-                <TH>Status</TH>
-                <TH className="col-hide-md">Exit Date</TH>
-                <TH style={{ width: 60 }}>Notes</TH>
-                <TH style={{ width: 32 }}></TH>
-              </tr>
-            </thead>
-            <tbody>
-              {all.map(p => {
+        <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+          {all.map(p => {
                 const pnl       = calcBookedPnL(p);
                 const maxProfit = calcMaxProfit(p);
                 const maxLoss   = calcMaxLoss(p);
@@ -1291,10 +1268,205 @@ export default function TradeHistory() {
                         title="Delete">✕</button>
                     )}
                   </tr>
+                const isExpiredOpen = isOpen && p.expiry && new Date(p.expiry) < new Date();
+                const earlyClose = !isOpen && p.closeDate && p.expiry && p.closeDate.slice(0,10) !== p.expiry.slice(0,10);
+                const expiredClose = !isOpen && p.closeDate && p.expiry && p.closeDate.slice(0,10) === p.expiry.slice(0,10);
+                const daysHeld = (p.openDate && p.closeDate)
+                  ? Math.round((new Date(p.closeDate) - new Date(p.openDate)) / 86400000)
+                  : null;
+
+                return (
+                  <div key={p.positionId} style={{
+                    display:'grid', gridTemplateColumns:'220px minmax(0,1fr)',
+                    background:'var(--bg-card)', border:'1px solid var(--border)',
+                    borderRadius:12, overflow:'hidden',
+                  }}>
+
+                    {/* ── LEFT PANEL ── */}
+                    <div style={{ borderRight:'1px solid var(--border)', display:'flex', flexDirection:'column', background:'rgba(0,0,0,0.08)' }}>
+
+                      {/* Instrument + strategy */}
+                      <div style={{ padding:'16px 18px 12px' }}>
+                        <div style={{ fontSize:21, fontWeight:700, color:'var(--text-primary)', lineHeight:1, marginBottom:3 }}>{p.instrument || p.legs?.[0]?.instrument}</div>
+                        <div style={{ fontSize:12, fontWeight:600, color:'var(--text-muted)', marginBottom:10 }}>{p.strategyName || 'Custom'}</div>
+                        <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                          <span style={{ fontSize:10, fontWeight:700, padding:'2px 9px', borderRadius:20, background:'rgba(255,255,255,0.06)', color:'var(--text-muted)', border:'0.5px solid var(--border)' }}>
+                            {p.status}{earlyClose ? ' · Early' : expiredClose ? ' · Expired' : ''}
+                          </span>
+                          {isExpiredOpen && <span style={{ fontSize:10, color:'#f59e0b', fontWeight:600 }}>⚠ Expiry passed</span>}
+                        </div>
+                      </div>
+
+                      <div style={{ height:'0.5px', background:'var(--border)', margin:'0 18px' }}></div>
+
+                      {/* Dates */}
+                      <div style={{ padding:'12px 18px', borderBottom:'0.5px solid var(--border)' }}>
+                        <div style={{ marginBottom:10 }}>
+                          <div style={{ fontSize:10, letterSpacing:'.07em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:3 }}>Entry date</div>
+                          <div style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:700, color:'var(--text-primary)' }}>{fmtDate(p.openDate)}</div>
+                        </div>
+                        {daysHeld !== null && (
+                          <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:10 }}>
+                            <div style={{ flex:1, height:'0.5px', background:'var(--border)' }}></div>
+                            <span style={{ fontSize:10, color:'var(--text-muted)' }}>{daysHeld} day{daysHeld !== 1 ? 's' : ''} held</span>
+                            <div style={{ flex:1, height:'0.5px', background:'var(--border)' }}></div>
+                          </div>
+                        )}
+                        <div>
+                          <div style={{ fontSize:10, letterSpacing:'.07em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:3 }}>Exit date</div>
+                          <div style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:700, color: isOpen ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+                            {isOpen ? '—' : fmtDate(p.closeDate)}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Meta */}
+                      <div style={{ padding:'10px 18px', borderBottom:'0.5px solid var(--border)', display:'flex', flexDirection:'column', gap:0 }}>
+                        {[
+                          { k:'Expiry', v: fmtDate(p.expiry), c:'var(--text-secondary)' },
+                          { k:'Margin used', v: p.margin ? fmtMoney(p.margin).replace('+','').replace('-','') : '—', c:'var(--text-secondary)' },
+                          { k:'R:R', v: (maxLoss && maxProfit) ? (Math.abs(maxLoss)/maxProfit).toFixed(2)+' : 1' : '—', c:'var(--text-secondary)' },
+                          { k:'Max profit', v: maxProfit != null ? fmtMoney(maxProfit) : '—', c:'var(--profit)' },
+                          { k:'Max loss', v: maxLoss != null ? fmtMoney(-Math.abs(maxLoss)) : '—', c:'var(--loss)' },
+                        ].map(({ k, v, c }) => (
+                          <div key={k} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'4px 0', borderBottom:'0.5px solid var(--border)' }}>
+                            <span style={{ fontSize:11, color:'var(--text-muted)' }}>{k}</span>
+                            <span style={{ fontFamily:'var(--font-mono)', fontSize:11, fontWeight:600, color:c }}>{v}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* P&L summary */}
+                      <div style={{ padding:'12px 18px', borderBottom:'0.5px solid var(--border)' }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+                          <span style={{ fontSize:11, color:'var(--text-muted)' }}>Booked P&L</span>
+                          <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:600, color: pnl > 0 ? 'var(--profit)' : pnl < 0 ? 'var(--loss)' : 'var(--text-muted)' }}>{fmtMoney(pnl)}</span>
+                        </div>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+                          <span style={{ fontSize:11, color:'var(--text-muted)' }}>Charges</span>
+                          <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:600, color:'var(--loss)' }}>
+                            {charges != null ? `−₹${charges.toFixed(2)}` : '—'}
+                          </span>
+                        </div>
+                        <div style={{ height:'0.5px', background:'var(--border)', marginBottom:10 }}></div>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:3 }}>
+                          <span style={{ fontSize:11, color:'var(--text-muted)' }}>Net P&L</span>
+                          <span style={{ fontFamily:'var(--font-mono)', fontSize:17, fontWeight:700, color: netPnl > 0 ? 'var(--profit)' : netPnl < 0 ? 'var(--loss)' : 'var(--text-muted)' }}>{fmtMoney(netPnl)}</span>
+                        </div>
+                        {ret !== null && (
+                          <div style={{ textAlign:'right' }}>
+                            <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:600, color: ret > 0 ? 'var(--profit)' : ret < 0 ? 'var(--loss)' : 'var(--text-muted)' }}>
+                              {ret >= 0 ? '+' : ''}{ret.toFixed(2)}% {retLabel}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Action buttons */}
+                      <div style={{ padding:'12px 18px', marginTop:'auto', display:'flex', flexDirection:'column', gap:5 }}>
+                        <button onClick={() => setEditExitPos(p)} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:6, color:'var(--text-muted)', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center' }}>✎ Edit dates</button>
+                        <button onClick={() => setNotesPos(p)} style={{ background: hasNotes ? 'rgba(245,158,11,0.08)' : 'none', border: hasNotes ? '0.5px solid rgba(245,158,11,0.3)' : '0.5px solid var(--border-hover)', borderRadius:6, color: hasNotes ? 'var(--accent)' : 'var(--text-muted)', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center' }}>{hasNotes ? '📝 View note' : '+ Add note'}</button>
+                        {!isOpen && <button onClick={() => setReopenPos(p)} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:6, color:'var(--text-muted)', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center' }}>↺ Reopen</button>}
+                        <button onClick={() => { if (window.confirm('Delete this position?')) deletePosition(p.positionId); }} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:11, opacity:0.5, padding:'3px', width:'100%', textAlign:'center' }}>✕ Delete</button>
+                      </div>
+                    </div>
+
+                    {/* ── RIGHT PANEL: legs ── */}
+                    <div style={{ padding:'14px 16px', display:'flex', flexDirection:'column', gap:14 }}>
+                      {(p.legs || []).map((leg, li) => {
+                        const legTx = (leg.transactionType || '').toUpperCase();
+                        const exits = leg.exits || [];
+                        const isProfit = legTx === 'SELL'; // SELL legs profit when price falls
+                        const spineColor = isProfit ? 'var(--profit)' : 'var(--loss)';
+                        const dotColor   = isProfit ? '#22c55e'      : '#ef4444';
+                        const legPnl = (() => {
+                          const sign = legTx === 'SELL' ? 1 : -1;
+                          const entry = leg.premium || 0;
+                          const ls = leg.lotSize || 1;
+                          if (exits.length > 0) return exits.reduce((s, e) => s + sign * (entry - e.exitPremium) * e.quantity * ls, 0);
+                          if (leg.exitPremium != null) return sign * (entry - leg.exitPremium) * (leg.quantity || 1) * ls;
+                          return null;
+                        })();
+
+                        return (
+                          <div key={leg.id || li}>
+                            {li > 0 && <div style={{ height:'0.5px', background:'var(--border)', marginBottom:14 }}></div>}
+                            <div style={{ display:'flex', gap:12 }}>
+                              {/* Vertical spine */}
+                              <div style={{ display:'flex', flexDirection:'column', alignItems:'center', width:20, flexShrink:0 }}>
+                                <div style={{ width:11, height:11, borderRadius:'50%', background:'#6366f1', flexShrink:0 }}></div>
+                                {exits.length > 0 ? (
+                                  <>
+                                    <div style={{ width:'1.5px', flex:1, background:`linear-gradient(180deg,#6366f1,${dotColor})`, margin:'4px 0' }}></div>
+                                    {exits.map((_, ei) => (
+                                      <React.Fragment key={ei}>
+                                        <div style={{ width:9, height:9, borderRadius:'50%', background:dotColor, flexShrink:0 }}></div>
+                                        {ei < exits.length - 1 && <div style={{ width:'1.5px', background:spineColor, height:30, margin:'4px 0', opacity:0.5 }}></div>}
+                                      </React.Fragment>
+                                    ))}
+                                  </>
+                                ) : leg.exitPremium != null ? (
+                                  <>
+                                    <div style={{ width:'1.5px', flex:1, background:`linear-gradient(180deg,#6366f1,${dotColor})`, margin:'4px 0' }}></div>
+                                    <div style={{ width:9, height:9, borderRadius:'50%', background:dotColor, flexShrink:0 }}></div>
+                                  </>
+                                ) : (
+                                  <div style={{ width:'1.5px', flex:1, background:'rgba(99,102,241,0.3)', margin:'4px 0' }}></div>
+                                )}
+                              </div>
+
+                              {/* Content */}
+                              <div style={{ flex:1, minWidth:0 }}>
+                                {/* Leg header */}
+                                <div style={{ display:'flex', alignItems:'center', gap:8, paddingBottom:8, flexWrap:'nowrap' }}>
+                                  <span style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 5px', borderRadius:4, flexShrink:0, background:'rgba(59,130,246,0.15)', color:'#60a5fa' }}>{leg.optionType || 'CE'}</span>
+                                  <span style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 5px', borderRadius:4, flexShrink:0, background: legTx === 'SELL' ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)', color: legTx === 'SELL' ? '#f87171' : '#4ade80' }}>{legTx}</span>
+                                  <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color:'var(--text-primary)', flexShrink:0 }}>{leg.strike}</span>
+                                  <span style={{ fontSize:11, color:'var(--text-muted)', flexShrink:0 }}>{leg.quantity}L · avg ₹{leg.premium}</span>
+                                  <div style={{ flex:1, minWidth:8 }}></div>
+                                  <button onClick={() => setPartialExitLeg({ leg, positionId: p.positionId })} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 8px', fontSize:10, fontFamily:'var(--font-sans)', flexShrink:0 }}>+ exit</button>
+                                  <div style={{ width:'0.5px', background:'var(--border)', alignSelf:'stretch', flexShrink:0, margin:'0 6px' }}></div>
+                                  {legPnl !== null
+                                    ? <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)', flexShrink:0 }}>{fmtMoney(legPnl)}</span>
+                                    : <span style={{ fontSize:12, color:'var(--text-muted)', flexShrink:0 }}>open</span>}
+                                </div>
+
+                                {/* Exit rows */}
+                                {exits.length > 0 && exits.map((e, ei) => {
+                                  const ep = parseFloat(e.exitPremium || 0);
+                                  const ePnl = (legTx === 'SELL' ? 1 : -1) * (leg.premium - ep) * e.quantity * (leg.lotSize || 1);
+                                  return (
+                                    <div key={ei} style={{ display:'grid', gridTemplateColumns:'52px 80px 28px 76px 1fr 96px', gap:6, alignItems:'center', padding:'5px 0 5px 8px', borderTop:'0.5px solid var(--border)' }}>
+                                      <span style={{ fontSize:10, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>Exit {ei+1}</span>
+                                      <span style={{ fontFamily:'var(--font-mono)', fontSize:11, fontWeight:600, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{ep.toFixed(2)}</span>
+                                      <span style={{ fontSize:11, color:'var(--text-muted)' }}>{e.quantity}L</span>
+                                      <span style={{ fontFamily:'var(--font-mono)', fontSize:10, color:'var(--text-muted)' }}>{fmtExitDate(e.exitDate)}</span>
+                                      <span style={{ fontSize:10, color:'var(--text-muted)' }}>{e.charges ? `charges −₹${Math.abs(e.charges).toFixed(2)}` : ''}</span>
+                                      <span style={{ fontFamily:'var(--font-mono)', fontSize:11, fontWeight:600, textAlign:'right', color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{fmtMoney(ePnl)}</span>
+                                    </div>
+                                  );
+                                })}
+
+                                {/* Single exit row (no tranches) */}
+                                {exits.length === 0 && leg.exitPremium != null && (
+                                  <div style={{ display:'grid', gridTemplateColumns:'52px 80px 28px 76px 1fr 96px', gap:6, alignItems:'center', padding:'5px 0 5px 8px', borderTop:'0.5px solid var(--border)' }}>
+                                    <span style={{ fontSize:10, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>Exit</span>
+                                    <span style={{ fontFamily:'var(--font-mono)', fontSize:11, fontWeight:600, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{parseFloat(leg.exitPremium).toFixed(2)}</span>
+                                    <span style={{ fontSize:11, color:'var(--text-muted)' }}>{leg.quantity}L</span>
+                                    <span style={{ fontFamily:'var(--font-mono)', fontSize:10, color:'var(--text-muted)' }}>{fmtExitDate(leg.exitDate)}</span>
+                                    <span></span>
+                                    <span style={{ fontFamily:'var(--font-mono)', fontSize:11, fontWeight:600, textAlign:'right', color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{fmtMoney(legPnl)}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
         </div>
       )}
 
