@@ -1292,6 +1292,7 @@ export default function TradeHistory() {
                         </div>
                       )}
                     </div>
+                  </div>
                 );
               })}
         </div>
