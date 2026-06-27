@@ -8,11 +8,11 @@ import { calcUnrealizedPnL } from '../utils/livePnL';
 
 function fmtMoney(n) {
   if (n === null || n === undefined) return '—';
+  const sign = n < 0 ? '−' : '+';
   const abs = Math.abs(n);
-  const sign = n < 0 ? '-' : '+';
-  if (abs >= 100000) return sign + '₹' + (abs / 100000).toFixed(2) + 'L';
-  if (abs >= 1000)   return sign + '₹' + (abs / 1000).toFixed(2) + 'K';
-  return sign + '₹' + abs.toFixed(2);
+  const parts = abs.toFixed(2).split('.');
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return sign + '₹' + parts[0] + '.' + parts[1];
 }
 
 function fmtExitDate(d) {
@@ -1201,7 +1201,7 @@ export default function TradeHistory() {
                     </div>
 
                     {/* ── RIGHT PANEL: legs ── */}
-                    <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:16, WebkitFontSmoothing:'antialiased', MozOsxFontSmoothing:'grayscale', minWidth:0, overflow:'hidden' }}>
+                    <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:16, WebkitFontSmoothing:'antialiased', MozOsxFontSmoothing:'grayscale', minWidth:0, overflow:'hidden', fontSmooth:'always' }}>
                       {(p.legs || []).map((leg, li) => {
                         const legTx = (leg.transactionType || '').toUpperCase();
                         const exits = leg.exits || [];
@@ -1257,19 +1257,19 @@ export default function TradeHistory() {
                                         <span style={{ fontSize:11, color:'var(--text-muted)', flexShrink:0, marginRight:12 }}>{leg.quantity} lots</span>
                                         <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
                                         <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0, marginRight:12 }}>
-                                          <span style={{ fontSize:9, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap' }}>Entry avg</span>
-                                          <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color:'var(--text-primary)', whiteSpace:'nowrap' }}>₹{parseFloat(leg.premium).toFixed(2)}</span>
+                                          <span style={{ fontSize:10, letterSpacing:'.04em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap', fontWeight:600 }}>Entry avg</span>
+                                          <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color:'var(--text-primary)', whiteSpace:'nowrap' }}>₹{parseFloat(leg.premium).toFixed(2)}</span>
                                         </div>
                                         {wtdExitAvg !== null && <>
                                           <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
                                           <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0, marginRight:12 }}>
-                                            <span style={{ fontSize:9, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap' }}>Exit avg</span>
-                                            <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color: legTx === 'SELL' ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>₹{wtdExitAvg.toFixed(2)}</span>
+                                            <span style={{ fontSize:10, letterSpacing:'.04em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap', fontWeight:600 }}>Exit avg</span>
+                                            <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: legTx === 'SELL' ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>₹{wtdExitAvg.toFixed(2)}</span>
                                           </div>
                                           <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
                                           <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0 }}>
-                                            <span style={{ fontSize:9, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap' }}>Decay captured</span>
-                                            <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color: decay >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{decay !== null ? decay.toFixed(1) + '%' : '—'}</span>
+                                            <span style={{ fontSize:10, letterSpacing:'.04em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap', fontWeight:600 }}>Decay captured</span>
+                                            <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: decay >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{decay !== null ? decay.toFixed(2) + '%' : '—'}</span>
                                           </div>
                                         </>}
                                       </div>
@@ -1296,11 +1296,11 @@ export default function TradeHistory() {
                                           <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{ep.toFixed(2)}</span>
                                           <span style={{ fontSize:11, color:'var(--text-muted)' }}>{e.quantity}L &nbsp;·&nbsp; {fmtExitDate(e.exitDate)}</span>
                                           <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3 }}>
-                                            <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(ePnl)}</span>
+                                            <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(ePnl)}</span>
                                             {showNet && (
                                               <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                                                <span style={{ fontSize:9, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.05em' }}>net</span>
-                                                <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:700, color: combined.pnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(combined.pnl)}</span>
+                                                <span style={{ fontSize:10, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.04em', fontWeight:600 }}>net</span>
+                                                <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: combined.pnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(combined.pnl)}</span>
                                               </div>
                                             )}
                                           </div>
