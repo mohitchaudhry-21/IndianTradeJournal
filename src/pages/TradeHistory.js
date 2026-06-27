@@ -1110,7 +1110,7 @@ export default function TradeHistory() {
                   }}>
 
                     {/* ── LEFT PANEL ── */}
-                    <div style={{ borderRight:'1px solid var(--border)', display:'flex', flexDirection:'column', background:'rgba(0,0,0,0.08)', WebkitFontSmoothing:'antialiased', MozOsxFontSmoothing:'grayscale' }}>
+                    <div style={{ borderRight:'1px solid var(--border)', display:'flex', flexDirection:'column', background:'rgba(0,0,0,0.08)', WebkitFontSmoothing:'antialiased', MozOsxFontSmoothing:'grayscale', textRendering:'optimizeLegibility' }}>
 
                       {/* Instrument + strategy */}
                       <div style={{ padding:'16px 18px 12px' }}>
@@ -1152,10 +1152,10 @@ export default function TradeHistory() {
                       <div style={{ padding:'12px 18px', borderBottom:'0.5px solid var(--border)', display:'flex', flexDirection:'column', gap:8 }}>
                         {[
                           { k:'Expiry', v: fmtDate(p.expiry), c:'var(--text-secondary)' },
-                          { k:'Margin', v: p.margin ? fmtMoney(p.margin).replace('+','').replace('-','') : '—', c:'var(--text-secondary)' },
+                          { k:'Margin', v: p.margin ? (p.margin >= 100000 ? '₹' + (p.margin/100000).toFixed(2) + 'L' : p.margin >= 1000 ? '₹' + (p.margin/1000).toFixed(2) + 'K' : '₹' + p.margin.toFixed(2)) : '—', c:'var(--text-secondary)' },
                           { k:'R:R', v: (maxLoss && maxProfit) ? (Math.abs(maxLoss)/maxProfit).toFixed(2)+' : 1' : '—', c:'var(--text-secondary)' },
-                          { k:'Max profit', v: maxProfit != null ? fmtMoney(maxProfit) : '—', c:'var(--profit)' },
-                          { k:'Max loss', v: maxLoss != null ? fmtMoney(-Math.abs(maxLoss)) : '—', c:'var(--loss)' },
+                          { k:'Max profit', v: maxProfit != null ? (() => { const a=Math.abs(maxProfit); const s=maxProfit<0?'−':'+'; return a>=100000?s+'₹'+(a/100000).toFixed(2)+'L':a>=1000?s+'₹'+(a/1000).toFixed(2)+'K':s+'₹'+a.toFixed(2); })() : '—', c:'var(--profit)' },
+                          { k:'Max loss', v: maxLoss != null ? (() => { const a=Math.abs(maxLoss); return '−₹'+(a>=100000?(a/100000).toFixed(2)+'L':a>=1000?(a/1000).toFixed(2)+'K':a.toFixed(2)); })() : '—', c:'var(--loss)' },
                         ].map(({ k, v, c }) => (
                           <div key={k} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                             <span style={{ fontSize:12, color:'var(--text-muted)' }}>{k}</span>
@@ -1177,9 +1177,9 @@ export default function TradeHistory() {
                           </span>
                         </div>
                         <div style={{ height:'0.5px', background:'var(--border)' }}></div>
-                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline' }}>
-                          <span style={{ fontSize:12, color:'var(--text-muted)' }}>Net P&L</span>
-                          <span style={{ fontFamily:'var(--font-mono)', fontSize:19, fontWeight:700, color: netPnl > 0 ? 'var(--profit)' : netPnl < 0 ? 'var(--loss)' : 'var(--text-muted)' }}>{fmtMoney(netPnl)}</span>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
+                          <span style={{ fontSize:12, color:'var(--text-muted)', flexShrink:0 }}>Net P&L</span>
+                          <span style={{ fontFamily:'var(--font-mono)', fontSize:16, fontWeight:700, color: netPnl > 0 ? 'var(--profit)' : netPnl < 0 ? 'var(--loss)' : 'var(--text-muted)', whiteSpace:'nowrap' }}>{fmtMoney(netPnl)}</span>
                         </div>
                         {ret !== null && (
                           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
