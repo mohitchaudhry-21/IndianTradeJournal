@@ -1075,6 +1075,26 @@ export default function TradeHistory() {
                   : null;
 
                 const retLabel = margin ? 'on margin' : 'on premium';
+
+                // Combined exit P&L per tranche date across all legs
+                // Groups exits by date, sums P&L from each leg for that date
+                const combinedExitPnl = (() => {
+                  const map = {};
+                  (p.legs || []).forEach(leg => {
+                    const lTx = (leg.transactionType || '').toUpperCase();
+                    const sign = lTx === 'SELL' ? 1 : -1;
+                    const ls = leg.lotSize || 1;
+                    (leg.exits || []).forEach((e, ei) => {
+                      const key = e.exitDate ? e.exitDate.slice(0,10) : `exit_${ei}`;
+                      const ep = parseFloat(e.exitPremium || 0);
+                      const pnlVal = sign * (leg.premium - ep) * e.quantity * ls;
+                      if (!map[key]) map[key] = { pnl: 0, count: 0 };
+                      map[key].pnl += pnlVal;
+                      map[key].count += 1;
+                    });
+                  });
+                  return map;
+                })();
                 const isExpiredOpen = isOpen && p.expiry && new Date(p.expiry) < new Date();
                 const earlyClose = !isOpen && p.closeDate && p.expiry && p.closeDate.slice(0,10) !== p.expiry.slice(0,10);
                 const expiredClose = !isOpen && p.closeDate && p.expiry && p.closeDate.slice(0,10) === p.expiry.slice(0,10);
@@ -1181,7 +1201,7 @@ export default function TradeHistory() {
                     </div>
 
                     {/* ── RIGHT PANEL: legs ── */}
-                    <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:16, WebkitFontSmoothing:'antialiased', MozOsxFontSmoothing:'grayscale' }}>
+                    <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:16, WebkitFontSmoothing:'antialiased', MozOsxFontSmoothing:'grayscale', minWidth:0, overflow:'hidden' }}>
                       {(p.legs || []).map((leg, li) => {
                         const legTx = (leg.transactionType || '').toUpperCase();
                         const exits = leg.exits || [];
@@ -1202,67 +1222,99 @@ export default function TradeHistory() {
                             {li > 0 && <div style={{ height:'0.5px', background:'var(--border)', marginBottom:16 }}></div>}
                             {(() => {
                               const allExits = exits.length > 0 ? exits : (leg.exitPremium != null ? [{ exitPremium: leg.exitPremium, quantity: leg.quantity, exitDate: leg.exitDate, charges: null }] : []);
-                              const ROW_H = 40; // px per exit row
-                              const ENTRY_H = 40; // px for entry header row
+                              const HDR_H = 52;
+                              const ROW_H = 44;
+                              // Weighted exit avg
+                              const totalQty = allExits.reduce((s, e) => s + (e.quantity || 0), 0);
+                              const wtdExitAvg = totalQty > 0 ? allExits.reduce((s, e) => s + parseFloat(e.exitPremium || 0) * (e.quantity || 0), 0) / totalQty : null;
+                              // Decay captured: for SELL = (entry - exitAvg) / entry * 100; for BUY = (entry - exitAvg) / entry * 100 (negative = good hedge)
+                              const decay = wtdExitAvg != null && leg.premium > 0 ? ((leg.premium - wtdExitAvg) / leg.premium * 100) : null;
                               return (
                                 <div style={{ display:'flex', gap:14 }}>
-                                  {/* Vertical spine — sized to match rows exactly */}
+                                  {/* Spine */}
                                   <div style={{ display:'flex', flexDirection:'column', alignItems:'center', width:18, flexShrink:0 }}>
-                                    {/* Entry dot */}
-                                    <div style={{ width:11, height:11, borderRadius:'50%', background:'#6366f1', flexShrink:0, marginTop: ENTRY_H/2 - 5.5 + 'px' }}></div>
-                                    {allExits.length > 0 && allExits.map((_, ei) => (
+                                    <div style={{ height: HDR_H/2 - 5.5 + 'px' }}></div>
+                                    <div style={{ width:11, height:11, borderRadius:'50%', background:'#6366f1', flexShrink:0 }}></div>
+                                    {allExits.length > 0 ? allExits.map((_, ei) => (
                                       <React.Fragment key={ei}>
-                                        <div style={{ width:'1.5px', height: ei === 0 ? ENTRY_H/2 + ROW_H/2 - 6 + 'px' : ROW_H + 'px', background: ei === 0 ? `linear-gradient(180deg,#6366f1,${dotColor})` : dotColor, opacity: ei === 0 ? 1 : 0.5 }}></div>
+                                        <div style={{ width:'1.5px', height: ei === 0 ? HDR_H/2 + ROW_H/2 - 6 + 'px' : ROW_H + 'px', background: ei === 0 ? `linear-gradient(180deg,#6366f1,${dotColor})` : dotColor, opacity: ei === 0 ? 1 : 0.45 }}></div>
                                         <div style={{ width:9, height:9, borderRadius:'50%', background:dotColor, flexShrink:0 }}></div>
                                       </React.Fragment>
-                                    ))}
-                                    {allExits.length === 0 && (
+                                    )) : (
                                       <div style={{ width:'1.5px', flex:1, background:'rgba(99,102,241,0.25)' }}></div>
                                     )}
                                   </div>
 
                                   {/* Content */}
                                   <div style={{ flex:1, minWidth:0 }}>
-                                    {/* Entry header row */}
-                                    <div style={{ display:'flex', alignItems:'center', gap:8, height: ENTRY_H + 'px' }}>
-                                      <span style={{ display:'inline-flex', alignItems:'center', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4, flexShrink:0, background:'rgba(59,130,246,0.15)', color:'#60a5fa' }}>{leg.optionType || 'CE'}</span>
-                                      <span style={{ display:'inline-flex', alignItems:'center', fontSize:11, fontWeight:700, padding:'2px 6px', borderRadius:4, flexShrink:0, background: legTx === 'SELL' ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)', color: legTx === 'SELL' ? '#f87171' : '#4ade80' }}>{legTx}</span>
-                                      <span style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:700, color:'var(--text-primary)', flexShrink:0 }}>{leg.strike}</span>
-                                      <span style={{ fontSize:12, color:'var(--text-muted)', flexShrink:0 }}>{leg.quantity} lots</span>
-                                      <span style={{ fontSize:12, color:'var(--text-muted)', flexShrink:0 }}>·</span>
-                                      <span style={{ fontSize:12, color:'var(--text-muted)', flexShrink:0 }}>entry avg</span>
-                                      <span style={{ fontFamily:'var(--font-mono)', fontSize:13, color:'var(--text-secondary)', fontWeight:600, flexShrink:0 }}>₹{leg.premium}</span>
-                                      <div style={{ flex:1, minWidth:8 }}></div>
-                                      <button onClick={() => setPartialExitLeg({ leg, positionId: p.positionId })} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'3px 10px', fontSize:11, fontFamily:'var(--font-sans)', flexShrink:0 }}>+ exit</button>
-                                      <div style={{ width:'0.5px', background:'var(--border)', height:20, flexShrink:0, margin:'0 8px' }}></div>
-                                      {legPnl !== null
-                                        ? <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)', flexShrink:0 }}>{fmtMoney(legPnl)}</span>
-                                        : <span style={{ fontSize:12, color:'var(--text-muted)', flexShrink:0 }}>open</span>}
+                                    {/* Leg header — grid: stats left, buttons+pnl right */}
+                                    <div style={{ display:'grid', gridTemplateColumns:'1fr auto', alignItems:'center', height: HDR_H + 'px', borderBottom:'0.5px solid var(--border)', gap:16 }}>
+                                      {/* Left: badges + strike + stats */}
+                                      <div style={{ display:'flex', alignItems:'center', minWidth:0 }}>
+                                        <span style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:4, flexShrink:0, background:'rgba(59,130,246,0.15)', color:'#60a5fa', marginRight:5 }}>{leg.optionType || 'CE'}</span>
+                                        <span style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:4, flexShrink:0, background: legTx === 'SELL' ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)', color: legTx === 'SELL' ? '#f87171' : '#4ade80', marginRight:10 }}>{legTx}</span>
+                                        <span style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:500, color:'var(--text-primary)', flexShrink:0, marginRight:8 }}>{leg.strike}</span>
+                                        <span style={{ fontSize:11, color:'var(--text-muted)', flexShrink:0, marginRight:12 }}>{leg.quantity} lots</span>
+                                        <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
+                                        <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0, marginRight:12 }}>
+                                          <span style={{ fontSize:9, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap' }}>Entry avg</span>
+                                          <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color:'var(--text-primary)', whiteSpace:'nowrap' }}>₹{parseFloat(leg.premium).toFixed(2)}</span>
+                                        </div>
+                                        {wtdExitAvg !== null && <>
+                                          <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
+                                          <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0, marginRight:12 }}>
+                                            <span style={{ fontSize:9, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap' }}>Exit avg</span>
+                                            <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color: legTx === 'SELL' ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>₹{wtdExitAvg.toFixed(2)}</span>
+                                          </div>
+                                          <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
+                                          <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0 }}>
+                                            <span style={{ fontSize:9, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap' }}>Decay captured</span>
+                                            <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color: decay >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{decay !== null ? decay.toFixed(1) + '%' : '—'}</span>
+                                          </div>
+                                        </>}
+                                      </div>
+                                      {/* Right: always visible */}
+                                      <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
+                                        <button onClick={() => setPartialExitLeg({ leg, positionId: p.positionId })} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 9px', fontSize:10, fontFamily:'var(--font-sans)', whiteSpace:'nowrap' }}>+ exit</button>
+                                        <div style={{ width:'0.5px', background:'var(--border)', height:28 }}></div>
+                                        {legPnl !== null
+                                          ? <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(legPnl)}</span>
+                                          : <span style={{ fontSize:12, color:'var(--text-muted)' }}>open</span>}
+                                      </div>
                                     </div>
 
                                     {/* Exit rows */}
                                     {exits.length > 0 && exits.map((e, ei) => {
                                       const ep = parseFloat(e.exitPremium || 0);
                                       const ePnl = (legTx === 'SELL' ? 1 : -1) * (leg.premium - ep) * e.quantity * (leg.lotSize || 1);
+                                      const dateKey = e.exitDate ? e.exitDate.slice(0,10) : null;
+                                      const combined = dateKey && combinedExitPnl[dateKey];
+                                      const showNet = combined && combined.count >= 2;
                                       return (
-                                        <div key={ei} style={{ display:'grid', gridTemplateColumns:'56px 100px 1fr 100px 120px', gap:12, alignItems:'center', height: ROW_H + 'px', borderTop:'0.5px solid var(--border)', paddingLeft:4 }}>
+                                        <div key={ei} style={{ display:'grid', gridTemplateColumns:'56px 110px 1fr auto', gap:14, alignItems:'center', height: ROW_H + 'px', borderTop: ei === 0 ? 'none' : '0.5px solid var(--border)', paddingLeft:4 }}>
                                           <span style={{ fontSize:11, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>Exit {ei+1}</span>
                                           <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{ep.toFixed(2)}</span>
                                           <span style={{ fontSize:11, color:'var(--text-muted)' }}>{e.quantity}L &nbsp;·&nbsp; {fmtExitDate(e.exitDate)}</span>
-                                          <span style={{ fontSize:11, color:'var(--text-muted)', textAlign:'right' }}>{e.charges ? `−₹${Math.abs(parseFloat(e.charges)).toFixed(2)} chg` : ''}</span>
-                                          <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, textAlign:'right', color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{fmtMoney(ePnl)}</span>
+                                          <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3 }}>
+                                            <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(ePnl)}</span>
+                                            {showNet && (
+                                              <div style={{ display:'flex', alignItems:'center', gap:4 }}>
+                                                <span style={{ fontSize:9, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.05em' }}>net</span>
+                                                <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:700, color: combined.pnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(combined.pnl)}</span>
+                                              </div>
+                                            )}
+                                          </div>
                                         </div>
                                       );
                                     })}
 
-                                    {/* Single exit */}
+                                    {/* Single exit (no tranches) */}
                                     {exits.length === 0 && leg.exitPremium != null && (
-                                      <div style={{ display:'grid', gridTemplateColumns:'56px 100px 1fr 100px 120px', gap:12, alignItems:'center', height: ROW_H + 'px', borderTop:'0.5px solid var(--border)', paddingLeft:4 }}>
+                                      <div style={{ display:'grid', gridTemplateColumns:'56px 110px 1fr auto', gap:14, alignItems:'center', height: ROW_H + 'px', paddingLeft:4 }}>
                                         <span style={{ fontSize:11, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>Exit</span>
                                         <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{parseFloat(leg.exitPremium).toFixed(2)}</span>
                                         <span style={{ fontSize:11, color:'var(--text-muted)' }}>{leg.quantity}L &nbsp;·&nbsp; {fmtExitDate(leg.exitDate)}</span>
-                                        <span></span>
-                                        <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, textAlign:'right', color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{fmtMoney(legPnl)}</span>
+                                        <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, textAlign:'right', color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(legPnl)}</span>
                                       </div>
                                     )}
                                   </div>
