@@ -314,7 +314,7 @@ function StrategyCell({ positionId, value, onChange }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
       <span className={`badge ${(value || 'custom').toLowerCase().replace(/ /g, '_')}`} style={{ fontSize: 11 }}>{value || 'Custom'}</span>
-      <button onClick={() => { setDraft(value); setEditing(true); }} title="Edit strategy" style={{ background: 'rgba(255,255,255,0.06)', border: 'none', borderRadius: 4, color: 'var(--text-muted)', cursor: 'pointer', padding: '3px 4px', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><i className="ti ti-pencil" style={{ fontSize: 13 }} aria-hidden="true" /></button>
+      <button onClick={() => { setDraft(value); setEditing(true); }} title="Edit strategy" style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '1px 3px', lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', opacity:0.5 }}><i className="ti ti-pencil" style={{ fontSize: 10 }} aria-hidden="true" /></button>
     </div>
   );
 }
@@ -1116,7 +1116,13 @@ export default function TradeHistory() {
                       <div style={{ padding:'16px 18px 12px' }}>
                         <div style={{ fontSize:10, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--text-muted)', marginBottom:6 }}>Trade #{all.length - posIdx}</div>
                         <div style={{ fontSize:21, fontWeight:700, color:'var(--text-primary)', lineHeight:1, marginBottom:3 }}>{p.instrument || p.legs?.[0]?.instrument}</div>
-                        <div style={{ fontSize:12, fontWeight:600, color:'var(--text-muted)', marginBottom:10 }}>{p.strategyName || 'Custom'}</div>
+                        <div style={{ marginBottom:10 }}>
+                          <StrategyCell
+                            positionId={p.positionId}
+                            value={p.strategyName || 'Custom'}
+                            onChange={v => updatePositionMeta(p.positionId, { strategyName: v })}
+                          />
+                        </div>
                         <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
                           <span style={{ fontSize:10, fontWeight:700, padding:'2px 9px', borderRadius:20, background:'rgba(255,255,255,0.06)', color:'var(--text-muted)', border:'0.5px solid var(--border)' }}>
                             {p.status}{earlyClose ? ' · Early' : expiredClose ? ' · Expired' : ''}
