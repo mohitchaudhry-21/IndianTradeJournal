@@ -319,6 +319,29 @@ function StrategyCell({ positionId, value, onChange }) {
   );
 }
 
+// Fetch charges button for left panel
+function FetchChargesBtn({ position, onSave }) {
+  const [fetching, setFetching] = React.useState(false);
+  const hasBrokerLegs = position?.legs?.some(l => l.brokerTradeId);
+  if (!hasBrokerLegs) return null;
+  const handleFetch = async () => {
+    setFetching(true);
+    const result = await fetchTotalCharges(position);
+    setFetching(false);
+    if (result.ok) onSave(Math.round(result.charges * 100) / 100);
+    else alert(`Could not fetch charges: ${result.error}`);
+  };
+  return (
+    <button
+      onClick={handleFetch}
+      disabled={fetching}
+      style={{ background:'rgba(99,102,241,0.08)', border:'0.5px solid rgba(99,102,241,0.3)', borderRadius:6, color:'#818cf8', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center', display:'block', fontWeight:600, opacity: fetching ? 0.6 : 1 }}
+    >
+      {fetching ? '⏳ Fetching...' : '↓ Fetch charges'}
+    </button>
+  );
+}
+
 // Editable margin cell
 function MarginCell({ value, onSave, position }) {
   const [editing, setEditing] = useState(false);
@@ -1202,6 +1225,7 @@ export default function TradeHistory() {
                         <button onClick={() => setEditExitPos(p)} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:6, color:'var(--text-muted)', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center' }}>✎ Edit dates</button>
                         <button onClick={() => setNotesPos(p)} style={{ background: hasNotes ? 'rgba(245,158,11,0.08)' : 'none', border: hasNotes ? '0.5px solid rgba(245,158,11,0.3)' : '0.5px solid var(--border-hover)', borderRadius:6, color: hasNotes ? 'var(--accent)' : 'var(--text-muted)', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center' }}>{hasNotes ? '📝 View note' : '+ Add note'}</button>
                         {!isOpen && <button onClick={() => setReopenPos(p)} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:6, color:'var(--text-muted)', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center' }}>↺ Reopen</button>}
+                        <FetchChargesBtn position={p} onSave={v => updatePositionMeta(p.positionId, { positionCharges: v })} />
                         <button onClick={() => { if (window.confirm('Delete this position?')) deletePosition(p.positionId); }} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:11, opacity:0.5, padding:'3px', width:'100%', textAlign:'center' }}>✕ Delete</button>
                       </div>
                     </div>
