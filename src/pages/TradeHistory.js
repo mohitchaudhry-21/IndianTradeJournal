@@ -1179,9 +1179,15 @@ export default function TradeHistory() {
 
                       {/* Meta */}
                       <div style={{ padding:'12px 18px', borderBottom:'0.5px solid var(--border)', display:'flex', flexDirection:'column', gap:8 }}>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                          <span style={{ fontSize:12, color:'var(--text-muted)' }}>Expiry</span>
+                          <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:600, color:'var(--text-secondary)' }}>{fmtDate(p.expiry)}</span>
+                        </div>
+                        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                          <span style={{ fontSize:12, color:'var(--text-muted)' }}>Margin</span>
+                          <MarginCell value={p.margin} position={p} onSave={v => updatePositionMeta(p.positionId, { positionMargin: v })} />
+                        </div>
                         {[
-                          { k:'Expiry', v: fmtDate(p.expiry), c:'var(--text-secondary)' },
-                          { k:'Margin', v: p.margin ? (p.margin >= 100000 ? '₹' + (p.margin/100000).toFixed(2) + 'L' : p.margin >= 1000 ? '₹' + (p.margin/1000).toFixed(2) + 'K' : '₹' + p.margin.toFixed(2)) : '—', c:'var(--text-secondary)' },
                           { k:'R:R', v: (maxLoss && maxProfit) ? (Math.abs(maxLoss)/maxProfit).toFixed(2)+' : 1' : '—', c:'var(--text-secondary)' },
                           { k:'Max profit', v: maxProfit != null ? (() => { const a=Math.abs(maxProfit); const s=maxProfit<0?'−':'+'; return a>=100000?s+'₹'+(a/100000).toFixed(2)+'L':a>=1000?s+'₹'+(a/1000).toFixed(2)+'K':s+'₹'+a.toFixed(2); })() : '—', c:'var(--profit)' },
                           { k:'Max loss', v: maxLoss != null ? (() => { const a=Math.abs(maxLoss); return '−₹'+(a>=100000?(a/100000).toFixed(2)+'L':a>=1000?(a/1000).toFixed(2)+'K':a.toFixed(2)); })() : '—', c:'var(--loss)' },
