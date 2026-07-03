@@ -76,6 +76,16 @@ export default function Sidebar() {
   }, [positions, liveQuotes]);
   const navigate = useNavigate();
   const [theme, toggleTheme] = useTheme();
+  const [showPnlTooltip, setShowPnlTooltip] = React.useState(false);
+
+  // Per-position live PnL for tooltip
+  const perPositionLivePnL = React.useMemo(() => {
+    if (!Object.keys(liveQuotes).length) return [];
+    return positions
+      .filter(p => p.status === 'OPEN')
+      .map(p => ({ position: p, pnl: calcUnrealizedPnL(p, liveQuotes) }))
+      .filter(x => x.pnl !== null);
+  }, [positions, liveQuotes]);
 
   return (
     <div style={s.sidebar}>
@@ -91,41 +101,60 @@ export default function Sidebar() {
       </NavLink>
 
       {/* Quick stats */}
-      <div style={{ padding: '12px 13px 10px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 9, fontFamily: "'Nunito Sans', sans-serif", WebkitFontSmoothing: 'antialiased' }}>
-
-        {/* This Month + Total P&L with vertical divider */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 0 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 3 }}>This Month</div>
-            <div style={{ fontSize: 17, fontWeight: 800, letterSpacing: '-0.4px', lineHeight: 1, color: stats.thisMonthPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+      <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>This Month</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: stats.thisMonthPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
               {stats.thisMonthPnL >= 0 ? '+' : ''}{fmtSidebar(stats.thisMonthPnL)}
             </div>
           </div>
-          <div style={{ width: 1, alignSelf: 'stretch', background: 'var(--border)', flexShrink: 0 }} />
-          <div style={{ flex: 1, textAlign: 'right' }}>
-            <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 3 }}>Total P&L</div>
-            <div style={{ fontSize: 17, fontWeight: 800, letterSpacing: '-0.4px', lineHeight: 1, color: stats.totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>Total P&L</div>
+            <div style={{ fontFamily: 'var(--font-mono)', fontSize: 16, fontWeight: 600, color: stats.totalPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
               {stats.totalPnL >= 0 ? '+' : ''}{fmtSidebar(stats.totalPnL)}
             </div>
           </div>
         </div>
-
-        {/* Live P&L — accent bar */}
         {liveUnrealizedPnL !== null && (
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'7px 10px', background:'rgba(99,102,241,0.08)', borderRadius:6, borderLeft:'3px solid var(--accent)' }}>
-            <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-              <span style={{ width:5, height:5, borderRadius:'50%', background:'var(--accent)', display:'inline-block', flexShrink:0 }} />
-              <span style={{ fontSize:9, color:'var(--text-muted)', letterSpacing:'0.08em', textTransform:'uppercase', fontWeight:700 }}>
-                Live P&L{activeAccountId ? '' : ' · All'}
-              </span>
+          <div
+            style={{ position:'relative' }}
+            onMouseEnter={() => perPositionLivePnL.length > 0 && setShowPnlTooltip(true)}
+            onMouseLeave={() => setShowPnlTooltip(false)}
+          >
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'6px 8px', background: showPnlTooltip ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.03)', borderRadius:6, cursor: perPositionLivePnL.length > 0 ? 'default' : 'default', transition:'background 0.15s' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+                <span style={{ width:5, height:5, borderRadius:'50%', background:'var(--accent)', display:'inline-block' }} />
+                <span style={{ fontSize:10, color:'var(--text-muted)', letterSpacing:'0.06em', textTransform:'uppercase' }}>
+                  Live P&L{activeAccountId ? '' : ' (All)'}
+                </span>
+                {perPositionLivePnL.length > 1 && (
+                  <span style={{ fontSize:9, color:'var(--text-muted)', opacity:0.6 }}>{perPositionLivePnL.length} trades</span>
+                )}
+              </div>
+              <div style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:600, color: liveUnrealizedPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
+                {liveUnrealizedPnL >= 0 ? '+' : ''}{fmtSidebar(liveUnrealizedPnL)}
+              </div>
             </div>
-            <span style={{ fontSize:18, fontWeight:800, letterSpacing:'-0.5px', color: liveUnrealizedPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>
-              {liveUnrealizedPnL >= 0 ? '+' : ''}{fmtSidebar(liveUnrealizedPnL)}
-            </span>
+            {showPnlTooltip && perPositionLivePnL.length > 0 && (
+              <div style={{ position:'absolute', left:'100%', top:0, marginLeft:8, background:'var(--bg-card)', border:'0.5px solid var(--border)', borderRadius:10, minWidth:240, overflow:'hidden', boxShadow:'0 8px 24px rgba(0,0,0,0.4)', zIndex:1000, pointerEvents:'none' }}>
+                <div style={{ padding:'6px 12px', background:'rgba(0,0,0,0.15)', borderBottom:'0.5px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                  <span style={{ fontSize:10, fontWeight:700, letterSpacing:'.06em', textTransform:'uppercase', color:'var(--text-muted)' }}>Open trades</span>
+                  <span style={{ fontFamily:'var(--font-mono)', fontSize:11, fontWeight:700, color: liveUnrealizedPnL >= 0 ? 'var(--profit)' : 'var(--loss)' }}>{liveUnrealizedPnL >= 0 ? '+' : ''}{fmtSidebar(liveUnrealizedPnL)}</span>
+                </div>
+                {perPositionLivePnL.map(({ position: p, pnl }, i) => (
+                  <div key={p.positionId} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 12px', borderBottom: i < perPositionLivePnL.length - 1 ? '0.5px solid var(--border)' : 'none' }}>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:600, color:'var(--text-primary)' }}>{p.instrument || p.legs?.[0]?.instrument}</div>
+                      <div style={{ fontSize:10, color:'var(--text-muted)' }}>{p.strategyName || 'Custom'}{p.accountName ? ` · ${p.accountName}` : ''}</div>
+                    </div>
+                    <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:700, color: pnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{pnl >= 0 ? '+' : ''}{fmtSidebar(pnl)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
-
-        {/* Open / Win% / Expiring */}
         <div style={{ display: 'flex', gap: 0 }}>
           {[
             { label: 'Open', val: stats.openPositions, color: 'var(--text-primary)' },
@@ -133,16 +162,16 @@ export default function Sidebar() {
             { label: 'Expiring', val: stats.expiringThisWeek, color: stats.expiringThisWeek > 0 ? 'var(--accent)' : 'var(--text-secondary)' },
           ].map((st, i) => (
             <React.Fragment key={st.label}>
-              {i > 0 && <div style={{ width: 1, background: 'var(--border)', margin: '0 5px' }} />}
+              {i > 0 && <div style={{ width: 1, background: 'var(--border)', margin: '0 8px' }} />}
               <div style={{ flex: 1, textAlign: 'center' }}>
-                <div style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 3 }}>{st.label}</div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: st.color }}>{st.val}</div>
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', letterSpacing: '0.06em', textTransform: 'uppercase', marginBottom: 2 }}>{st.label}</div>
+                <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 500, color: st.color }}>{st.val}</div>
               </div>
             </React.Fragment>
           ))}
         </div>
-
       </div>
+
       {/* Account selector */}
       {accounts.length > 0 && (
         <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
