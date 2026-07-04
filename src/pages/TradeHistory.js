@@ -1099,6 +1099,9 @@ export default function TradeHistory() {
 
                 const retLabel = margin ? 'on margin' : 'on premium';
 
+                // Breakeven — precomputed in JournalContext from entry data
+                const breakevens = p.breakevens || [];
+
                 // Combined exit P&L per tranche date across all legs
                 // Groups exits by date, sums P&L from each leg for that date
                 const combinedExitPnl = (() => {
@@ -1197,6 +1200,18 @@ export default function TradeHistory() {
                             <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:600, color:c }}>{v}</span>
                           </div>
                         ))}
+                        {/* Breakeven — indigo, separated by subtle divider */}
+                        {breakevens.length > 0 && (
+                          <>
+                            <div style={{ height:'0.5px', background:'rgba(99,102,241,0.25)', margin:'6px 0' }}></div>
+                            {breakevens.map(be => (
+                              <div key={be.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'3px 0' }}>
+                                <span style={{ fontSize:12, color:'rgba(129,140,248,0.8)' }}>{be.label}</span>
+                                <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color:'#818cf8' }}>{be.value.toLocaleString('en-IN', { minimumFractionDigits:2, maximumFractionDigits:2 })}</span>
+                              </div>
+                            ))}
+                          </>
+                        )}
                       </div>
 
                       {/* P&L summary */}
