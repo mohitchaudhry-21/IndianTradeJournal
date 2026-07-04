@@ -2,6 +2,7 @@ import { restoreSupabase, cloudSave, cloudLoad, mergeAndSave, isSupabaseReady } 
 import { useLivePnL } from '../hooks/useLivePnL';
 import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import { findBreakevens } from '../utils/optionsAnalysis';
 
 const JournalContext = createContext(null);
 
@@ -68,9 +69,6 @@ export function JournalProvider({ children }) {
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS, ...(saved?.settings || {}) });
 
   const persist = useCallback((newAccounts, newTrades, newSettings, isDelete = false) => {
-    // Stamp trades with updatedAt so merge logic can pick more recent version
-    const stamped = newTrades.map(t => t ? { ...t, updatedAt: t.updatedAt || new Date().toISOString() } : t);
-    newTrades = stamped;
     saveData(newAccounts, newTrades, newSettings);
     // Debounced cloud sync — merges with latest cloud data before saving so
     // this save doesn't overwrite changes made by another user/device.
@@ -113,53 +111,9 @@ export function JournalProvider({ children }) {
       setSyncStatus('syncing');
       cloudLoad().then(({ ok, data }) => {
         if (ok && data) {
-          // Merge cloud data into local state — never replace outright.
-          // This prevents a stale cloud snapshot from overwriting trades
-          // that were closed/edited locally but not yet synced to cloud.
-          if (data.trades) {
-            setTrades(prevTrades => {
-              const cloudById = Object.fromEntries(
-                data.trades.filter(t => t?.id).map(t => [t.id, t])
-              );
-              const localIds = new Set(prevTrades.map(t => t?.id).filter(Boolean));
-
-              // For existing local trades: pick the "more complete" version
-              const updated = prevTrades.map(local => {
-                if (!local?.id) return local;
-                const cloud = cloudById[local.id];
-                if (!cloud) return local; // only in local — keep
-                // If deleted locally this session, keep local (deleted)
-                if (recentlyDeletedIds.current.has(local.id)) return local;
-                // Pick more complete: prefer whichever has exit data
-                const localHasExit = local.status === 'CLOSED' && local.legs?.some(l => l.exitPremium != null || (l.exits||[]).length > 0);
-                const cloudHasExit = cloud.status === 'CLOSED' && cloud.legs?.some(l => l.exitPremium != null || (l.exits||[]).length > 0);
-                if (cloudHasExit && !localHasExit) return { ...local, ...cloud }; // cloud has richer data
-                if (localHasExit) return local; // local has exit data — trust it
-                // Both open or both same: use whichever was updated more recently
-                const localTs = local.updatedAt || local.date || '';
-                const cloudTs = cloud.updatedAt || cloud.date || '';
-                return cloudTs > localTs ? { ...local, ...cloud } : local;
-              });
-
-              // Add cloud trades not in local (added by another user/device)
-              const additions = data.trades.filter(t =>
-                t?.id && !localIds.has(t.id) && !recentlyDeletedIds.current.has(t.id)
-              );
-
-              if (additions.length === 0 && JSON.stringify(updated) === JSON.stringify(prevTrades)) return prevTrades;
-              const merged = [...updated, ...additions];
-              saveData(data.accounts || accounts, merged, data.settings ? { ...DEFAULT_SETTINGS, ...data.settings } : settings);
-              return merged;
-            });
-          }
-          if (data.accounts) {
-            setAccounts(prev => {
-              const localIds = new Set(prev.map(a => a?.id).filter(Boolean));
-              const additions = data.accounts.filter(a => a?.id && !localIds.has(a.id));
-              return additions.length ? [...prev, ...additions] : prev;
-            });
-          }
-          if (data.settings) setSettings(s => ({ ...DEFAULT_SETTINGS, ...s, ...data.settings }));
+          if (data.accounts) setAccounts(data.accounts);
+          if (data.trades)   setTrades(data.trades);
+          if (data.settings) setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
           setSyncStatus('synced');
           setLastSynced(new Date());
         } else {
@@ -521,6 +475,21 @@ export function JournalProvider({ children }) {
         ? Math.ceil((new Date(expiry) - new Date()) / 86400000)
         : null;
 
+      // Breakeven — same logic as Options Analyzer, computed from entry data
+      const breakevens = (() => {
+        if (!legs.length) return [];
+        const strikes = legs.map(l => l.strike).filter(Boolean);
+        if (!strikes.length) return [];
+        const minStrike = Math.min(...strikes);
+        const maxStrike = Math.max(...strikes);
+        const pad = Math.max(500, (maxStrike - minStrike) * 2 || 2000);
+        const points = findBreakevens(legs, Math.max(0, minStrike - pad), maxStrike + pad, 1);
+        return points.map((v, i) => ({
+          label: points.length === 1 ? 'Breakeven' : `BE ${i + 1}`,
+          value: v,
+        }));
+      })();
+
       return {
         positionId: posId,
         strategyName: first.strategyName || 'Custom',
@@ -530,6 +499,7 @@ export function JournalProvider({ children }) {
         accountId: first.accountId,
         status,
         legs,
+        breakevens,
         netPremiumCollected,
         realizedPnL: status !== 'OPEN' ? realizedPnL : null,
         openDate: legs.reduce((min, l) => l.date < min ? l.date : min, legs[0].date),
