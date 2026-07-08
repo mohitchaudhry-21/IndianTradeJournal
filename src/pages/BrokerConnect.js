@@ -78,6 +78,8 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
   const [status, setStatus] = useState(null);
   const [lastSync, setLastSync] = useState(null);
   const [syncing, setSyncing] = useState(false);
+  const [syncingStocks, setSyncingStocks] = useState(false);
+  const [stockSyncMsg, setStockSyncMsg] = useState('');
   const [message, setMessage] = useState('');
 
   // On mount, check if this broker already has an active session on the
@@ -159,6 +161,40 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
     }
   };
 
+  const handleSyncStocks = async () => {
+    setSyncingStocks(true);
+    setStockSyncMsg('');
+    try {
+      const STOCK_KEY = 'itj_stock_data';
+      let stockData = {};
+      try { stockData = JSON.parse(localStorage.getItem(STOCK_KEY) || '{}'); } catch {}
+      const existingTransactions = stockData.transactions || [];
+      const res = await fetch(`${SERVER_URL}/stocks/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ existingTransactions }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        const existing = new Set(existingTransactions.map(t => t.brokerTradeId).filter(Boolean));
+        const newOnes = (data.transactions || []).filter(t => !existing.has(t.brokerTradeId));
+        if (newOnes.length) {
+          stockData.transactions = [...existingTransactions, ...newOnes];
+          localStorage.setItem(STOCK_KEY, JSON.stringify(stockData));
+          setStockSyncMsg(`Synced ${newOnes.length} stock holding${newOnes.length > 1 ? 's' : ''} from broker`);
+        } else {
+          setStockSyncMsg('Stock holdings already up to date');
+        }
+      } else {
+        setStockSyncMsg(data.error || 'Stock sync failed');
+      }
+    } catch (e) {
+      setStockSyncMsg('Stock sync failed — server not running?');
+    } finally {
+      setSyncingStocks(false);
+    }
+  };
+
   return (
     <div className="card" style={{ marginBottom: 20 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
@@ -226,6 +262,9 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
             <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
               {syncing ? 'Syncing...' : '⟳ Sync Trades'}
             </button>
+            <button className="btn btn-outline" onClick={handleSyncStocks} disabled={syncingStocks} title="Sync equity stock holdings separately (saved to Stock Portfolio page)">
+              {syncingStocks ? 'Syncing stocks...' : '⟳ Sync Stocks'}
+            </button>
             {onExcelImport && (
               <label style={{ cursor:'pointer', display:'inline-flex', alignItems:'center' }}>
                 <input type="file" accept=".xlsx,.xls" style={{ display:'none' }}
@@ -236,6 +275,11 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
           </>
         )}
       </div>
+      {stockSyncMsg && (
+        <div style={{ marginTop:8, fontSize:12, padding:'6px 10px', borderRadius:6, background:'rgba(255,255,255,0.04)', color: stockSyncMsg.includes('failed') ? 'var(--loss)' : 'var(--profit)', border:`0.5px solid ${stockSyncMsg.includes('failed') ? 'var(--border-danger)' : 'var(--border-success)'}` }}>
+          📊 {stockSyncMsg}
+        </div>
+      )}
       {onSetImportDate && broker === 'angelone' && (
         <div style={{ marginTop:10, display:'flex', alignItems:'center', gap:8, padding:'7px 10px', background:'rgba(255,255,255,0.03)', border:'1px solid var(--border)', borderRadius:7, width:'fit-content' }}>
           <span style={{ fontSize:11, color:'var(--text-muted)', fontWeight:600, whiteSpace:'nowrap' }}>Import fills from:</span>
