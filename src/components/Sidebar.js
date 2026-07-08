@@ -35,6 +35,12 @@ const SECTIONS = [
     ],
   },
   {
+    label: 'STOCKS',
+    items: [
+      { to: '/stocks', label: 'Stock Portfolio', icon: '📊' },
+    ],
+  },
+  {
     label: 'ACCOUNT',
     items: [
       { to: '/settings',   label: 'Settings',         icon: '⚙' },
