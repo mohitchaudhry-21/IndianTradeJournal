@@ -19,6 +19,7 @@ import Calendar from './pages/Calendar';
 import StockMarketCalendar from './pages/StockMarketCalendar';
 import Heatmap from './pages/Heatmap';
 import LiveCharts from './pages/LiveCharts';
+import StockPortfolio from './pages/StockPortfolio';
 
 
 
@@ -129,6 +130,7 @@ export default function App() {
               <Route path="/stock-market-calendar" element={<StockMarketCalendar />} />
               <Route path="/heatmap" element={<Heatmap />} />
               <Route path="/live-charts" element={<LiveCharts />} />
+              <Route path="/stocks" element={<StockPortfolio />} />
               </Routes>
             </main>
           </div>
