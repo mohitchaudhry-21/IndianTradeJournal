@@ -895,10 +895,10 @@ export default function TradeHistory() {
         'Max Loss (₹)':      maxLoss != null ? fmtM(-Math.abs(maxLoss)) : 'Unlimited',
         'R:R':               maxLoss != null && maxLoss !== 0 ? parseFloat((Math.abs(maxLoss) / maxProfit).toFixed(2)) : '',
         'Margin Used (₹)':   margin ? fmtM(margin) : '',
-        'P&L (₹)':           pnl != null && p.status !== 'OPEN' ? fmtM(pnl) : '',
+        'P&L (₹)':           pnl != null && p.status !== 'OPEN' && p.status !== 'PARTIAL' ? fmtM(pnl) : '',
         'Charges (₹)':          p.charges ? Math.abs(parseFloat(p.charges)).toFixed(2) : '',
-        'Net P&L (₹)':           pnl != null && p.status !== 'OPEN' ? fmtM(pnl - (p.charges || 0)) : '',
-        'Return on Premium %': retPrem != null && p.status !== 'OPEN' ? parseFloat(retPrem.toFixed(2)) : '',
+        'Net P&L (₹)':           pnl != null && p.status !== 'OPEN' && p.status !== 'PARTIAL' ? fmtM(pnl - (p.charges || 0)) : '',
+        'Return on Premium %': retPrem != null && p.status !== 'OPEN' && p.status !== 'PARTIAL' ? parseFloat(retPrem.toFixed(2)) : '',
         'Return on Margin %':  retMargin != null ? parseFloat(retMargin.toFixed(2)) : '',
         'Legs':              p.legs?.length || 0,
         'Notes':             p.notes || '',
@@ -955,7 +955,7 @@ export default function TradeHistory() {
     }
 
     // Summary sheet
-    const closed = all.filter(p => p.status !== 'OPEN');
+    const closed = all.filter(p => p.status === 'CLOSED' || p.status === 'EXPIRED');
     const totalPnL = closed.reduce((s,p) => s + (p.realizedPnL || 0), 0);
     const wins = closed.filter(p => (p.realizedPnL||0) > 0).length;
     const summaryData = [
@@ -1156,7 +1156,7 @@ export default function TradeHistory() {
                             color: p.status==='PARTIAL' ? '#f59e0b' : p.status==='OPEN' ? 'var(--text-success)' : 'var(--text-muted)',
                             border: p.status==='PARTIAL' ? '0.5px solid rgba(245,158,11,0.3)' : p.status==='OPEN' ? '0.5px solid rgba(34,197,94,0.2)' : '0.5px solid var(--border)'
                           }}>
-                            {p.status === 'PARTIAL' ? 'Partial' : p.status}{earlyClose ? ' · Early' : expiredClose ? ' · Expired' : ''}
+                            {p.status === 'PARTIAL' ? 'Partially Closed' : p.status}{earlyClose ? ' · Early' : expiredClose ? ' · Expired' : ''}
                           </span>
                           {isExpiredOpen && <span style={{ fontSize:10, color:'#f59e0b', fontWeight:600 }}>⚠ Expiry passed</span>}
                         </div>
