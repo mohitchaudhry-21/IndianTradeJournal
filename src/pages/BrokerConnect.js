@@ -336,7 +336,7 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
 }
 
 export default function BrokerConnect() {
-  const { addTrades, accounts, positions, activeAccountId, addAccount, deleteAccount, settings, updateSettings, closePosition, updatePositionMeta, addLegExit, reopenPosition, cloudLoad, isSupabaseReady } = useJournal();
+  const { addTrades, accounts, trades: allTrades, positions, activeAccountId, addAccount, deleteAccount, settings, updateSettings, closePosition, updatePositionMeta, addLegExit, reopenPosition, cloudLoad, isSupabaseReady } = useJournal();
   const [excelModal, setExcelModal] = React.useState(null);
   const [recovering, setRecovering] = React.useState(false);
   const [cloudSnapshot, setCloudSnapshot] = React.useState(null);
@@ -540,19 +540,23 @@ export default function BrokerConnect() {
     try {
       const { ok, data } = await cloudLoad();
       if (!ok || !data) { setRecoveryMsg('Could not load cloud data.'); setRecovering(false); return; }
-      const cloudTrades = data.trades || [];
+      const allCloudTrades = data.trades || [];
 
-      // Only check duplicates against the ACTIVE account's trades
-      // so Rahul's trades don't mark Mohit's as duplicates and vice versa
-      // Use the currently selected account in the journal
+      // Filter cloud trades to ONLY the active account
+      // so Mohit only sees his trades and Rahul only sees his
       const activeAccId = activeAccountId || '';
-      const activePosLegs = (positions || [])
-        .flatMap(p => (p.legs || []))
-        .filter(l => !activeAccId || l.accountId === activeAccId || !l.accountId);
+      const cloudTrades = activeAccId
+        ? allCloudTrades.filter(t => !t.accountId || t.accountId === activeAccId)
+        : allCloudTrades;
 
-      const existingIds = new Set(activePosLegs.map(l => l.id).filter(Boolean));
-      const existingKeys = new Set(activePosLegs.map(l =>
-        `${l.instrument}|${l.strike}|${l.optionType}|${(l.date||'').slice(0,10)}|${l.accountId || ''}`
+      // Check duplicates against active account's local trades
+      const accountTrades = (allTrades || []).filter(t =>
+        !activeAccId || !t.accountId || t.accountId === activeAccId
+      );
+
+      const existingIds = new Set(accountTrades.map(t => t.id).filter(Boolean));
+      const existingKeys = new Set(accountTrades.map(t =>
+        `${t.instrument}|${t.strike}|${t.optionType}|${(t.date||'').slice(0,10)}|${t.accountId || ''}`
       ));
 
       // Mark duplicates, sort latest first by date
@@ -566,7 +570,7 @@ export default function BrokerConnect() {
 
       const newCount = annotated.filter(t => !t._isDuplicate).length;
       setCloudSnapshot(annotated);
-      setRecoveryMsg(`Cloud has ${cloudTrades.length} trades — ${newCount} new, ${cloudTrades.length - newCount} already in journal.`);
+      setRecoveryMsg(`${activeAccId ? `${accounts.find(a=>a.id===activeAccId)?.name || 'Account'}: ` : ''}${cloudTrades.length} trades in cloud — ${newCount} new, ${cloudTrades.length - newCount} already in journal.`);
     } catch (e) {
       setRecoveryMsg('Error: ' + e.message);
     }
