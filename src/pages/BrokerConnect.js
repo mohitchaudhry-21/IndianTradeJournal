@@ -664,6 +664,46 @@ export default function BrokerConnect() {
       <div className="alert alert-info">
         Manage accounts and credentials in <strong>Settings</strong> → Accounts &amp; Broker Credentials.
       </div>
+
+      {/* ─── Cloud Recovery ─────────────────────────────────────────── */}
+      <div className="card" style={{ marginTop: 20 }}>
+        <h3 style={{ fontSize: 15, fontWeight: 500, marginBottom: 6, color: 'var(--text-primary)' }}>Recover lost data from cloud</h3>
+        <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 }}>
+          If trades or exit prices disappeared after a page reload, click below to pull the cloud backup and merge it back.
+        </p>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button className="btn btn-outline" onClick={handleRecoverFromCloud} disabled={recovering}>
+            {recovering ? 'Loading cloud...' : '☁ Load cloud snapshot'}
+          </button>
+          {cloudSnapshot && (
+            <button className="btn btn-primary" onClick={handleRestoreCloud}>
+              ✓ Restore {cloudSnapshot.length} trades
+            </button>
+          )}
+        </div>
+        {recoveryMsg && (
+          <div style={{ fontSize: 12, padding: '8px 12px', borderRadius: 6, marginBottom: 10, background: recoveryMsg.includes('Error') || recoveryMsg.includes('not connected') ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.08)', color: recoveryMsg.includes('Error') || recoveryMsg.includes('not connected') ? 'var(--text-danger)' : 'var(--text-success)', border: `0.5px solid ${recoveryMsg.includes('Error') || recoveryMsg.includes('not connected') ? 'var(--border-danger)' : 'var(--border-success)'}` }}>
+            {recoveryMsg}
+          </div>
+        )}
+        {cloudSnapshot && cloudSnapshot.length > 0 && (
+          <div style={{ maxHeight: 240, overflowY: 'auto', background: 'var(--surface-2)', borderRadius: 6, padding: 10, fontSize: 12 }}>
+            <div style={{ color: 'var(--text-muted)', marginBottom: 6, fontWeight: 500 }}>Cloud snapshot — {cloudSnapshot.length} trades:</div>
+            {cloudSnapshot.slice(0, 30).map((t, i) => (
+              <div key={i} style={{ padding: '4px 0', borderBottom: '0.5px solid var(--border)', color: 'var(--text-secondary)', display: 'flex', gap: 10, alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-muted)', width: 24, flexShrink: 0 }}>{i+1}.</span>
+                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-primary)', minWidth: 80 }}>{t.instrument || '?'}</span>
+                <span style={{ color: 'var(--text-muted)' }}>{t.strike} {t.optionType}</span>
+                <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, background: t.status === 'CLOSED' ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.05)', color: t.status === 'CLOSED' ? 'var(--text-success)' : 'var(--text-muted)' }}>{t.status}</span>
+                <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{t.date}</span>
+                {t.exitPremium != null && <span style={{ color: 'var(--text-success)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>exit ₹{t.exitPremium}</span>}
+              </div>
+            ))}
+            {cloudSnapshot.length > 30 && <div style={{ color: 'var(--text-muted)', padding: '4px 0', fontSize: 11 }}>...and {cloudSnapshot.length - 30} more</div>}
+          </div>
+        )}
+      </div>
+
       </div>
     </>
   );
