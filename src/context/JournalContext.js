@@ -111,9 +111,28 @@ export function JournalProvider({ children }) {
       setSyncStatus('syncing');
       cloudLoad().then(({ ok, data }) => {
         if (ok && data) {
-          if (data.accounts) setAccounts(data.accounts);
-          if (data.trades)   setTrades(data.trades);
-          if (data.settings) setSettings({ ...DEFAULT_SETTINGS, ...data.settings });
+          // Merge cloud trades into local by ID — never overwrite local edits
+          // Local state is always authoritative for existing IDs
+          // Cloud only adds trades not present locally (e.g. from another device)
+          if (data.trades) {
+            setTrades(prevTrades => {
+              const localById = {};
+              prevTrades.forEach(t => { if (t?.id) localById[t.id] = t; });
+              // Only add cloud trades that don't exist locally
+              const additions = (data.trades || []).filter(t => t?.id && !localById[t.id]);
+              if (additions.length === 0) return prevTrades; // local is already up to date
+              return [...prevTrades, ...additions];
+            });
+          }
+          if (data.accounts) {
+            setAccounts(prevAccounts => {
+              const localIds = new Set(prevAccounts.map(a => a?.id).filter(Boolean));
+              const additions = (data.accounts || []).filter(a => a?.id && !localIds.has(a.id));
+              if (additions.length === 0) return prevAccounts;
+              return [...prevAccounts, ...additions];
+            });
+          }
+          if (data.settings) setSettings(prev => ({ ...DEFAULT_SETTINGS, ...prev, ...data.settings }));
           setSyncStatus('synced');
           setLastSynced(new Date());
         } else {
@@ -617,7 +636,7 @@ export function JournalProvider({ children }) {
       updatePositionStrategy, updatePositionMeta, reopenPosition, addLegExit, removeLegExit,
       addTrade, addTrades, updateTrade, deleteTrade, deletePosition, closePosition,
       updateSettings,
-      exportData, importData,
+      exportData, importData, cloudLoad, isSupabaseReady,
       liveQuotes, liveLoading, liveLastUpdated, refreshLiveQuotes,
     }}>
       {children}
