@@ -678,7 +678,15 @@ export function JournalProvider({ children }) {
     // This month P&L
     const now = new Date();
     const thisMonth = [...closed, ...partial].filter(p => {
-      const d = new Date(p.closeDate || p.openDate);
+      // For partial positions — use the latest exit date from legs
+      let d;
+      if (p.status === 'PARTIAL') {
+        const latestExit = (p.legs || []).flatMap(l => l.exits || [])
+          .map(e => e.exitDate).filter(Boolean).sort().pop();
+        d = new Date(latestExit || p.openDate);
+      } else {
+        d = new Date(p.closeDate || p.openDate);
+      }
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     });
     const thisMonthPnL = thisMonth.reduce((s, p) => s + (p.realizedPnL || 0), 0);
