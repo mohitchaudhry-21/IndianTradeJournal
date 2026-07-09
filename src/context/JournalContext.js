@@ -65,7 +65,23 @@ export function JournalProvider({ children }) {
   const [accounts, setAccounts] = useState(saved?.accounts || [
     { id: 'acc_default', name: 'Angel One', broker: 'angelone', capital: 1000000, color: '#F59E0B' },
   ]);
-  const [trades, setTrades] = useState(saved?.trades || []);
+  const [trades, setTrades] = useState(() => {
+    const raw = saved?.trades || [];
+    // Migration: fix leg statuses that were incorrectly set to CLOSED
+    // when only some lots were actually exited
+    return raw.map(t => {
+      if (t.status !== 'CLOSED') return t;
+      const exits = t.exits || [];
+      if (exits.length === 0) return t; // single exit or no exits — keep as-is
+      const totalExited = exits.reduce((s, e) => s + (e.quantity || 0), 0);
+      const totalQty = t.quantity || 1;
+      if (totalExited < totalQty) {
+        // Partially exited — should be OPEN not CLOSED
+        return { ...t, status: 'OPEN', exitDate: null, exitPremium: null };
+      }
+      return t;
+    });
+  });
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS, ...(saved?.settings || {}) });
 
   const persist = useCallback((newAccounts, newTrades, newSettings, isDelete = false) => {
