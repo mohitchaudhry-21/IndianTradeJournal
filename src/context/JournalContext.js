@@ -644,7 +644,7 @@ export function JournalProvider({ children }) {
   // ─── Stats ───────────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
     const closed = positions.filter(p => p.status === 'CLOSED' || p.status === 'EXPIRED');
-    const open = positions.filter(p => p.status === 'OPEN');
+    const open = positions.filter(p => p.status === 'OPEN' || p.status === 'PARTIAL');
     const totalPnL = closed.reduce((s, p) => s + (p.realizedPnL || 0), 0);
     const winners = closed.filter(p => (p.realizedPnL || 0) > 0);
     const losers = closed.filter(p => (p.realizedPnL || 0) < 0);
