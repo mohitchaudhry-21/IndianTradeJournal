@@ -118,10 +118,55 @@ export function JournalProvider({ children }) {
             setTrades(prevTrades => {
               const localById = {};
               prevTrades.forEach(t => { if (t?.id) localById[t.id] = t; });
-              // Only add cloud trades that don't exist locally
-              const additions = (data.trades || []).filter(t => t?.id && !localById[t.id]);
-              if (additions.length === 0) return prevTrades; // local is already up to date
-              return [...prevTrades, ...additions];
+
+              const merged = [...prevTrades];
+              let changed = false;
+
+              (data.trades || []).forEach(cloudTrade => {
+                if (!cloudTrade?.id) return;
+                const local = localById[cloudTrade.id];
+
+                if (!local) {
+                  // Trade only in cloud — add it
+                  merged.push(cloudTrade);
+                  changed = true;
+                  return;
+                }
+
+                // Trade exists in both — pick the more complete version
+                // "More complete" = has exit data / more fields filled in
+                const localScore = (local.exitPremium != null ? 2 : 0)
+                  + (local.positionMargin != null ? 1 : 0)
+                  + (local.positionCharges != null ? 1 : 0)
+                  + (local.positionNotes ? 1 : 0)
+                  + ((local.exits || []).length);
+                const cloudScore = (cloudTrade.exitPremium != null ? 2 : 0)
+                  + (cloudTrade.positionMargin != null ? 1 : 0)
+                  + (cloudTrade.positionCharges != null ? 1 : 0)
+                  + (cloudTrade.positionNotes ? 1 : 0)
+                  + ((cloudTrade.exits || []).length);
+
+                if (cloudScore > localScore) {
+                  // Cloud is more complete — use cloud but preserve any local-only meta
+                  const idx = merged.findIndex(t => t?.id === cloudTrade.id);
+                  if (idx >= 0) {
+                    merged[idx] = {
+                      ...cloudTrade,
+                      // Always keep local meta if set — these are user edits
+                      positionMargin: local.positionMargin ?? cloudTrade.positionMargin,
+                      positionCharges: local.positionCharges ?? cloudTrade.positionCharges,
+                      positionNotes: local.positionNotes || cloudTrade.positionNotes,
+                      strategyName: local.strategyName || cloudTrade.strategyName,
+                    };
+                    changed = true;
+                  }
+                }
+                // If local is same or more complete — keep local (no action needed)
+              });
+
+              if (!changed) return prevTrades;
+              saveData(accounts, merged, settings);
+              return merged;
             });
           }
           if (data.accounts) {
