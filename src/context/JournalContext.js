@@ -67,22 +67,35 @@ export function JournalProvider({ children }) {
   ]);
   const [trades, setTrades] = useState(() => {
     const raw = saved?.trades || [];
-    // Migration: fix leg statuses that were incorrectly set to CLOSED
-    // when only some lots were actually exited
+    // Migration: fix leg statuses — CLOSED but exits don't cover full qty → OPEN
     return raw.map(t => {
       if (t.status !== 'CLOSED') return t;
       const exits = t.exits || [];
-      if (exits.length === 0) return t; // single exit or no exits — keep as-is
-      const totalExited = exits.reduce((s, e) => s + (e.quantity || 0), 0);
-      const totalQty = t.quantity || 1;
-      if (totalExited < totalQty) {
-        // Partially exited — should be OPEN not CLOSED
-        return { ...t, status: 'OPEN', exitDate: null, exitPremium: null };
+      if (exits.length === 0) return t;
+      const totalExited = exits.reduce((s, e) => s + (parseFloat(e.quantity) || 0), 0);
+      if (totalExited < (parseFloat(t.quantity) || 1)) {
+        return { ...t, status: 'OPEN', exitDate: undefined, exitPremium: undefined };
       }
       return t;
     });
   });
   const [settings, setSettings] = useState({ ...DEFAULT_SETTINGS, ...(saved?.settings || {}) });
+
+  // Fix trade statuses — leg marked CLOSED but exits don't cover full qty → reset to OPEN
+  const fixTradeStatuses = React.useCallback((tradeList) => {
+    return tradeList.map(t => {
+      if (t.status !== 'CLOSED') return t;
+      const exits = t.exits || [];
+      if (exits.length === 0) return t; // no tranches — single exitPremium, keep CLOSED
+      const totalExited = exits.reduce((s, e) => s + (parseFloat(e.quantity) || 0), 0);
+      const totalQty = parseFloat(t.quantity) || 1;
+      if (totalExited < totalQty) {
+        // Partially exited — revert status to OPEN, keep exits array intact
+        return { ...t, status: 'OPEN', exitDate: undefined, exitPremium: undefined };
+      }
+      return t;
+    });
+  }, []);
 
   const persist = useCallback((newAccounts, newTrades, newSettings, isDelete = false) => {
     saveData(newAccounts, newTrades, newSettings);
@@ -104,9 +117,20 @@ export function JournalProvider({ children }) {
             setLastSynced(new Date());
             if (result.merged) {
               const { accounts: ma, trades: mt, settings: ms } = result.merged;
-              saveData(ma, mt, ms);
+              // Fix statuses before applying merged data
+              const fixedMt = mt.map(t => {
+                if (t.status !== 'CLOSED') return t;
+                const exits = t.exits || [];
+                if (exits.length === 0) return t;
+                const totalExited = exits.reduce((s, e) => s + (parseFloat(e.quantity) || 0), 0);
+                if (totalExited < (parseFloat(t.quantity) || 1)) {
+                  return { ...t, status: 'OPEN', exitDate: undefined, exitPremium: undefined };
+                }
+                return t;
+              });
+              saveData(ma, fixedMt, ms);
               setAccounts(ma);
-              setTrades(mt);
+              setTrades(fixedMt);
               setSettings({ ...DEFAULT_SETTINGS, ...ms });
             }
           } else {
@@ -138,7 +162,19 @@ export function JournalProvider({ children }) {
               const merged = [...prevTrades];
               let changed = false;
 
-              (data.trades || []).forEach(cloudTrade => {
+              // Apply status fix to cloud trades before merging
+              const fixedCloudTrades = (data.trades || []).map(t => {
+                if (t.status !== 'CLOSED') return t;
+                const exits = t.exits || [];
+                if (exits.length === 0) return t;
+                const totalExited = exits.reduce((s, e) => s + (parseFloat(e.quantity) || 0), 0);
+                if (totalExited < (parseFloat(t.quantity) || 1)) {
+                  return { ...t, status: 'OPEN', exitDate: undefined, exitPremium: undefined };
+                }
+                return t;
+              });
+
+              fixedCloudTrades.forEach(cloudTrade => {
                 if (!cloudTrade?.id) return;
                 const local = localById[cloudTrade.id];
 
