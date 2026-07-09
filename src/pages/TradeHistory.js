@@ -858,7 +858,7 @@ export default function TradeHistory() {
 
   const instruments = [...new Set(positions.map(p => p.instrument))];
   const strategies  = [...new Set(positions.map(p => p.strategyName).filter(Boolean))];
-  const closed      = all.filter(p => p.status !== 'OPEN');
+  const closed      = all.filter(p => p.status === 'CLOSED' || p.status === 'EXPIRED');
   const totalPnL    = closed.reduce((s, p) => s + (p.realizedPnL || 0), 0);
   const wins        = closed.filter(p => (p.realizedPnL || 0) > 0).length;
   const winRate     = closed.length > 0 ? ((wins / closed.length) * 100).toFixed(1) : '0.0';
@@ -1069,6 +1069,7 @@ export default function TradeHistory() {
           <option value="">All Status</option>
           <option value="OPEN">Open</option>
           <option value="CLOSED">Closed</option>
+          <option value="PARTIAL">Partial</option>
           <option value="EXPIRED">Expired</option>
         </select>
         <input className="form-input" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} />
@@ -1150,8 +1151,12 @@ export default function TradeHistory() {
                           />
                         </div>
                         <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-                          <span style={{ fontSize:10, fontWeight:700, padding:'2px 9px', borderRadius:20, background:'rgba(255,255,255,0.06)', color:'var(--text-muted)', border:'0.5px solid var(--border)' }}>
-                            {p.status}{earlyClose ? ' · Early' : expiredClose ? ' · Expired' : ''}
+                          <span style={{ fontSize:10, fontWeight:700, padding:'2px 9px', borderRadius:20,
+                            background: p.status==='PARTIAL' ? 'rgba(245,158,11,0.1)' : p.status==='OPEN' ? 'rgba(34,197,94,0.08)' : 'rgba(255,255,255,0.06)',
+                            color: p.status==='PARTIAL' ? '#f59e0b' : p.status==='OPEN' ? 'var(--text-success)' : 'var(--text-muted)',
+                            border: p.status==='PARTIAL' ? '0.5px solid rgba(245,158,11,0.3)' : p.status==='OPEN' ? '0.5px solid rgba(34,197,94,0.2)' : '0.5px solid var(--border)'
+                          }}>
+                            {p.status === 'PARTIAL' ? 'Partial' : p.status}{earlyClose ? ' · Early' : expiredClose ? ' · Expired' : ''}
                           </span>
                           {isExpiredOpen && <span style={{ fontSize:10, color:'#f59e0b', fontWeight:600 }}>⚠ Expiry passed</span>}
                         </div>
