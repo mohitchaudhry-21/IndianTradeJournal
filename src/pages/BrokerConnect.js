@@ -541,8 +541,26 @@ export default function BrokerConnect() {
       const { ok, data } = await cloudLoad();
       if (!ok || !data) { setRecoveryMsg('Could not load cloud data.'); setRecovering(false); return; }
       const cloudTrades = data.trades || [];
-      setCloudSnapshot(cloudTrades);
-      setRecoveryMsg(`Found ${cloudTrades.length} trades in cloud. Review below and click Restore to merge.`);
+
+      // Build set of existing trade IDs in journal
+      const existingIds = new Set((positions || []).flatMap(p => (p.legs || []).map(l => l.id)).filter(Boolean));
+      // Also match by instrument+strike+optionType+date+account as fallback
+      const existingKeys = new Set((positions || []).flatMap(p => (p.legs || []).map(l =>
+        `${l.instrument}|${l.strike}|${l.optionType}|${(l.date||'').slice(0,10)}|${l.accountId}`
+      )));
+
+      // Mark duplicates, sort latest first by date
+      const annotated = cloudTrades
+        .map(t => ({
+          ...t,
+          _isDuplicate: existingIds.has(t.id) ||
+            existingKeys.has(`${t.instrument}|${t.strike}|${t.optionType}|${(t.date||'').slice(0,10)}|${t.accountId}`)
+        }))
+        .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
+
+      const newCount = annotated.filter(t => !t._isDuplicate).length;
+      setCloudSnapshot(annotated);
+      setRecoveryMsg(`Cloud has ${cloudTrades.length} trades — ${newCount} new, ${cloudTrades.length - newCount} already in journal.`);
     } catch (e) {
       setRecoveryMsg('Error: ' + e.message);
     }
@@ -551,9 +569,10 @@ export default function BrokerConnect() {
 
   const handleRestoreCloud = () => {
     if (!cloudSnapshot) return;
-    // Merge cloud trades into local — cloud wins for conflicts (recovery scenario)
-    addTrades(cloudSnapshot);
-    setRecoveryMsg(`Restored. ${cloudSnapshot.length} trades merged.`);
+    const toRestore = cloudSnapshot.filter(t => !t._isDuplicate);
+    if (!toRestore.length) { setRecoveryMsg('No new trades to restore — all already in journal.'); return; }
+    addTrades(toRestore);
+    setRecoveryMsg(`✓ Restored ${toRestore.length} trade${toRestore.length > 1 ? 's' : ''} successfully.`);
     setCloudSnapshot(null);
   };
 
@@ -675,11 +694,12 @@ export default function BrokerConnect() {
           <button className="btn btn-outline" onClick={handleRecoverFromCloud} disabled={recovering}>
             {recovering ? 'Loading cloud...' : '☁ Load cloud snapshot'}
           </button>
-          {cloudSnapshot && (
+          {cloudSnapshot && cloudSnapshot.length > 0 && (
             <button className="btn btn-primary" onClick={handleRestoreCloud}>
-              ✓ Restore {cloudSnapshot.length} trades
+              ✓ Restore {cloudSnapshot.filter(t => !t._isDuplicate).length} new trades
             </button>
           )}
+          {cloudSnapshot && <button className="btn btn-outline" onClick={() => setCloudSnapshot(null)} style={{marginLeft:'auto'}}>✕ Close</button>}
         </div>
         {recoveryMsg && (
           <div style={{ fontSize: 12, padding: '8px 12px', borderRadius: 6, marginBottom: 10, background: recoveryMsg.includes('Error') || recoveryMsg.includes('not connected') ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.08)', color: recoveryMsg.includes('Error') || recoveryMsg.includes('not connected') ? 'var(--text-danger)' : 'var(--text-success)', border: `0.5px solid ${recoveryMsg.includes('Error') || recoveryMsg.includes('not connected') ? 'var(--border-danger)' : 'var(--border-success)'}` }}>
@@ -687,19 +707,42 @@ export default function BrokerConnect() {
           </div>
         )}
         {cloudSnapshot && cloudSnapshot.length > 0 && (
-          <div style={{ maxHeight: 240, overflowY: 'auto', background: 'var(--surface-2)', borderRadius: 6, padding: 10, fontSize: 12 }}>
-            <div style={{ color: 'var(--text-muted)', marginBottom: 6, fontWeight: 500 }}>Cloud snapshot — {cloudSnapshot.length} trades:</div>
-            {cloudSnapshot.slice(0, 30).map((t, i) => (
-              <div key={i} style={{ padding: '4px 0', borderBottom: '0.5px solid var(--border)', color: 'var(--text-secondary)', display: 'flex', gap: 10, alignItems: 'center' }}>
-                <span style={{ color: 'var(--text-muted)', width: 24, flexShrink: 0 }}>{i+1}.</span>
-                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-primary)', minWidth: 80 }}>{t.instrument || '?'}</span>
-                <span style={{ color: 'var(--text-muted)' }}>{t.strike} {t.optionType}</span>
-                <span style={{ padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 600, background: t.status === 'CLOSED' ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.05)', color: t.status === 'CLOSED' ? 'var(--text-success)' : 'var(--text-muted)' }}>{t.status}</span>
-                <span style={{ color: 'var(--text-muted)', fontSize: 11 }}>{t.date}</span>
-                {t.exitPremium != null && <span style={{ color: 'var(--text-success)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>exit ₹{t.exitPremium}</span>}
-              </div>
-            ))}
-            {cloudSnapshot.length > 30 && <div style={{ color: 'var(--text-muted)', padding: '4px 0', fontSize: 11 }}>...and {cloudSnapshot.length - 30} more</div>}
+          <div style={{ border: '0.5px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+            {/* Header */}
+            <div style={{ display: 'grid', gridTemplateColumns: '32px 100px 80px 70px 60px 90px 90px 90px 1fr', gap: 0, padding: '7px 12px', background: 'var(--surface-1)', borderBottom: '0.5px solid var(--border)' }}>
+              {['#','Instrument','Strike','Type','Status','Date','Entry ₹','Exit ₹',''].map((h,i) => (
+                <div key={i} style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text-muted)', fontWeight: 500 }}>{h}</div>
+              ))}
+            </div>
+            {/* Rows — all trades, latest first, no pagination */}
+            <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+              {cloudSnapshot.map((t, i) => (
+                <div key={t.id || i} style={{ display: 'grid', gridTemplateColumns: '32px 100px 80px 70px 60px 90px 90px 90px 1fr', gap: 0, padding: '8px 12px', borderBottom: '0.5px solid var(--border)', background: t._isDuplicate ? 'rgba(255,255,255,0.01)' : 'transparent', opacity: t._isDuplicate ? 0.45 : 1, alignItems: 'center' }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{i+1}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 12, color: 'var(--text-primary)' }}>{t.instrument || '?'}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{t.strike}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{t.optionType} {t.transactionType}</div>
+                  <div>
+                    <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 6px', borderRadius: 3, background: t.status === 'CLOSED' ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.06)', color: t.status === 'CLOSED' ? 'var(--text-success)' : 'var(--text-muted)', border: `0.5px solid ${t.status === 'CLOSED' ? 'rgba(34,197,94,0.3)' : 'var(--border)'}` }}>{t.status}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{t.date}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{t.premium != null ? '₹' + parseFloat(t.premium).toFixed(2) : '—'}</div>
+                  <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: t.exitPremium != null ? 'var(--text-success)' : 'var(--text-muted)' }}>{t.exitPremium != null ? '₹' + parseFloat(t.exitPremium).toFixed(2) : '—'}</div>
+                  <div style={{ fontSize: 10, fontWeight: 600, textAlign: 'right' }}>
+                    {t._isDuplicate
+                      ? <span style={{ color: 'var(--text-muted)', background: 'rgba(255,255,255,0.05)', padding: '1px 6px', borderRadius: 3, border: '0.5px solid var(--border)' }}>Already exists</span>
+                      : <span style={{ color: '#818cf8', background: 'rgba(99,102,241,0.1)', padding: '1px 6px', borderRadius: 3, border: '0.5px solid rgba(99,102,241,0.3)' }}>New</span>
+                    }
+                  </div>
+                </div>
+              ))}
+            </div>
+            {/* Footer summary */}
+            <div style={{ padding: '8px 12px', background: 'var(--surface-1)', borderTop: '0.5px solid var(--border)', display: 'flex', gap: 16, fontSize: 12 }}>
+              <span style={{ color: '#818cf8' }}>● {cloudSnapshot.filter(t => !t._isDuplicate).length} new</span>
+              <span style={{ color: 'var(--text-muted)' }}>● {cloudSnapshot.filter(t => t._isDuplicate).length} already in journal</span>
+              <span style={{ color: 'var(--text-muted)', marginLeft: 'auto' }}>{cloudSnapshot.length} total in cloud</span>
+            </div>
           </div>
         )}
       </div>
