@@ -123,16 +123,39 @@ export async function mergeAndSave(localAccounts, localTrades, localSettings, ex
     const hasExitData = (t) =>
       t?.status === 'CLOSED' && t?.legs?.some(l => l?.exitPremium != null || (l?.exits||[]).length > 0);
 
+    const tradeScore = (t) =>
+      (t?.exitPremium != null ? 2 : 0)
+      + (t?.status === 'CLOSED' ? 2 : 0)
+      + ((t?.exits || []).length)
+      + (t?.positionMargin != null ? 1 : 0)
+      + (t?.positionCharges != null ? 1 : 0)
+      + (t?.positionNotes ? 1 : 0)
+      + (t?.strategyName && t.strategyName !== 'Custom' ? 1 : 0);
+
     const tradeMap = new Map();
-    // Start with cloud trades for any IDs not present locally (other device additions)
+    // Start with cloud trades
     cloudTrades.forEach(t => { if (t?.id && !excludeIds.has(t.id)) tradeMap.set(t.id, t); });
-    // Local always wins for any trade that exists locally — local is authoritative
-    // Cloud can only ADD trades not present locally (multi-device sync)
-    // We never overwrite local edits with cloud data for the same trade ID
+
+    // Merge local trades — for conflicts, pick more complete version
+    // but always keep local user-edited meta fields
     localTrades.forEach(t => {
       if (!t?.id || excludeIds.has(t.id)) return;
-      // Local always wins — overwrite whatever cloud had for this ID
-      tradeMap.set(t.id, t);
+      const cloud = tradeMap.get(t.id);
+      if (!cloud) {
+        // Only in local — add it
+        tradeMap.set(t.id, t);
+        return;
+      }
+      // Both exist — pick more complete, but always preserve local meta
+      const winner = tradeScore(t) >= tradeScore(cloud) ? t : {
+        ...cloud,
+        // Always keep local user edits regardless of which version wins
+        positionMargin:  t.positionMargin  ?? cloud.positionMargin,
+        positionCharges: t.positionCharges ?? cloud.positionCharges,
+        positionNotes:   t.positionNotes   || cloud.positionNotes,
+        strategyName:    (t.strategyName && t.strategyName !== 'Custom') ? t.strategyName : cloud.strategyName,
+      };
+      tradeMap.set(t.id, winner);
     });
     const mergedTrades = Array.from(tradeMap.values());
 
