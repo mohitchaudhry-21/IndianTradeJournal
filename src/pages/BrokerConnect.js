@@ -65,6 +65,45 @@ function ExcelImportModal({ modal, onApply, onClose }) {
           </button>
         </div>
       </div>
+    {/* ─── Cloud Recovery ─────────────────────────────────────────────── */}
+    <div className="card" style={{ marginBottom: 20 }}>
+      <h3 style={{ fontSize: 15, fontWeight: 500, marginBottom: 6, color: 'var(--text-primary)' }}>Recover lost data from cloud</h3>
+      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 }}>
+        If trades or exit prices disappeared after a page reload, use this to pull the cloud backup and merge it back into your journal.
+      </p>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <button className="btn btn-outline" onClick={handleRecoverFromCloud} disabled={recovering}>
+          {recovering ? 'Loading cloud...' : '☁ Load cloud snapshot'}
+        </button>
+        {cloudSnapshot && (
+          <button className="btn btn-primary" onClick={handleRestoreCloud}>
+            ✓ Restore {cloudSnapshot.length} trades
+          </button>
+        )}
+      </div>
+      {recoveryMsg && (
+        <div style={{ fontSize: 12, padding: '8px 12px', borderRadius: 6, background: recoveryMsg.includes('Error') || recoveryMsg.includes('not connected') ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.08)', color: recoveryMsg.includes('Error') || recoveryMsg.includes('not connected') ? 'var(--text-danger)' : 'var(--text-success)', border: `0.5px solid ${recoveryMsg.includes('Error') || recoveryMsg.includes('not connected') ? 'var(--border-danger)' : 'var(--border-success)'}` }}>
+          {recoveryMsg}
+        </div>
+      )}
+      {cloudSnapshot && cloudSnapshot.length > 0 && (
+        <div style={{ marginTop: 12, maxHeight: 200, overflowY: 'auto', background: 'var(--surface-2)', borderRadius: 6, padding: 10, fontSize: 12 }}>
+          <div style={{ color: 'var(--text-muted)', marginBottom: 6, fontWeight: 500 }}>Cloud snapshot preview:</div>
+          {cloudSnapshot.slice(0, 20).map((t, i) => (
+            <div key={i} style={{ padding: '3px 0', borderBottom: '0.5px solid var(--border)', color: 'var(--text-secondary)', display: 'flex', gap: 10 }}>
+              <span style={{ color: 'var(--text-muted)', width: 20 }}>{i+1}.</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 500 }}>{t.instrument || t.tradingsymbol || '?'}</span>
+              <span>{t.strike} {t.optionType}</span>
+              <span style={{ color: t.status === 'CLOSED' ? 'var(--text-success)' : 'var(--text-muted)' }}>{t.status}</span>
+              <span style={{ color: 'var(--text-muted)' }}>{t.date}</span>
+              {t.exitPremium && <span style={{ color: 'var(--text-success)' }}>exit ₹{t.exitPremium}</span>}
+            </div>
+          ))}
+          {cloudSnapshot.length > 20 && <div style={{ color: 'var(--text-muted)', padding: '4px 0' }}>...and {cloudSnapshot.length - 20} more</div>}
+        </div>
+      )}
+    </div>
+
     </div>
   );
 }
@@ -297,8 +336,11 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
 }
 
 export default function BrokerConnect() {
-  const { addTrades, accounts, positions, addAccount, deleteAccount, settings, updateSettings, closePosition, updatePositionMeta, addLegExit, reopenPosition } = useJournal();
+  const { addTrades, accounts, positions, addAccount, deleteAccount, settings, updateSettings, closePosition, updatePositionMeta, addLegExit, reopenPosition, cloudLoad, isSupabaseReady } = useJournal();
   const [excelModal, setExcelModal] = React.useState(null);
+  const [recovering, setRecovering] = React.useState(false);
+  const [cloudSnapshot, setCloudSnapshot] = React.useState(null);
+  const [recoveryMsg, setRecoveryMsg] = React.useState('');
 
   const applyExcelMatches = (selectedIds, matchData) => {
     let applied = 0;
@@ -486,6 +528,33 @@ export default function BrokerConnect() {
       }));
       addTrades(mapped);
     }
+  };
+
+  const handleRecoverFromCloud = async () => {
+    if (!isSupabaseReady || !isSupabaseReady()) {
+      setRecoveryMsg('Supabase not connected. Set up cloud sync in Settings first.');
+      return;
+    }
+    setRecovering(true);
+    setRecoveryMsg('');
+    try {
+      const { ok, data } = await cloudLoad();
+      if (!ok || !data) { setRecoveryMsg('Could not load cloud data.'); setRecovering(false); return; }
+      const cloudTrades = data.trades || [];
+      setCloudSnapshot(cloudTrades);
+      setRecoveryMsg(`Found ${cloudTrades.length} trades in cloud. Review below and click Restore to merge.`);
+    } catch (e) {
+      setRecoveryMsg('Error: ' + e.message);
+    }
+    setRecovering(false);
+  };
+
+  const handleRestoreCloud = () => {
+    if (!cloudSnapshot) return;
+    // Merge cloud trades into local — cloud wins for conflicts (recovery scenario)
+    addTrades(cloudSnapshot);
+    setRecoveryMsg(`Restored. ${cloudSnapshot.length} trades merged.`);
+    setCloudSnapshot(null);
   };
 
   const handleAddAccount = () => {
