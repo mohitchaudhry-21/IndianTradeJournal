@@ -336,7 +336,7 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
 }
 
 export default function BrokerConnect() {
-  const { addTrades, accounts, positions, addAccount, deleteAccount, settings, updateSettings, closePosition, updatePositionMeta, addLegExit, reopenPosition, cloudLoad, isSupabaseReady } = useJournal();
+  const { addTrades, accounts, positions, activeAccountId, addAccount, deleteAccount, settings, updateSettings, closePosition, updatePositionMeta, addLegExit, reopenPosition, cloudLoad, isSupabaseReady } = useJournal();
   const [excelModal, setExcelModal] = React.useState(null);
   const [recovering, setRecovering] = React.useState(false);
   const [cloudSnapshot, setCloudSnapshot] = React.useState(null);
@@ -542,19 +542,25 @@ export default function BrokerConnect() {
       if (!ok || !data) { setRecoveryMsg('Could not load cloud data.'); setRecovering(false); return; }
       const cloudTrades = data.trades || [];
 
-      // Build set of existing trade IDs in journal
-      const existingIds = new Set((positions || []).flatMap(p => (p.legs || []).map(l => l.id)).filter(Boolean));
-      // Also match by instrument+strike+optionType+date+account as fallback
-      const existingKeys = new Set((positions || []).flatMap(p => (p.legs || []).map(l =>
-        `${l.instrument}|${l.strike}|${l.optionType}|${(l.date||'').slice(0,10)}|${l.accountId}`
-      )));
+      // Only check duplicates against the ACTIVE account's trades
+      // so Rahul's trades don't mark Mohit's as duplicates and vice versa
+      // Use the currently selected account in the journal
+      const activeAccId = activeAccountId || '';
+      const activePosLegs = (positions || [])
+        .flatMap(p => (p.legs || []))
+        .filter(l => !activeAccId || l.accountId === activeAccId || !l.accountId);
+
+      const existingIds = new Set(activePosLegs.map(l => l.id).filter(Boolean));
+      const existingKeys = new Set(activePosLegs.map(l =>
+        `${l.instrument}|${l.strike}|${l.optionType}|${(l.date||'').slice(0,10)}|${l.accountId || ''}`
+      ));
 
       // Mark duplicates, sort latest first by date
       const annotated = cloudTrades
         .map(t => ({
           ...t,
           _isDuplicate: existingIds.has(t.id) ||
-            existingKeys.has(`${t.instrument}|${t.strike}|${t.optionType}|${(t.date||'').slice(0,10)}|${t.accountId}`)
+            existingKeys.has(`${t.instrument}|${t.strike}|${t.optionType}|${(t.date||'').slice(0,10)}|${t.accountId || ''}`)
         }))
         .sort((a, b) => new Date(b.date || 0) - new Date(a.date || 0));
 
