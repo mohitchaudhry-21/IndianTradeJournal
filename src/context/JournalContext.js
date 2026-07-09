@@ -585,16 +585,35 @@ export function JournalProvider({ children }) {
         return sum + mult * (l.premium || 0) * l.quantity * lotSize;
       }, 0);
 
-      // Realized P&L for closed legs
+      // Realized P&L — includes fully closed legs AND partial exits from open legs
       const realizedPnL = legs.reduce((sum, l) => {
-        if (l.status !== 'CLOSED' && l.status !== 'EXPIRED') return sum;
         const lotSize = l.lotSize || settings.lotSizes[l.instrument] || 1;
-        const exitP = l.exitPremium !== undefined ? l.exitPremium : 0;
-        if (l.transactionType === 'SELL') {
-          return sum + (l.premium - exitP) * l.quantity * lotSize;
-        } else {
-          return sum + (exitP - l.premium) * l.quantity * lotSize;
+        const exits = l.exits || [];
+
+        if (l.status === 'CLOSED' || l.status === 'EXPIRED') {
+          // Fully closed leg — use exitPremium (weighted avg)
+          const exitP = l.exitPremium !== undefined ? l.exitPremium : 0;
+          if (l.transactionType === 'SELL') {
+            return sum + (l.premium - exitP) * l.quantity * lotSize;
+          } else {
+            return sum + (exitP - l.premium) * l.quantity * lotSize;
+          }
         }
+
+        // Partially exited leg — sum up each exit tranche
+        if (exits.length > 0) {
+          return sum + exits.reduce((eSum, e) => {
+            const exitP = e.exitPremium || 0;
+            const qty = e.quantity || 0;
+            if (l.transactionType === 'SELL') {
+              return eSum + (l.premium - exitP) * qty * lotSize;
+            } else {
+              return eSum + (exitP - l.premium) * qty * lotSize;
+            }
+          }, 0);
+        }
+
+        return sum;
       }, 0);
 
       // Days to expiry
@@ -629,7 +648,7 @@ export function JournalProvider({ children }) {
         legs,
         breakevens,
         netPremiumCollected,
-        realizedPnL: status !== 'OPEN' ? realizedPnL : null,
+        realizedPnL: (status !== 'OPEN' || realizedPnL !== 0) ? realizedPnL : null,
         openDate: legs.reduce((min, l) => l.date < min ? l.date : min, legs[0].date),
         closeDate: allClosed ? legs.reduce((max, l) => (l.exitDate || '') > max ? (l.exitDate || '') : max, '') : null,
         notes: first.positionNotes || first.notes || '',
@@ -645,7 +664,8 @@ export function JournalProvider({ children }) {
   const stats = useMemo(() => {
     const closed = positions.filter(p => p.status === 'CLOSED' || p.status === 'EXPIRED');
     const open = positions.filter(p => p.status === 'OPEN' || p.status === 'PARTIAL');
-    const totalPnL = closed.reduce((s, p) => s + (p.realizedPnL || 0), 0);
+    const partial = positions.filter(p => p.status === 'PARTIAL');
+    const totalPnL = [...closed, ...partial].reduce((s, p) => s + (p.realizedPnL || 0), 0);
     const winners = closed.filter(p => (p.realizedPnL || 0) > 0);
     const losers = closed.filter(p => (p.realizedPnL || 0) < 0);
     const winRate = closed.length > 0 ? (winners.length / closed.length) * 100 : 0;
@@ -657,7 +677,7 @@ export function JournalProvider({ children }) {
 
     // This month P&L
     const now = new Date();
-    const thisMonth = closed.filter(p => {
+    const thisMonth = [...closed, ...partial].filter(p => {
       const d = new Date(p.closeDate || p.openDate);
       return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
     });
