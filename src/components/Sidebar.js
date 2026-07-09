@@ -70,7 +70,7 @@ export default function Sidebar() {
   const { stats, accounts, activeAccountId, setActiveAccountId, dateFilter, setDateFilter, syncStatus, lastSynced, positions, liveQuotes } = useJournal();
 
   const liveUnrealizedPnL = React.useMemo(() => {
-    const openPositions = positions.filter(p => p.status === 'OPEN'); // already account-filtered
+    const openPositions = positions.filter(p => p.status === 'OPEN' || p.status === 'PARTIAL'); // already account-filtered
     if (!Object.keys(liveQuotes).length) return null;
     let total = 0;
     let anyFound = false;
@@ -88,7 +88,7 @@ export default function Sidebar() {
   const perPositionLivePnL = React.useMemo(() => {
     if (!Object.keys(liveQuotes).length) return [];
     return positions
-      .filter(p => p.status === 'OPEN')
+      .filter(p => p.status === 'OPEN' || p.status === 'PARTIAL')
       .map(p => ({ position: p, pnl: calcUnrealizedPnL(p, liveQuotes) }))
       .filter(x => x.pnl !== null);
   }, [positions, liveQuotes]);
