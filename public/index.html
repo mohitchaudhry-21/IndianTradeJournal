@@ -20,6 +20,55 @@
       }
     })();
   </script>
+  <style>
+    /* ── Global font rendering fixes ── */
+    html {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      text-size-adjust: 100%;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    body {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+      font-feature-settings: "kern" 1, "liga" 1;
+    }
+
+    /* All elements inherit smoothing */
+    *, *::before, *::after {
+      -webkit-font-smoothing: inherit;
+      -moz-osx-font-smoothing: inherit;
+    }
+
+    /* JetBrains Mono — tabular nums for crisp number alignment */
+    @font-face {
+      font-family: 'JetBrains Mono';
+      font-display: swap;
+    }
+
+    /* Any element using mono font gets tabular number rendering */
+    [style*="JetBrains"], [style*="font-mono"], [style*="monospace"] {
+      font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1, "kern" 1;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Force pixel-perfect rendering — no subpixel shifts */
+    #root {
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
+
+    /* CSS variable override — ensure font-mono is set */
+    :root {
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+      --font-sans: 'Sora', 'Nunito Sans', system-ui, sans-serif;
+    }
+  </style>
 </head>
 <body>
   <div id="root"></div>
