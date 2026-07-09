@@ -124,17 +124,14 @@ export async function mergeAndSave(localAccounts, localTrades, localSettings, ex
       t?.status === 'CLOSED' && t?.legs?.some(l => l?.exitPremium != null || (l?.exits||[]).length > 0);
 
     const tradeMap = new Map();
+    // Start with cloud trades for any IDs not present locally (other device additions)
     cloudTrades.forEach(t => { if (t?.id && !excludeIds.has(t.id)) tradeMap.set(t.id, t); });
+    // Local always wins for any trade that exists locally — local is authoritative
+    // Cloud can only ADD trades not present locally (multi-device sync)
+    // We never overwrite local edits with cloud data for the same trade ID
     localTrades.forEach(t => {
       if (!t?.id || excludeIds.has(t.id)) return;
-      const existing = tradeMap.get(t.id); // cloud version
-      if (!existing) { tradeMap.set(t.id, t); return; }
-      // Pick more complete version
-      const localHasExit = hasExitData(t);
-      const cloudHasExit = hasExitData(existing);
-      if (localHasExit && !cloudHasExit) { tradeMap.set(t.id, t); return; } // local has exit
-      if (cloudHasExit && !localHasExit) { return; } // cloud has exit, keep cloud
-      // Both same completeness — local wins (most recent edit)
+      // Local always wins — overwrite whatever cloud had for this ID
       tradeMap.set(t.id, t);
     });
     const mergedTrades = Array.from(tradeMap.values());
