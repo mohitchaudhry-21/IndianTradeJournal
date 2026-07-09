@@ -397,7 +397,12 @@ export function JournalProvider({ children }) {
           exitPremium = exits.reduce((s, e) => s + (e.exitPremium || 0) * (e.quantity || 1), 0) / totalQty;
         }
 
-        const updated = { ...t, exits, exitPremium, status: 'CLOSED' };
+        // Only mark CLOSED if all lots are actually exited
+        const totalExitedQty = exits.reduce((s, e) => s + (e.quantity || 0), 0);
+        const fullyExited = exits.length === 0
+          ? (leg.exitPremium != null) // no tranches — single exit price set
+          : totalExitedQty >= (t.quantity || 1);
+        const updated = { ...t, exits, exitPremium, status: fullyExited ? 'CLOSED' : t.status || 'OPEN' };
         if (leg.exitDate) updated.exitDate = leg.exitDate;
         if (leg.entryPrice !== null && leg.entryPrice !== undefined && leg.entryPrice > 0) {
           updated.premium = parseFloat(leg.entryPrice);
@@ -512,7 +517,14 @@ export function JournalProvider({ children }) {
     return Object.entries(filteredGroups).map(([posId, legs]) => {
       const first = legs[0];
       const allClosed = legs.every(l => l.status === 'CLOSED' || l.status === 'EXPIRED');
-      const status = allClosed ? (legs[0].status === 'EXPIRED' ? 'EXPIRED' : 'CLOSED') : 'OPEN';
+      const anyClosed = legs.some(l => l.status === 'CLOSED' || l.status === 'EXPIRED');
+      const anyPartial = legs.some(l => {
+        const totalExited = (l.exits || []).reduce((s, e) => s + (e.quantity || 0), 0);
+        return totalExited > 0 && totalExited < (l.quantity || 1);
+      });
+      const status = allClosed
+        ? (legs[0].status === 'EXPIRED' ? 'EXPIRED' : 'CLOSED')
+        : (anyClosed || anyPartial) ? 'PARTIAL' : 'OPEN';
 
       // Net premium: SELL legs receive premium, BUY legs pay premium
       const netPremiumCollected = legs.reduce((sum, l) => {
