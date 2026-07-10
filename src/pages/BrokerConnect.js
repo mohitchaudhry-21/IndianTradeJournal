@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useJournal } from '../context/JournalContext';
+import { useToast } from '../context/ToastContext';
 
 const SERVER_URL = 'http://localhost:5001';
 
@@ -109,6 +110,7 @@ function ExcelImportModal({ modal, onApply, onClose }) {
 }
 
 function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImport, onSetImportDate, settings, existingPositions, savedAccounts, savedCredentials }) {
+  const { showToast } = useToast();
   const firstAcc = savedAccounts[0];
   const [selectedAccId, setSelectedAccId] = useState(firstAcc?.id || '');
   const [creds, setCreds] = useState(
@@ -158,13 +160,16 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
       if (data.success) {
         setStatus('connected');
         setMessage(data.message || 'Connected successfully');
+        showToast({ title: `${name} connected`, message: data.message || '' });
       } else {
         setStatus('error');
         setMessage(data.error || 'Connection failed');
+        showToast({ title: `${name} connection failed`, message: data.error || '', type: 'error' });
       }
     } catch (e) {
       setStatus('error');
       setMessage('Cannot reach sync server. Make sure it is running.');
+      showToast({ title: `${name} connection failed`, message: 'Sync server not reachable', type: 'error' });
     }
   };
 
@@ -192,22 +197,27 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
         const closedUpdates = data.closePositions || [];
         const openCount = newTrades.filter(t => t.status === 'OPEN').length;
         const closedCount = newTrades.filter(t => t.status === 'CLOSED').length + closedUpdates.length;
-        setMessage(`Synced: ${openCount} open, ${closedUpdates.length} closed with exit prices, ${closedCount - closedUpdates.length} new closed`);
+        let syncMsg = `Synced: ${openCount} open, ${closedUpdates.length} closed with exit prices, ${closedCount - closedUpdates.length} new closed`;
+        setMessage(syncMsg);
         const partialExitsData = data.partialExits || [];
         const partialCount = partialExitsData.length;
-        if (partialCount > 0) setMessage(prev => prev + `, ${partialCount} partial exit${partialCount>1?'s':''} detected`);
+        if (partialCount > 0) { syncMsg += `, ${partialCount} partial exit${partialCount>1?'s':''} detected`; setMessage(prev => prev + `, ${partialCount} partial exit${partialCount>1?'s':''} detected`); }
         const premiumUpdatesData = data.premiumUpdates || [];
-        if (premiumUpdatesData.length > 0) setMessage(prev => prev + `, ${premiumUpdatesData.length} entry price${premiumUpdatesData.length>1?'s':''} corrected`);
+        if (premiumUpdatesData.length > 0) { syncMsg += `, ${premiumUpdatesData.length} entry price${premiumUpdatesData.length>1?'s':''} corrected`; setMessage(prev => prev + `, ${premiumUpdatesData.length} entry price${premiumUpdatesData.length>1?'s':''} corrected`); }
+        showToast({ title: `${name} sync complete`, message: syncMsg });
         if (newTrades.length > 0 || closedUpdates.length > 0 || partialExitsData.length > 0 || premiumUpdatesData.length > 0)
           onSync(newTrades, closedUpdates, partialExitsData, premiumUpdatesData);
       } else {
         setMessage(data.error || 'Sync failed');
+        showToast({ title: `${name} sync failed`, message: data.error || '', type: 'error' });
       }
     } catch (e) {
       if (e.name === 'AbortError') {
         setMessage('Sync timed out after 60s — server may be stuck. Try restarting the sync server.');
+        showToast({ title: `${name} sync timed out`, message: 'Server may be stuck — try restarting it', type: 'error' });
       } else {
         setMessage('Sync failed — server not running? ' + (e.message || ''));
+        showToast({ title: `${name} sync failed`, message: 'Sync server not reachable', type: 'error' });
       }
     } finally {
       setSyncing(false);
@@ -235,14 +245,18 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
           stockData.transactions = [...existingTransactions, ...newOnes];
           localStorage.setItem(STOCK_KEY, JSON.stringify(stockData));
           setStockSyncMsg(`Synced ${newOnes.length} stock holding${newOnes.length > 1 ? 's' : ''} from broker`);
+          showToast({ title: `${name} stocks synced`, message: `${newOnes.length} holding${newOnes.length > 1 ? 's' : ''} added` });
         } else {
           setStockSyncMsg('Stock holdings already up to date');
+          showToast({ title: `${name} stocks synced`, message: 'Already up to date' });
         }
       } else {
         setStockSyncMsg(data.error || 'Stock sync failed');
+        showToast({ title: `${name} stock sync failed`, message: data.error || '', type: 'error' });
       }
     } catch (e) {
       setStockSyncMsg('Stock sync failed — server not running?');
+      showToast({ title: `${name} stock sync failed`, message: 'Sync server not reachable', type: 'error' });
     } finally {
       setSyncingStocks(false);
     }
@@ -351,6 +365,7 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
 
 export default function BrokerConnect() {
   const { addTrades, accounts, trades: allTrades, positions, activeAccountId, addAccount, deleteAccount, settings, updateSettings, closePosition, updatePositionMeta, addLegExit, updateLegPremiums, reopenPosition, cloudLoad, isSupabaseReady } = useJournal();
+  const { showToast } = useToast();
   const [excelModal, setExcelModal] = React.useState(null);
   const [recovering, setRecovering] = React.useState(false);
   const [cloudSnapshot, setCloudSnapshot] = React.useState(null);
@@ -378,7 +393,8 @@ export default function BrokerConnect() {
       }
     });
     setExcelModal(null);
-    alert(applied > 0 ? `Applied ${applied} exit tranche(s).` : 'No new tranches — all already imported.');
+    if (applied > 0) showToast({ title: 'Excel import applied', message: `${applied} exit tranche${applied>1?'s':''} added` });
+    else showToast({ title: 'Excel import', message: 'No new tranches — all already imported.' });
   };
 
   const setAccountImportDate = (acctId, date) =>
@@ -445,7 +461,7 @@ export default function BrokerConnect() {
         if (importDate&&dt&&dt<importDate) continue;
         fills.push({...p,side,price,qty,charges:Math.round(chg*100)/100,date:dt,orderId:String(row[col['Order ID']]||'')});
       }
-      if (!fills.length) { alert(`No fills found${importDate?` after ${importDate}`:''}.`); return; }
+      if (!fills.length) { showToast({ title: 'Excel import', message: `No fills found${importDate?` after ${importDate}`:''}.`, type: 'error' }); return; }
       const byKey={};
       fills.forEach(f=>{const k=`${f.instrument}|${f.expiry}|${f.strike}|${f.optionType}|${f.side}`;(byKey[k]=byKey[k]||[]).push(f);});
       const matches=[];
@@ -489,9 +505,9 @@ export default function BrokerConnect() {
           matches.push({positionId:ep.positionId,hasNew,label:`${legs[0]?.instrument||''} ${legs.map(l=>`${l.transactionType} ${l.strike}${l.optionType}`).join(' / ')}`,entryDate:ep.date||legs[0]?.date||'',legMatches});
         }
       });
-      if (!matches.length) { alert('No matches with OPEN positions.'); return; }
+      if (!matches.length) { showToast({ title: 'Excel import', message: 'No matches with OPEN positions.', type: 'error' }); return; }
       setExcelModal({matches,importDate});
-    } catch(e){console.error(e);alert(`Excel import error: ${e.message}`);}
+    } catch(e){console.error(e);showToast({ title: 'Excel import error', message: e.message, type: 'error' });}
   };
 
   const handleSync = (broker) => (trades, closePositions, partialExits, premiumUpdates) => {
@@ -601,9 +617,15 @@ export default function BrokerConnect() {
   const handleRestoreCloud = () => {
     if (!cloudSnapshot) return;
     const toRestore = cloudSnapshot.filter(t => !t._isDuplicate);
-    if (!toRestore.length) { setRecoveryMsg('No new trades to restore — all already in journal.'); return; }
-    addTrades(toRestore);
-    setRecoveryMsg(`✓ Restored ${toRestore.length} trade${toRestore.length > 1 ? 's' : ''} successfully.`);
+    if (!toRestore.length) { setRecoveryMsg('No new trades to restore — all already in journal.'); showToast({ title: 'Cloud restore', message: 'No new trades — all already in journal.' }); return; }
+    const { added, skipped } = addTrades(toRestore);
+    if (added > 0) {
+      setRecoveryMsg(`✓ Restored ${added} trade${added > 1 ? 's' : ''} successfully.`);
+      showToast({ title: 'Cloud restore complete', message: `${added} trade${added > 1 ? 's' : ''} restored${skipped ? `, ${skipped} already present` : ''}` });
+    } else {
+      setRecoveryMsg('No new trades to restore — all already in journal.');
+      showToast({ title: 'Cloud restore', message: 'No new trades — all already in journal.' });
+    }
     setCloudSnapshot(null);
   };
 
