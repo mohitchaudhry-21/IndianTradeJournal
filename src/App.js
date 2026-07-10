@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { HashRouter, Routes, Route, useLocation } from 'react-router-dom';
 import { JournalProvider } from './context/JournalContext';
+import { ToastProvider } from './context/ToastContext';
 import Sidebar from './components/Sidebar';
 import TickerBar from './components/TickerBar';
 import LoginScreen, { isAuthEnabled, isAuthenticated } from './components/LoginScreen';
@@ -100,6 +101,7 @@ export default function App() {
   }
   return (
     <JournalProvider>
+      <ToastProvider>
       <ErrorBoundary>
     <HashRouter>
         <TitleUpdater />
@@ -137,6 +139,7 @@ export default function App() {
         </div>
       </HashRouter>
     </ErrorBoundary>
+      </ToastProvider>
     </JournalProvider>
   );
 }
