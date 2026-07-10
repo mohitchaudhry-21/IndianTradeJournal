@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { v4 as uuidv4 } from 'uuid';
 import AccountBadge from '../components/AccountBadge';
 import { useJournal } from '../context/JournalContext';
+import { useToast } from '../context/ToastContext';
 
 const INSTRUMENTS = ['NIFTY', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'SENSEX', 'BANKEX'];
 const STRATEGIES = ['Strangle', 'Straddle', 'Iron Condor', 'Bull Put Spread', 'Bear Call Spread', 'Single Leg', 'Custom'];
@@ -104,6 +105,7 @@ function LegInput({ leg, onChange, onRemove, label, showRemove, settings, instru
 
 export default function ManualEntry() {
   const { addTrades, accounts, settings, activeAccountId } = useJournal();
+  const { showToast } = useToast();
   const navigate = useNavigate();
 
   const [strategyName, setStrategyName] = useState('Strangle');
@@ -191,7 +193,12 @@ export default function ManualEntry() {
       notes,
     }));
 
-    addTrades(tradesToAdd);
+    const { added, skipped } = addTrades(tradesToAdd);
+    if (added > 0) {
+      showToast({ title: 'Position added', message: `${actualInstrument} ${strategyName} · ${added} leg${added>1?'s':''}${skipped ? `, ${skipped} skipped (duplicate)` : ''}` });
+    } else {
+      showToast({ title: 'Nothing added', message: 'All legs already exist in journal', type: 'error' });
+    }
     setSuccess(true);
     setTimeout(() => {
       setSuccess(false);
