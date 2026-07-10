@@ -261,3 +261,9 @@ tbody td.mono{font-family:var(--font-mono);}
 
 /* ── Spinner animation ─────────────────────────────────────────────────────── */
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Toast notification slide-in ──────────────────────────────────────────── */
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(40px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
