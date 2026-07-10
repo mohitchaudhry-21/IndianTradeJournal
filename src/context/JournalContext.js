@@ -334,35 +334,34 @@ export function JournalProvider({ children }) {
     // Broker sync — only add genuinely NEW legs
     // Never overwrite quantity/premium of existing journal legs
     // because partial exits change netqty at broker but journal tracks full position
-    setTrades(prev => {
-      // Build lookup of existing legs by brokerTradeId
-      const existingBrokerIds = new Set(
-        prev.filter(t => t.brokerTradeId).map(t => t.brokerTradeId)
-      );
-      // Build lookup by instrument+strike+optionType+expiry+account to catch
-      // legs that were manually entered (no brokerTradeId)
-      const existingLegKeys = new Set(
-        prev.map(t => `${t.instrument}|${t.strike}|${t.optionType}|${(t.expiry||'').slice(0,10)}|${t.accountId}`)
-      );
+    // Dedup computed against current `trades` state (not `prev` inside the updater)
+    // so the added/skipped counts below are accurate for the caller's toast —
+    // the same toAdd list is then reused inside setTrades for consistency.
+    const existingBrokerIds = new Set(
+      trades.filter(t => t.brokerTradeId).map(t => t.brokerTradeId)
+    );
+    const existingLegKeys = new Set(
+      trades.map(t => `${t.instrument}|${t.strike}|${t.optionType}|${(t.expiry||'').slice(0,10)}|${t.accountId}`)
+    );
 
-      const toAdd = [];
-
-      newTrades.forEach(t => {
-        // Skip if already tracked by brokerTradeId
-        if (t.brokerTradeId && existingBrokerIds.has(t.brokerTradeId)) return;
-        // Skip if already tracked by instrument/strike/expiry/account (manually entered)
-        const legKey = `${t.instrument}|${t.strike}|${t.optionType}|${(t.expiry||'').slice(0,10)}|${t.accountId}`;
-        if (existingLegKeys.has(legKey)) return;
-        // Genuinely new leg — add it
-        toAdd.push({ ...t, id: t.id || uuidv4(), createdAt: new Date().toISOString() });
-      });
-
-      if (!toAdd.length) return prev; // nothing new
-      const next = [...prev, ...toAdd];
-      persist(accounts, next, settings);
-      return next;
+    const toAdd = [];
+    newTrades.forEach(t => {
+      if (t.brokerTradeId && existingBrokerIds.has(t.brokerTradeId)) return;
+      const legKey = `${t.instrument}|${t.strike}|${t.optionType}|${(t.expiry||'').slice(0,10)}|${t.accountId}`;
+      if (existingLegKeys.has(legKey)) return;
+      toAdd.push({ ...t, id: t.id || uuidv4(), createdAt: new Date().toISOString() });
     });
-  }, [accounts, settings, persist]);
+
+    if (toAdd.length) {
+      setTrades(prev => {
+        const next = [...prev, ...toAdd];
+        persist(accounts, next, settings);
+        return next;
+      });
+    }
+
+    return { added: toAdd.length, skipped: newTrades.length - toAdd.length };
+  }, [trades, accounts, settings, persist]);
 
   const updateTrade = useCallback((id, updates) => {
     setTrades(prev => {
