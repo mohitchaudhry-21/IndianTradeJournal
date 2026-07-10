@@ -344,7 +344,7 @@ function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg, l
               const ml = calcMaxLoss(position);
               if (!ml || ml === 0) return null;
               const rr = Math.abs(ml) / mp;
-              const color = rr >= 1 ? 'var(--profit)' : rr >= 0.5 ? 'var(--accent)' : 'var(--loss)';
+              const color = rr <= 0.5 ? 'var(--profit)' : rr <= 1 ? 'var(--accent)' : 'var(--loss)';
               return (
                 <div style={{ textAlign:'right' }}>
                   <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:2 }}>R:R RATIO</div>
