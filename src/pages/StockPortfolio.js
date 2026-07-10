@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useToast } from '../context/ToastContext';
 
 const SYNC_SERVER = 'http://localhost:5001';
 const STOCK_KEY = 'itj_stock_data';
@@ -177,6 +178,7 @@ function WlModal({ onClose, onSave }) {
 
 // ── Main ───────────────────────────────────────────────────────────────────────
 export default function StockPortfolio() {
+  const { showToast } = useToast();
   const [tab, setTab] = useState('portfolio');
   const [data, setData] = useState(()=>{ const d=loadData(); return {transactions:[],dividends:[],watchlist:[],...d}; });
   const [quotes, setQuotes] = useState({});
@@ -272,10 +274,10 @@ export default function StockPortfolio() {
       if (json.success&&json.transactions?.length) {
         const existing=new Set(data.transactions.map(t=>t.brokerTradeId).filter(Boolean));
         const newOnes=json.transactions.filter(t=>!existing.has(t.brokerTradeId)).map(t=>({...t,sector:getSector(t.symbol),id:Date.now().toString()+Math.random()}));
-        if (newOnes.length) { update({transactions:[...data.transactions,...newOnes]}); alert(`Synced ${newOnes.length} holdings`); }
-        else alert('Already up to date');
-      } else alert(json.error||'Sync failed');
-    } catch { alert('Could not reach sync server'); }
+        if (newOnes.length) { update({transactions:[...data.transactions,...newOnes]}); showToast({ title: 'Stocks synced', message: `${newOnes.length} holding${newOnes.length>1?'s':''} added` }); }
+        else showToast({ title: 'Stocks unchanged', message: 'Already up to date' });
+      } else showToast({ title: 'Stock sync failed', message: json.error||'', type: 'error' });
+    } catch { showToast({ title: 'Stock sync failed', message: 'Could not reach sync server', type: 'error' }); }
     setSyncing(false);
   };
 
@@ -464,7 +466,7 @@ export default function StockPortfolio() {
                 <td style={{textAlign:'right',fontFamily:'var(--font-mono)',padding:'10px 14px',color:'var(--text-muted)'}}>{fmtINR(tx.brokerage||0)}</td>
                 <td style={{textAlign:'right',color:'var(--text-muted)',padding:'10px 14px'}}>{tx.date}</td>
                 <td style={{textAlign:'right',color:'var(--text-muted)',fontSize:11,padding:'10px 14px',maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{tx.notes}</td>
-                <td style={{padding:'10px 14px'}}><button onClick={()=>update({transactions:data.transactions.filter(t=>t.id!==tx.id)})} style={{fontSize:10,padding:'2px 7px',borderRadius:'var(--radius)',border:'0.5px solid var(--border)',background:'none',color:'var(--text-muted)',cursor:'pointer'}}>✕</button></td>
+                <td style={{padding:'10px 14px'}}><button onClick={()=>{update({transactions:data.transactions.filter(t=>t.id!==tx.id)});showToast({title:'Transaction deleted',message:`${tx.symbol} · ${tx.qty} @ ₹${tx.price}`,type:'error'});}} style={{fontSize:10,padding:'2px 7px',borderRadius:'var(--radius)',border:'0.5px solid var(--border)',background:'none',color:'var(--text-muted)',cursor:'pointer'}}>✕</button></td>
               </tr>
             ))}
           </tbody>
@@ -500,7 +502,7 @@ export default function StockPortfolio() {
                   <td style={{textAlign:'right',fontFamily:'var(--font-mono)',padding:'10px 14px'}}>{d.qtyHeld}</td>
                   <td style={{textAlign:'right',fontFamily:'var(--font-mono)',fontWeight:600,color:'var(--text-success)',padding:'10px 14px'}}>+{fmtINR(d.total)}</td>
                   <td style={{textAlign:'right',color:'var(--text-muted)',fontSize:11,padding:'10px 14px'}}>{d.notes}</td>
-                  <td style={{padding:'10px 14px'}}><button onClick={()=>update({dividends:data.dividends.filter(x=>x.id!==d.id)})} style={{fontSize:10,padding:'2px 7px',borderRadius:'var(--radius)',border:'0.5px solid var(--border)',background:'none',color:'var(--text-muted)',cursor:'pointer'}}>✕</button></td>
+                  <td style={{padding:'10px 14px'}}><button onClick={()=>{update({dividends:data.dividends.filter(x=>x.id!==d.id)});showToast({title:'Dividend deleted',message:`${d.symbol} · ₹${(d.total||0).toFixed(2)}`,type:'error'});}} style={{fontSize:10,padding:'2px 7px',borderRadius:'var(--radius)',border:'0.5px solid var(--border)',background:'none',color:'var(--text-muted)',cursor:'pointer'}}>✕</button></td>
                 </tr>
               ))}
             </tbody>
@@ -539,7 +541,7 @@ export default function StockPortfolio() {
               </> : <span style={{fontSize:12,color:'var(--text-muted)'}}>{qStatus==='loading'?'...':'—'}</span>}
               <div style={{display:'flex',gap:6}}>
                 <button onClick={()=>setModal({type:'tx',prefill:{symbol:w.symbol,exchange:w.exchange,sector:w.sector,type:'BUY'}})} style={{fontSize:11,padding:'4px 12px',borderRadius:'var(--radius)',border:'none',background:'var(--fill-accent)',color:'var(--on-accent)',cursor:'pointer',fontWeight:500}}>Buy</button>
-                <button onClick={()=>update({watchlist:data.watchlist.filter(x=>x.id!==w.id)})} style={{fontSize:11,padding:'4px 8px',borderRadius:'var(--radius)',border:'0.5px solid var(--border)',background:'none',color:'var(--text-muted)',cursor:'pointer'}}>✕</button>
+                <button onClick={()=>{update({watchlist:data.watchlist.filter(x=>x.id!==w.id)});showToast({title:'Removed from watchlist',message:w.symbol,type:'error'});}} style={{fontSize:11,padding:'4px 8px',borderRadius:'var(--radius)',border:'0.5px solid var(--border)',background:'none',color:'var(--text-muted)',cursor:'pointer'}}>✕</button>
               </div>
             </div>
           </div>
@@ -577,9 +579,9 @@ export default function StockPortfolio() {
       {tab==='transactions'&&renderTransactions()}
       {tab==='dividends'&&renderDividends()}
       {tab==='watchlist'&&renderWatchlist()}
-      {modal?.type==='tx'&&<TxModal prefill={modal.prefill||null} onClose={()=>setModal(null)} onSave={tx=>update({transactions:[...data.transactions,tx]})}/>}
-      {modal?.type==='div'&&<DivModal holdings={holdings} onClose={()=>setModal(null)} onSave={d=>update({dividends:[...data.dividends,d]})}/>}
-      {modal?.type==='wl'&&<WlModal onClose={()=>setModal(null)} onSave={w=>update({watchlist:[...data.watchlist,w]})}/>}
+      {modal?.type==='tx'&&<TxModal prefill={modal.prefill||null} onClose={()=>setModal(null)} onSave={tx=>{update({transactions:[...data.transactions,tx]});showToast({title:'Transaction added',message:`${tx.type} ${tx.symbol} · ${tx.qty} @ ₹${tx.price}`});}}/>}
+      {modal?.type==='div'&&<DivModal holdings={holdings} onClose={()=>setModal(null)} onSave={d=>{update({dividends:[...data.dividends,d]});showToast({title:'Dividend logged',message:`${d.symbol} · ₹${d.total.toFixed(2)}`});}}/>}
+      {modal?.type==='wl'&&<WlModal onClose={()=>setModal(null)} onSave={w=>{update({watchlist:[...data.watchlist,w]});showToast({title:'Added to watchlist',message:w.symbol});}}/>}
     </div>
   );
 }
