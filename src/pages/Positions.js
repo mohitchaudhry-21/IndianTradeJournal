@@ -4,6 +4,7 @@ import AccountBadge from '../components/AccountBadge';
 import AccountTag from '../components/AccountTag';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
+import { useToast } from '../context/ToastContext';
 import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
 import { calcUnrealizedPnL } from '../utils/livePnL';
 
@@ -427,6 +428,7 @@ function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg, l
 
 export default function Positions() {
   const { positions, closePosition, deletePosition, addLegExit, updateTrade, liveQuotes, liveLoading, liveLastUpdated, refreshLiveQuotes } = useJournal();
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const [closingPos,      setClosingPos]      = useState(null);
   const [partialExitPos,  setPartialExitPos]  = useState(null);
@@ -449,13 +451,21 @@ export default function Positions() {
   const handleClose = (pos) => setClosingPos(pos);
   const handleConfirmClose = (exits) => {
     closePosition(closingPos.positionId, exits);
+    showToast({ title: 'Position closed', message: `${closingPos.instrument} · ${closingPos.strategyName || ''}` });
     setClosingPos(null);
   };
 
   const handlePartialExit = (pos) => setPartialExitPos(pos);
   const handleConfirmPartialExit = (legId, tranche) => {
     addLegExit(partialExitPos.positionId, legId, tranche);
+    showToast({ title: 'Partial exit recorded', message: `${partialExitPos.instrument} · ${tranche.quantity} lot${tranche.quantity>1?'s':''} @ ₹${tranche.exitPremium}` });
     setPartialExitPos(null);
+  };
+
+  const handleDelete = (positionId) => {
+    const pos = positions.find(p => p.positionId === positionId);
+    deletePosition(positionId);
+    showToast({ title: 'Position deleted', message: pos ? `${pos.instrument} · ${pos.strategyName || ''}` : '', type: 'error' });
   };
 
   const totalNetPremium = open.reduce((s, p) => s + p.netPremiumCollected, 0);
@@ -517,7 +527,7 @@ export default function Positions() {
             position={p}
             onClose={handleClose}
             onPartialExit={handlePartialExit}
-            onDelete={deletePosition}
+            onDelete={handleDelete}
             onEditLeg={leg => setEditLegPos(leg)}
             liveQuotes={liveQuotes}
           />
