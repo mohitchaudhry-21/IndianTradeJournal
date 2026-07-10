@@ -196,8 +196,10 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
         const partialExitsData = data.partialExits || [];
         const partialCount = partialExitsData.length;
         if (partialCount > 0) setMessage(prev => prev + `, ${partialCount} partial exit${partialCount>1?'s':''} detected`);
-        if (newTrades.length > 0 || closedUpdates.length > 0 || partialExitsData.length > 0)
-          onSync(newTrades, closedUpdates, partialExitsData);
+        const premiumUpdatesData = data.premiumUpdates || [];
+        if (premiumUpdatesData.length > 0) setMessage(prev => prev + `, ${premiumUpdatesData.length} entry price${premiumUpdatesData.length>1?'s':''} corrected`);
+        if (newTrades.length > 0 || closedUpdates.length > 0 || partialExitsData.length > 0 || premiumUpdatesData.length > 0)
+          onSync(newTrades, closedUpdates, partialExitsData, premiumUpdatesData);
       } else {
         setMessage(data.error || 'Sync failed');
       }
@@ -348,7 +350,7 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
 }
 
 export default function BrokerConnect() {
-  const { addTrades, accounts, trades: allTrades, positions, activeAccountId, addAccount, deleteAccount, settings, updateSettings, closePosition, updatePositionMeta, addLegExit, reopenPosition, cloudLoad, isSupabaseReady } = useJournal();
+  const { addTrades, accounts, trades: allTrades, positions, activeAccountId, addAccount, deleteAccount, settings, updateSettings, closePosition, updatePositionMeta, addLegExit, updateLegPremiums, reopenPosition, cloudLoad, isSupabaseReady } = useJournal();
   const [excelModal, setExcelModal] = React.useState(null);
   const [recovering, setRecovering] = React.useState(false);
   const [cloudSnapshot, setCloudSnapshot] = React.useState(null);
@@ -492,7 +494,14 @@ export default function BrokerConnect() {
     } catch(e){console.error(e);alert(`Excel import error: ${e.message}`);}
   };
 
-  const handleSync = (broker) => (trades, closePositions, partialExits) => {
+  const handleSync = (broker) => (trades, closePositions, partialExits, premiumUpdates) => {
+    // 0. Correct stale entry prices on already-matched OPEN legs
+    // (e.g. legs imported before the CF-weighted-average fix, or a new
+    // carry-forward day rolled in and shifted the blended avg price).
+    if (premiumUpdates && premiumUpdates.length > 0) {
+      updateLegPremiums(premiumUpdates.map(({ legId, premium }) => ({ legId, premium })));
+    }
+
     // 1. Apply full exits to closed positions
     if (closePositions && closePositions.length > 0) {
       closePositions.forEach(({ positionId, exitDate, exitLegs }) => {
