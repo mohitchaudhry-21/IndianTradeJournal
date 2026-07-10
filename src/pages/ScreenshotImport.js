@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { useJournal } from '../context/JournalContext';
+import { useToast } from '../context/ToastContext';
 import { useNavigate } from 'react-router-dom';
 import Tesseract from 'tesseract.js';
 
@@ -267,6 +268,7 @@ function parseOCRText(text) {
 // ─── Component ────────────────────────────────────────────────────────────────
 export default function ScreenshotImport() {
   const { addTrades, accounts, settings } = useJournal();
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const fileRef = useRef();
 
@@ -344,7 +346,7 @@ export default function ScreenshotImport() {
   const confirmImport = () => {
     if (!edited.length) return;
     const positionId = uuidv4();
-    addTrades(edited.map(t => ({
+    const { added, skipped } = addTrades(edited.map(t => ({
       positionId, accountId,
       strategyName: detectStrategy(edited),
       instrument:      String(t.instrument).toUpperCase(),
@@ -361,6 +363,11 @@ export default function ScreenshotImport() {
       status:          t.status || 'OPEN',
       source:          'screenshot',
     })));
+    if (added > 0) {
+      showToast({ title: 'Position added', message: `${added} leg${added>1?'s':''} imported${skipped ? `, ${skipped} already in journal` : ''}` });
+    } else {
+      showToast({ title: 'Nothing to import', message: 'All legs already in journal' });
+    }
     setStatus('done');
     setTimeout(() => navigate('/positions'), 1200);
   };
