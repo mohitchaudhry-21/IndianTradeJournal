@@ -2,6 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import AccountBadge from '../components/AccountBadge';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
+import { useToast } from '../context/ToastContext';
 import { calcMaxLoss, calcMaxProfit } from '../utils/calcMaxValues';
 import { fetchTotalCharges, fetchMargin } from '../utils/brokerCharges';
 import { calcUnrealizedPnL } from '../utils/livePnL';
@@ -322,14 +323,25 @@ function StrategyCell({ positionId, value, onChange }) {
 // Fetch charges button for left panel
 function FetchChargesBtn({ position, onSave }) {
   const [fetching, setFetching] = React.useState(false);
+  const { showToast } = useToast();
   const hasBrokerLegs = position?.legs?.some(l => l.brokerTradeId);
   if (!hasBrokerLegs) return null;
   const handleFetch = async () => {
     setFetching(true);
     const result = await fetchTotalCharges(position);
     setFetching(false);
-    if (result.ok) onSave(Math.round(result.charges * 100) / 100);
-    else alert(`Could not fetch charges: ${result.error}`);
+    if (result.ok) {
+      const newVal = Math.round(result.charges * 100) / 100;
+      const oldVal = position?.charges != null ? Math.abs(Math.round(position.charges * 100) / 100) : null;
+      onSave(newVal);
+      if (oldVal != null && Math.abs(newVal - oldVal) < 0.01) {
+        showToast({ title: 'Charges unchanged', message: `Still ₹${newVal.toFixed(2)}` });
+      } else {
+        showToast({ title: 'Charges fetched', message: `₹${newVal.toFixed(2)} from broker` });
+      }
+    } else {
+      showToast({ title: 'Could not fetch charges', message: result.error || '', type: 'error' });
+    }
   };
   return (
     <button
@@ -347,6 +359,7 @@ function MarginCell({ value, onSave, position }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ? String(value) : '');
   const [fetching, setFetching] = useState(false);
+  const { showToast } = useToast();
   const save = () => {
     const v = parseFloat(draft);
     onSave(isNaN(v) ? null : v);
@@ -359,8 +372,18 @@ function MarginCell({ value, onSave, position }) {
     setFetching(true);
     const result = await fetchMargin(position.legs);
     setFetching(false);
-    if (result.ok) onSave(Math.round(result.margin));
-    else alert(`Could not fetch margin: ${result.error}`);
+    if (result.ok) {
+      const newVal = Math.round(result.margin);
+      const oldVal = value != null ? Math.round(value) : null;
+      onSave(newVal);
+      if (oldVal != null && newVal === oldVal) {
+        showToast({ title: 'Margin unchanged', message: `Still ₹${newVal.toLocaleString('en-IN')}` });
+      } else {
+        showToast({ title: 'Margin fetched', message: `₹${newVal.toLocaleString('en-IN')} from broker` });
+      }
+    } else {
+      showToast({ title: 'Could not fetch margin', message: result.error || '', type: 'error' });
+    }
   };
   if (editing) return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 3, minWidth: 100 }}>
@@ -398,6 +421,7 @@ function ChargesCell({ value, onSave, position }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value ? String(value) : '');
   const [fetching, setFetching] = useState(false);
+  const { showToast } = useToast();
   const save = () => { const v = parseFloat(draft); onSave(isNaN(v) ? null : v); setEditing(false); };
   const fmt = n => n >= 100000 ? '₹'+(n/100000).toFixed(2)+'L' : n >= 1000 ? '₹'+(n/1000).toFixed(2)+'K' : '₹'+parseFloat(n).toFixed(2);
   const hasBrokerLegs = position?.legs?.some(l => l.brokerTradeId);
@@ -408,8 +432,18 @@ function ChargesCell({ value, onSave, position }) {
     setFetching(true);
     const result = await fetchTotalCharges(position);
     setFetching(false);
-    if (result.ok) onSave(Math.round(result.charges * 100) / 100);
-    else alert(`Could not fetch charges: ${result.error}`);
+    if (result.ok) {
+      const newVal = Math.round(result.charges * 100) / 100;
+      const oldVal = value != null ? Math.abs(Math.round(value * 100) / 100) : null;
+      onSave(newVal);
+      if (oldVal != null && Math.abs(newVal - oldVal) < 0.01) {
+        showToast({ title: 'Charges unchanged', message: `Still ₹${newVal.toFixed(2)}` });
+      } else {
+        showToast({ title: 'Charges fetched', message: `₹${newVal.toFixed(2)} from broker` });
+      }
+    } else {
+      showToast({ title: 'Could not fetch charges', message: result.error || '', type: 'error' });
+    }
   };
   if (editing) return (
     <div style={{ display:'flex', alignItems:'center', gap:3, minWidth:100 }}>
@@ -814,6 +848,7 @@ function calcBookedPnL(position) {
 
 export default function TradeHistory() {
   const { positions, deletePosition, updatePositionStrategy, updatePositionMeta, reopenPosition, addLegExit, removeLegExit, updateTrade, liveQuotes } = useJournal();
+  const { showToast } = useToast();
 
   const [filterInstrument, setFilterInstrument] = useState('');
   const [filterStrategy,   setFilterStrategy]   = useState('');
@@ -1000,6 +1035,7 @@ export default function TradeHistory() {
               <button className="btn btn-outline" style={{ flex:1 }} onClick={() => setReopenPos(null)}>Cancel</button>
               <button className="btn btn-primary" style={{ flex:2 }} onClick={() => {
                 reopenPosition(reopenPos.positionId);
+                showToast({ title: 'Position reopened', message: `${reopenPos.instrument} · ${reopenPos.strategyName || ''}` });
                 setReopenPos(null);
               }}>Confirm Reopen</button>
             </div>
@@ -1014,6 +1050,7 @@ export default function TradeHistory() {
           onClose={() => setPartialExitLeg(null)}
           onSave={(posId, legId, tranche) => {
             addLegExit(posId, legId, tranche);
+            showToast({ title: 'Partial exit recorded', message: `${tranche.quantity} lot${tranche.quantity>1?'s':''} @ ₹${tranche.exitPremium}` });
             setPartialExitLeg(null);
           }}
         />
@@ -1025,6 +1062,7 @@ export default function TradeHistory() {
           onClose={() => setEditLegData(null)}
           onSave={updates => {
             updateTrade(editLegData.id, updates);
+            showToast({ title: 'Leg updated' });
             setEditLegData(null);
           }}
         />
@@ -1036,6 +1074,7 @@ export default function TradeHistory() {
           onClose={() => setEditExitPos(null)}
           onSave={dates => {
             updatePositionMeta(editExitPos.positionId, dates);
+            showToast({ title: 'Dates updated' });
             setEditExitPos(null);
           }}
         />
@@ -1252,7 +1291,7 @@ export default function TradeHistory() {
                         <button onClick={() => setNotesPos(p)} style={{ background: hasNotes ? 'rgba(245,158,11,0.08)' : 'none', border: hasNotes ? '0.5px solid rgba(245,158,11,0.3)' : '0.5px solid var(--border-hover)', borderRadius:6, color: hasNotes ? 'var(--accent)' : 'var(--text-muted)', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center' }}>{hasNotes ? '📝 View note' : '+ Add note'}</button>
                         {!isOpen && <button onClick={() => setReopenPos(p)} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:6, color:'var(--text-muted)', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center' }}>↺ Reopen</button>}
                         <FetchChargesBtn position={p} onSave={v => updatePositionMeta(p.positionId, { positionCharges: v })} />
-                        <button onClick={() => { if (window.confirm('Delete this position?')) deletePosition(p.positionId); }} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:11, opacity:0.5, padding:'3px', width:'100%', textAlign:'center' }}>✕ Delete</button>
+                        <button onClick={() => { if (window.confirm('Delete this position?')) { deletePosition(p.positionId); showToast({ title: 'Position deleted', message: `${p.instrument} · ${p.strategyName || ''}`, type: 'error' }); } }} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:11, opacity:0.5, padding:'3px', width:'100%', textAlign:'center' }}>✕ Delete</button>
                       </div>
                     </div>
 
