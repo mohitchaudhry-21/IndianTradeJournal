@@ -170,13 +170,21 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
 
   const handleSync = async () => {
     setSyncing(true);
-    setMessage('');
+    setMessage('Syncing...');
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+      const importDate = settings?.accountImportDates?.[selectedAccId] || '';
       const res = await fetch(`${SERVER_URL}/sync/${broker}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ existingPositions: existingPositions || [] }),
+        body: JSON.stringify({
+          existingPositions: existingPositions || [],
+          syncFromDate: importDate,
+        }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       const data = await res.json();
       if (data.success) {
         setLastSync(new Date().toLocaleTimeString());
@@ -194,7 +202,11 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
         setMessage(data.error || 'Sync failed');
       }
     } catch (e) {
-      setMessage('Sync failed — server not running?');
+      if (e.name === 'AbortError') {
+        setMessage('Sync timed out after 30s — server may be stuck. Try restarting the sync server.');
+      } else {
+        setMessage('Sync failed — server not running? ' + (e.message || ''));
+      }
     } finally {
       setSyncing(false);
     }
