@@ -493,6 +493,29 @@ export function JournalProvider({ children }) {
     });
   }, [accounts, settings, persist]);
 
+  // Correct the stored entry price (premium) of one or more OPEN legs.
+  // Used by broker sync when it detects the journal's entry price is stale
+  // vs. AngelOne's CF-weighted-average price (e.g. legs imported before the
+  // carry-forward blending fix existed, or a new CF day rolled in).
+  // updates: [{ legId, premium }]
+  const updateLegPremiums = useCallback((updates) => {
+    if (!updates || !updates.length) return;
+    const byId = new Map(updates.map(u => [u.legId, u.premium]));
+    setTrades(prev => {
+      let changed = false;
+      const next = prev.map(t => {
+        if (!byId.has(t.id)) return t;
+        const newPremium = byId.get(t.id);
+        if (newPremium == null || newPremium <= 0 || newPremium === t.premium) return t;
+        changed = true;
+        return { ...t, premium: newPremium };
+      });
+      if (!changed) return prev;
+      persist(accounts, next, settings);
+      return next;
+    });
+  }, [accounts, settings, persist]);
+
   const removeLegExit = useCallback((positionId, legId, exitIndex) => {
     setTrades(prev => {
       const next = prev.map(t => {
@@ -770,7 +793,7 @@ export function JournalProvider({ children }) {
       syncStatus, lastSynced,
       trades, settings, positions, stats, monthlyPnL,
       addAccount, deleteAccount,
-      updatePositionStrategy, updatePositionMeta, reopenPosition, addLegExit, removeLegExit,
+      updatePositionStrategy, updatePositionMeta, reopenPosition, addLegExit, removeLegExit, updateLegPremiums,
       addTrade, addTrades, updateTrade, deleteTrade, deletePosition, closePosition,
       updateSettings,
       exportData, importData, cloudLoad, isSupabaseReady,
