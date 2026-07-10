@@ -173,7 +173,7 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
     setMessage('Syncing...');
     try {
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 30000); // 30s timeout
+      const timeout = setTimeout(() => controller.abort(), 60000); // 60s timeout — sync makes several sequential broker API calls
       const importDate = settings?.accountImportDates?.[selectedAccId] || '';
       const res = await fetch(`${SERVER_URL}/sync/${broker}`, {
         method: 'POST',
@@ -205,7 +205,7 @@ function BrokerSection({ name, broker, logo, color, fields, onSync, onExcelImpor
       }
     } catch (e) {
       if (e.name === 'AbortError') {
-        setMessage('Sync timed out after 30s — server may be stuck. Try restarting the sync server.');
+        setMessage('Sync timed out after 60s — server may be stuck. Try restarting the sync server.');
       } else {
         setMessage('Sync failed — server not running? ' + (e.message || ''));
       }
