@@ -541,7 +541,11 @@ export function JournalProvider({ children }) {
     setTrades(prev => {
       const next = prev.map(t => {
         if ((t.positionId || t.id) !== positionId) return t;
-        const { exitPremium, exitDate, ...rest } = t;
+        // Full reopen — clear exit price/date AND any partial-exit tranches or
+        // stored realizedPnL, so the leg goes back to exactly the pre-close state
+        // instead of leaving residue that could make the position look partially
+        // exited again (or get silently re-closed on the next broker sync).
+        const { exitPremium, exitDate, exits, realizedPnL, ...rest } = t;
         return { ...rest, status: 'OPEN' };
       });
       persist(accounts, next, settings);
