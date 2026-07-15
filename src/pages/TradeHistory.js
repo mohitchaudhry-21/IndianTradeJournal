@@ -1437,6 +1437,9 @@ export default function TradeHistory() {
                                       {/* Right: always visible */}
                                       <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
                                         <button onClick={() => setPartialExitLeg({ leg, positionId: p.positionId })} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 9px', fontSize:10, fontFamily:'var(--font-sans)', whiteSpace:'nowrap' }}>+ exit</button>
+                                        <button onClick={() => setEditLegData(leg)} title="Edit trade — all fields" style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 7px', fontSize:11, fontFamily:'var(--font-sans)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                          <i className="ti ti-pencil" style={{ fontSize:12 }} aria-hidden="true" />
+                                        </button>
                                         <div style={{ width:'0.5px', background:'var(--border)', height:28 }}></div>
                                         {legPnl !== null
                                           ? <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(legPnl)}</span>
