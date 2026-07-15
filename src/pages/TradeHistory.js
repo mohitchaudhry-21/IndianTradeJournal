@@ -203,7 +203,7 @@ function LegsInline({ legs, positionId, positionCharges, onAddExit, onRemoveExit
                   </button>
                 )}
                 {onEditLeg && (
-                  <button onClick={() => onEditLeg(leg)} title="Edit leg prices/strike"
+                  <button onClick={() => onEditLeg(leg)} title="Edit trade — all fields"
                     style={{ background:'rgba(255,255,255,0.06)', border:'none', borderRadius:4, color:'var(--text-muted)', cursor:'pointer', padding:'3px 4px', lineHeight:1, display:'flex', alignItems:'center', justifyContent:'center' }}>
                     <i className="ti ti-pencil" style={{ fontSize:12 }} aria-hidden="true" />
                   </button>
@@ -518,38 +518,66 @@ function EditDatesPopup({ position, onClose, onSave }) {
   );
 }
 
-// Edit leg popup — allows correcting strike, premium, qty, type
+// Edit trade popup — lets the user directly correct EVERYTHING on a leg:
+// strike, option type, buy/sell, quantity, entry premium, entry date, and
+// (when the leg is closed, or the user marks it closed) exit premium + exit
+// date + status. Saving writes straight onto the leg via updateTrade, so it
+// bypasses closePosition/reopenPosition entirely — nothing will silently
+// re-derive or overwrite these values on the next broker sync.
 function EditLegPopup({ leg, onClose, onSave }) {
   const [strike,      setStrike]      = useState(String(leg.strike || ''));
   const [premium,     setPremium]     = useState(String(leg.premium || ''));
   const [quantity,    setQuantity]    = useState(String(leg.quantity || ''));
   const [optionType,  setOptionType]  = useState(leg.optionType || 'PE');
   const [txType,      setTxType]      = useState(leg.transactionType || 'SELL');
+  const [entryDate,   setEntryDate]   = useState(leg.date ? String(leg.date).slice(0, 10) : '');
+  const [isClosed,    setIsClosed]    = useState(leg.status === 'CLOSED' || leg.status === 'EXPIRED');
+  const [exitPremium, setExitPremium] = useState(leg.exitPremium != null ? String(leg.exitPremium) : '');
+  const [exitDate,    setExitDate]    = useState(leg.exitDate ? String(leg.exitDate).slice(0, 10) : '');
 
   const handleSave = () => {
     const s = parseFloat(strike);
     const p = parseFloat(premium);
     const q = parseInt(quantity);
     if (!s || !p || !q || isNaN(s) || isNaN(p) || isNaN(q)) {
-      alert('Please fill in all fields correctly.'); return;
+      alert('Please fill in strike, entry premium and lots correctly.'); return;
     }
-    onSave({
+    const updates = {
       strike: s,
       premium: p,
       quantity: q,
       optionType,
       transactionType: txType,
-    });
+      date: entryDate || leg.date,
+    };
+    if (isClosed) {
+      const ep = parseFloat(exitPremium);
+      if (exitPremium === '' || isNaN(ep) || ep < 0) {
+        alert('Please enter a valid exit premium (0 or more).'); return;
+      }
+      updates.status = 'CLOSED';
+      updates.exitPremium = ep;
+      updates.exitDate = exitDate || new Date().toISOString().slice(0, 10);
+    } else {
+      // Reopening from here — clear exit data and any partial-exit tranches,
+      // same as the dedicated Reopen action, so nothing re-closes on next sync.
+      updates.status = 'OPEN';
+      updates.exitPremium = undefined;
+      updates.exitDate = undefined;
+      updates.exits = undefined;
+      updates.realizedPnL = undefined;
+    }
+    onSave(updates);
     onClose();
   };
 
   return (
     <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center' }}
       onClick={e => { if (e.target===e.currentTarget) onClose(); }}>
-      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:24, width:380, boxShadow:'0 16px 48px rgba(0,0,0,0.5)' }}>
-        <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)', marginBottom:4 }}>Edit Leg</div>
+      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:24, width:400, boxShadow:'0 16px 48px rgba(0,0,0,0.5)' }}>
+        <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)', marginBottom:4 }}>Edit Trade</div>
         <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:16 }}>
-          Correct any incorrect values. All fields required.
+          Correct any field directly — entry, exit, dates, everything. Saved values are final and won't be recalculated by broker sync.
         </div>
 
         {/* Option type + direction row */}
@@ -584,12 +612,50 @@ function EditLegPopup({ leg, onClose, onSave }) {
           </div>
         </div>
 
-        {/* Entry premium */}
-        <div className="form-group" style={{ marginBottom:16 }}>
-          <label className="form-label">Entry Premium (₹)</label>
-          <input className="form-input" type="number" step="0.05" value={premium}
-            onChange={e => setPremium(e.target.value)} placeholder="e.g. 105.50" />
+        {/* Entry premium + entry date row */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16 }}>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Entry Premium (₹)</label>
+            <input className="form-input" type="number" step="0.05" value={premium}
+              onChange={e => setPremium(e.target.value)} placeholder="e.g. 105.50" />
+          </div>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Entry Date</label>
+            <input className="form-input" type="date" value={entryDate}
+              onChange={e => setEntryDate(e.target.value)} />
+          </div>
         </div>
+
+        {/* Status toggle */}
+        <div className="form-group" style={{ marginBottom:12 }}>
+          <label className="form-label">Status</label>
+          <div style={{ display:'flex', gap:8 }}>
+            <button type="button" onClick={() => setIsClosed(false)}
+              style={{ flex:1, padding:'7px', borderRadius:6, border:`1px solid ${!isClosed ? 'var(--accent)' : 'var(--border)'}`, background: !isClosed ? 'rgba(59,130,246,0.12)' : 'transparent', color: !isClosed ? 'var(--accent)' : 'var(--text-muted)', cursor:'pointer', fontSize:12, fontWeight:600 }}>
+              Open
+            </button>
+            <button type="button" onClick={() => setIsClosed(true)}
+              style={{ flex:1, padding:'7px', borderRadius:6, border:`1px solid ${isClosed ? 'var(--profit)' : 'var(--border)'}`, background: isClosed ? 'rgba(16,217,160,0.12)' : 'transparent', color: isClosed ? 'var(--profit)' : 'var(--text-muted)', cursor:'pointer', fontSize:12, fontWeight:600 }}>
+              Closed
+            </button>
+          </div>
+        </div>
+
+        {/* Exit premium + exit date row — only when marking Closed */}
+        {isClosed && (
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:16 }}>
+            <div className="form-group" style={{ marginBottom:0 }}>
+              <label className="form-label">Exit Premium (₹)</label>
+              <input className="form-input" type="number" step="0.05" value={exitPremium}
+                onChange={e => setExitPremium(e.target.value)} placeholder="e.g. 0 or 42.50" />
+            </div>
+            <div className="form-group" style={{ marginBottom:0 }}>
+              <label className="form-label">Exit Date</label>
+              <input className="form-input" type="date" value={exitDate}
+                onChange={e => setExitDate(e.target.value)} />
+            </div>
+          </div>
+        )}
 
         <div style={{ display:'flex', gap:10 }}>
           <button className="btn btn-outline" style={{ flex:1 }} onClick={onClose}>Cancel</button>
@@ -1062,7 +1128,7 @@ export default function TradeHistory() {
           onClose={() => setEditLegData(null)}
           onSave={updates => {
             updateTrade(editLegData.id, updates);
-            showToast({ title: 'Leg updated' });
+            showToast({ title: 'Trade updated', message: updates.status === 'CLOSED' ? `Closed @ ₹${updates.exitPremium}` : 'Set to Open' });
             setEditLegData(null);
           }}
         />
