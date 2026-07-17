@@ -347,8 +347,19 @@ export function JournalProvider({ children }) {
     const toAdd = [];
     newTrades.forEach(t => {
       if (t.brokerTradeId && existingBrokerIds.has(t.brokerTradeId)) return;
-      const legKey = `${t.instrument}|${t.strike}|${t.optionType}|${(t.expiry||'').slice(0,10)}|${t.accountId}`;
-      if (existingLegKeys.has(legKey)) return;
+      // The instrument/strike/type/expiry/account fallback below exists to stop
+      // a broker SYNC from re-importing a leg the user already entered by hand
+      // (manual entries have no brokerTradeId to match against, so sync needs
+      // some way to recognize "this is the same position"). It was never meant
+      // to block a deliberate manual addition — adjustments in particular often
+      // legitimately re-use a strike from elsewhere in the account (re-selling
+      // a strike that was closed earlier that same expiry, rolling back to a
+      // level you'd used before, etc.), and silently dropping those is wrong.
+      const isDeliberateManualAdd = t.source === 'manual' || t.isAdjustment;
+      if (!isDeliberateManualAdd) {
+        const legKey = `${t.instrument}|${t.strike}|${t.optionType}|${(t.expiry||'').slice(0,10)}|${t.accountId}`;
+        if (existingLegKeys.has(legKey)) return;
+      }
       toAdd.push({ ...t, id: t.id || uuidv4(), createdAt: new Date().toISOString() });
     });
 
