@@ -6,6 +6,36 @@
 
 const SYNC_SERVER = 'http://localhost:5001';
 
+// Resolve a broker token for any legs missing one (e.g. manually-entered
+// adjustment legs) using the scrip master, so margin/charges can still be
+// fetched from AngelOne even though no real fill produced a brokerTradeId.
+// Legs that already have a token pass through unchanged. Best-effort — if
+// resolution fails or a leg can't be matched, it's returned as-is and simply
+// won't be priceable (buildLegPayload already filters those out).
+export async function resolveTokens(legs) {
+  const needResolve = legs.filter(l => !l.brokerTradeId && l.instrument && l.strike && l.optionType && l.expiry);
+  if (!needResolve.length) return legs;
+  try {
+    const res = await fetch(`${SYNC_SERVER}/optionchain/resolve-tokens`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        legs: needResolve.map(l => ({ instrument: l.instrument, strike: l.strike, optionType: l.optionType, expiry: l.expiry })),
+      }),
+    });
+    const data = await res.json();
+    if (!data.success || !data.tokens) return legs;
+    return legs.map(l => {
+      if (l.brokerTradeId) return l;
+      const key = `${l.instrument}_${l.strike}_${l.optionType}_${l.expiry}`;
+      const token = data.tokens[key];
+      return token ? { ...l, brokerTradeId: token } : l;
+    });
+  } catch (e) {
+    return legs; // resolution failed — caller's buildLegPayload will just skip unresolvable legs
+  }
+}
+
 // Build the {token, quantity, lotSize, price, transactionType} list for an
 // array of legs, skipping any leg that lacks a usable broker token.
 function buildLegPayload(legs) {
@@ -23,7 +53,8 @@ function buildLegPayload(legs) {
 
 // Fetch ENTRY-side charges only (uses entry premium + entry transaction type)
 export async function fetchEntryCharges(legs) {
-  const payload = buildLegPayload(legs);
+  const resolved = await resolveTokens(legs);
+  const payload = buildLegPayload(resolved);
   if (!payload.length) return { ok: false, error: 'No broker-synced legs to price' };
   try {
     const res = await fetch(`${SYNC_SERVER}/charges/angelone`, {
@@ -58,8 +89,9 @@ export async function fetchExitCharges(legs) {
 // Each tranche is a separate market order so charges must be calculated per
 // tranche at the actual exit price, not averaged across tranches.
 export async function fetchPartialExitCharges(legs) {
+  const resolvedLegs = await resolveTokens(legs);
   const trancheLegs = [];
-  legs.forEach(leg => {
+  resolvedLegs.forEach(leg => {
     if (!leg.brokerTradeId || !leg.exits || !leg.exits.length) return;
     const closingTx = leg.transactionType === 'SELL' ? 'BUY' : 'SELL';
     leg.exits.forEach(exit => {
@@ -141,7 +173,8 @@ export async function fetchTotalCharges(position) {
 // is NOT recalculated automatically afterwards; it reflects margin blocked
 // at entry time, not a live/floating figure.
 export async function fetchMargin(legs) {
-  const payload = buildLegPayload(legs);
+  const resolved = await resolveTokens(legs);
+  const payload = buildLegPayload(resolved);
   if (!payload.length) return { ok: false, error: 'No broker-synced legs to price' };
   try {
     const res = await fetch(`${SYNC_SERVER}/margin/angelone`, {
