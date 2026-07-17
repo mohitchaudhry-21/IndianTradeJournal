@@ -407,7 +407,7 @@ function MarginCell({ value, onSave, position }) {
     </div>
   );
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
       <div onClick={() => { setDraft(value ? String(value) : ''); setEditing(true); }}
         style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}
         title="Click to set margin used">
@@ -1578,7 +1578,7 @@ export default function TradeHistory() {
                               <MarginCell value={p.margin2} position={{ ...p, legs: p.legs.filter(l => l.isAdjustment) }}
                                 onSave={v => updatePositionMeta(p.positionId, { positionMargin2: v })} />
                             </div>
-                            {(p.margin || p.margin2) && (
+                            {p.margin != null && p.margin2 != null && (
                               <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                                 <span style={{ fontSize:12, color:'#fbbf24' }}>Total margin</span>
                                 <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:600, color:'#fbbf24' }}>{fmtCompactSigned((p.margin || 0) + (p.margin2 || 0)).replace('+','')}</span>
@@ -1595,14 +1595,14 @@ export default function TradeHistory() {
                             sub: hasAdjustmentLegs && originalMaxLoss != null && maxLoss != null && Math.round(originalMaxLoss) !== Math.round(maxLoss)
                               ? `before adj. ${fmtCompactSigned(originalMaxLoss, true)}` : null },
                         ].map(({ k, v, c, sub }) => (
-                          <div key={k}>
+                          <div key={k} style={{ marginBottom: sub ? 2 : 0 }}>
                             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
                               <span style={{ fontSize:12, color:'var(--text-muted)' }}>{k}</span>
                               <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color:c }}>{v}</span>
                             </div>
                             {sub && (
-                              <div style={{ display:'flex', justifyContent:'flex-end' }}>
-                                <span style={{ fontSize:10, color:'#fbbf24' }}>{sub}</span>
+                              <div style={{ display:'flex', justifyContent:'flex-end', marginTop:2 }}>
+                                <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'#fbbf24' }}>{sub}</span>
                               </div>
                             )}
                           </div>
