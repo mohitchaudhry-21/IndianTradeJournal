@@ -325,7 +325,7 @@ function StrategyCell({ positionId, value, onChange }) {
 function FetchChargesBtn({ position, onSave }) {
   const [fetching, setFetching] = React.useState(false);
   const { showToast } = useToast();
-  const hasBrokerLegs = position?.legs?.some(l => l.brokerTradeId);
+  const hasBrokerLegs = position?.legs?.some(l => l.brokerTradeId || (l.instrument && l.strike && l.optionType && l.expiry));
   if (!hasBrokerLegs) return null;
   const handleFetch = async () => {
     setFetching(true);
@@ -366,7 +366,7 @@ function MarginCell({ value, onSave, position }) {
     onSave(isNaN(v) ? null : v);
     setEditing(false);
   };
-  const hasBrokerLegs = position?.legs?.some(l => l.brokerTradeId);
+  const hasBrokerLegs = position?.legs?.some(l => l.brokerTradeId || (l.instrument && l.strike && l.optionType && l.expiry));
   const fetchFromBroker = async (e) => {
     e.stopPropagation();
     if (!position) return;
@@ -425,7 +425,7 @@ function ChargesCell({ value, onSave, position }) {
   const { showToast } = useToast();
   const save = () => { const v = parseFloat(draft); onSave(isNaN(v) ? null : v); setEditing(false); };
   const fmt = n => n >= 100000 ? '₹'+(n/100000).toFixed(2)+'L' : n >= 1000 ? '₹'+(n/1000).toFixed(2)+'K' : '₹'+parseFloat(n).toFixed(2);
-  const hasBrokerLegs = position?.legs?.some(l => l.brokerTradeId);
+  const hasBrokerLegs = position?.legs?.some(l => l.brokerTradeId || (l.instrument && l.strike && l.optionType && l.expiry));
   const isOpen = position?.status === 'OPEN';
   const fetchFromBroker = async (e) => {
     e.stopPropagation();
@@ -1421,11 +1421,29 @@ export default function TradeHistory() {
                 const isOpen    = p.status === 'OPEN';
                 const hasNotes  = !!(p.notes && p.notes.trim());
 
+                // Adjustment-inclusive figures — only relevant once a position
+                // actually has an adjustment leg. "Adjusted P&L" is the true
+                // bottom line once the extra cost of rolling/hedging is
+                // counted; "Adjusted return" uses combined margin (original +
+                // whatever the adjustment itself blocked) so the percentage
+                // reflects the real capital committed, not just the entry.
+                const hasAdjustmentLegs = (p.legs || []).some(l => l.isAdjustment);
+                const margin2   = p.margin2 || null;
+                const charges2  = p.charges2 ? Math.abs(p.charges2) : null;
+                const adjustedPnl = hasAdjustmentLegs && netPnl !== null ? netPnl - (charges2 || 0) : null;
+                const totalMargin = hasAdjustmentLegs ? ((margin || 0) + (margin2 || 0)) || null : null;
+
                 // Return %: use margin if set, else use max profit (premium)
                 const ret = netPnl !== null && !isOpen
                   ? margin
                     ? (netPnl / margin) * 100
                     : maxProfit !== 0 ? (netPnl / Math.abs(maxProfit)) * 100 : null
+                  : null;
+
+                const adjustedRet = adjustedPnl !== null && !isOpen
+                  ? totalMargin
+                    ? (adjustedPnl / totalMargin) * 100
+                    : maxProfit !== 0 ? (adjustedPnl / Math.abs(maxProfit)) * 100 : null
                   : null;
 
                 const retLabel = margin ? 'on margin' : 'on premium';
@@ -1561,6 +1579,14 @@ export default function TradeHistory() {
                             {charges != null ? `−₹${charges.toFixed(2)}` : '—'}
                           </span>
                         </div>
+                        {hasAdjustmentLegs && (
+                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                            <span style={{ fontSize:13, color:'#fbbf24' }}>Adjustment charges</span>
+                            <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color:'var(--loss)' }}>
+                              {charges2 != null ? `−₹${charges2.toFixed(2)}` : '—'}
+                            </span>
+                          </div>
+                        )}
                         <div style={{ height:'0.5px', background:'var(--border)' }}></div>
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
                           <span style={{ fontSize:12, color:'var(--text-muted)', flexShrink:0 }}>Net P&L</span>
@@ -1573,6 +1599,23 @@ export default function TradeHistory() {
                               {ret >= 0 ? '+' : ''}{ret.toFixed(2)}%
                             </span>
                           </div>
+                        )}
+                        {hasAdjustmentLegs && adjustedPnl !== null && (
+                          <>
+                            <div style={{ height:'0.5px', background:'rgba(245,158,11,0.3)' }}></div>
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
+                              <span style={{ fontSize:12, color:'#fbbf24', flexShrink:0 }}>Adjusted P&L</span>
+                              <span style={{ fontFamily:'var(--font-mono)', fontSize:16, fontWeight:700, color: adjustedPnl > 0 ? 'var(--profit)' : adjustedPnl < 0 ? 'var(--loss)' : 'var(--text-muted)', whiteSpace:'nowrap' }}>{fmtMoney(adjustedPnl)}</span>
+                            </div>
+                            {adjustedRet !== null && (
+                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                <span style={{ fontSize:12, color:'#fbbf24' }}>{totalMargin ? 'On total margin' : 'On premium'}</span>
+                                <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color: adjustedRet > 0 ? 'var(--profit)' : adjustedRet < 0 ? 'var(--loss)' : 'var(--text-muted)' }}>
+                                  {adjustedRet >= 0 ? '+' : ''}{adjustedRet.toFixed(2)}%
+                                </span>
+                              </div>
+                            )}
+                          </>
                         )}
                       </div>
 
