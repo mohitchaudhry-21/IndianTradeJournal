@@ -66,45 +66,57 @@ function ExcelImportModal({ modal, onApply, onClose }) {
           </button>
         </div>
       </div>
-    {/* ─── Cloud Recovery ─────────────────────────────────────────────── */}
-    <div className="card" style={{ marginBottom: 20 }}>
-      <h3 style={{ fontSize: 15, fontWeight: 500, marginBottom: 6, color: 'var(--text-primary)' }}>Recover lost data from cloud</h3>
-      <p style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 14 }}>
-        If trades or exit prices disappeared after a page reload, use this to pull the cloud backup and merge it back into your journal.
-      </p>
-      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-        <button className="btn btn-outline" onClick={handleRecoverFromCloud} disabled={recovering}>
-          {recovering ? 'Loading cloud...' : '☁ Load cloud snapshot'}
-        </button>
-        {cloudSnapshot && (
-          <button className="btn btn-primary" onClick={handleRestoreCloud}>
-            ✓ Restore {cloudSnapshot.length} trades
-          </button>
-        )}
-      </div>
-      {recoveryMsg && (
-        <div style={{ fontSize: 12, padding: '8px 12px', borderRadius: 6, background: recoveryMsg.includes('Error') || recoveryMsg.includes('not connected') ? 'rgba(239,68,68,0.08)' : 'rgba(34,197,94,0.08)', color: recoveryMsg.includes('Error') || recoveryMsg.includes('not connected') ? 'var(--text-danger)' : 'var(--text-success)', border: `0.5px solid ${recoveryMsg.includes('Error') || recoveryMsg.includes('not connected') ? 'var(--border-danger)' : 'var(--border-success)'}` }}>
-          {recoveryMsg}
+    </div>
+  );
+}
+
+// Asked once per new-legs group when they share instrument+expiry with an
+// already-open position — lets the user decide whether it's an adjustment
+// (roll, hedge, tested-side repair etc.) that should live in the SAME trade,
+// or a genuinely separate new position.
+function AdjustmentPromptModal({ candidate, queueLength, onResolve }) {
+  const { legs, existingPosition } = candidate;
+  const fmt = n => n != null ? `₹${Number(n).toFixed(2)}` : '—';
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.65)', zIndex:500, display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, width:460, boxShadow:'0 24px 64px rgba(0,0,0,0.6)', padding:22 }}>
+        <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)', marginBottom:4 }}>
+          Is this an adjustment?
         </div>
-      )}
-      {cloudSnapshot && cloudSnapshot.length > 0 && (
-        <div style={{ marginTop: 12, maxHeight: 200, overflowY: 'auto', background: 'var(--surface-2)', borderRadius: 6, padding: 10, fontSize: 12 }}>
-          <div style={{ color: 'var(--text-muted)', marginBottom: 6, fontWeight: 500 }}>Cloud snapshot preview:</div>
-          {cloudSnapshot.slice(0, 20).map((t, i) => (
-            <div key={i} style={{ padding: '3px 0', borderBottom: '0.5px solid var(--border)', color: 'var(--text-secondary)', display: 'flex', gap: 10 }}>
-              <span style={{ color: 'var(--text-muted)', width: 20 }}>{i+1}.</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 500 }}>{t.instrument || t.tradingsymbol || '?'}</span>
-              <span>{t.strike} {t.optionType}</span>
-              <span style={{ color: t.status === 'CLOSED' ? 'var(--text-success)' : 'var(--text-muted)' }}>{t.status}</span>
-              <span style={{ color: 'var(--text-muted)' }}>{t.date}</span>
-              {t.exitPremium && <span style={{ color: 'var(--text-success)' }}>exit ₹{t.exitPremium}</span>}
+        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:16 }}>
+          These new {legs[0].instrument} legs share the same expiry as a position you already have open{queueLength > 1 ? ` (${queueLength} to review)` : ''}.
+        </div>
+
+        <div style={{ background:'var(--surface-2)', borderRadius:8, padding:'10px 12px', marginBottom:10 }}>
+          <div style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:6 }}>Existing open position</div>
+          <div style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', marginBottom:4 }}>
+            {existingPosition.instrument} · {existingPosition.strategyName || 'Custom'} · opened {existingPosition.legs?.[0]?.date || ''}
+          </div>
+          {(existingPosition.legs || []).map((l, i) => (
+            <div key={i} style={{ fontSize:11, color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>
+              {l.transactionType} {l.strike}{l.optionType} · {l.quantity}L @ {fmt(l.premium)}
             </div>
           ))}
-          {cloudSnapshot.length > 20 && <div style={{ color: 'var(--text-muted)', padding: '4px 0' }}>...and {cloudSnapshot.length - 20} more</div>}
         </div>
-      )}
-    </div>
 
+        <div style={{ background:'rgba(99,102,241,0.07)', border:'1px solid rgba(99,102,241,0.25)', borderRadius:8, padding:'10px 12px', marginBottom:18 }}>
+          <div style={{ fontSize:11, color:'var(--accent)', textTransform:'uppercase', letterSpacing:'.04em', marginBottom:6 }}>New legs from broker sync</div>
+          {legs.map((l, i) => (
+            <div key={i} style={{ fontSize:11, color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>
+              {l.transactionType} {l.strike}{l.optionType} · {l.quantity}L @ {fmt(l.premium)}
+            </div>
+          ))}
+        </div>
+
+        <div style={{ display:'flex', gap:10 }}>
+          <button className="btn btn-outline" style={{ flex:1 }} onClick={() => onResolve(false)}>
+            Separate trade
+          </button>
+          <button className="btn btn-primary" style={{ flex:1 }} onClick={() => onResolve(true)}>
+            Yes, it's an adjustment
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -370,6 +382,11 @@ export default function BrokerConnect() {
   const [recovering, setRecovering] = React.useState(false);
   const [cloudSnapshot, setCloudSnapshot] = React.useState(null);
   const [recoveryMsg, setRecoveryMsg] = React.useState('');
+  // Queue of "is this an adjustment?" prompts when newly-synced legs match the
+  // instrument+expiry of an already-open position. Resolved one at a time;
+  // `pendingTrades` holds everything else waiting on the queue to clear.
+  const [adjustmentQueue, setAdjustmentQueue] = React.useState([]);
+  const [pendingTrades,   setPendingTrades]   = React.useState(null);
 
   const applyExcelMatches = (selectedIds, matchData) => {
     let applied = 0;
@@ -543,14 +560,24 @@ export default function BrokerConnect() {
     }
 
     // 2. Apply partial exits detected by server
+    const partialExitPositionIds = new Set();
     if (partialExits && partialExits.length > 0) {
       partialExits.forEach(({ positionId, legId, quantity, exitPremium, exitDate }) => {
         if (!positionId || !legId) return;
         addLegExit(positionId, legId, { quantity, exitPremium, exitDate });
+        partialExitPositionIds.add(positionId);
       });
     }
 
-    // 3. Import genuinely new trades from broker
+    // 3. Import genuinely new trades from broker — but first check whether any
+    // of them look like an ADJUSTMENT to an already-open position (same
+    // instrument + expiry + account, different entry date — e.g. rolling a
+    // tested side of an iron condor). If so, ask before deciding whether to
+    // merge into the existing trade or add as a separate one. Exception: if
+    // that same position ALSO had a partial exit in THIS sync (step 2 above),
+    // that's already strong same-run evidence of an adjustment in progress —
+    // auto-merge without prompting instead of asking something we can already
+    // answer confidently.
     if (trades && trades.length > 0) {
       const groupKeys = {};
       trades.forEach(t => {
@@ -563,7 +590,91 @@ export default function BrokerConnect() {
         source: broker,
         status: t.status || 'OPEN',
       }));
-      addTrades(mapped);
+
+      // Group the new legs by their (fresh) positionId
+      const byNewPos = {};
+      mapped.forEach(t => { (byNewPos[t.positionId] = byNewPos[t.positionId] || []).push(t); });
+
+      const candidates = [];
+      const nonCandidateLegs = [];
+      let autoMergedCount = 0;
+      Object.entries(byNewPos).forEach(([newPosId, legs]) => {
+        const first = legs[0];
+        const match = positions.find(p =>
+          p.status === 'OPEN' &&
+          p.instrument === first.instrument &&
+          normaliseExpiry(p.expiry) === normaliseExpiry(first.expiry) &&
+          (!first.accountId || !p.legs?.[0]?.accountId || p.legs[0].accountId === first.accountId)
+        );
+        if (match && partialExitPositionIds.has(match.positionId)) {
+          // Same position already had a partial exit this sync — auto-merge
+          nonCandidateLegs.push(...legs.map(l => ({
+            ...l,
+            positionId: match.positionId,
+            isAdjustment: true,
+            adjustmentDate: l.date || new Date().toISOString().slice(0, 10),
+          })));
+          autoMergedCount += legs.length;
+        } else if (match) {
+          candidates.push({ newPosId, legs, existingPosition: match });
+        } else {
+          nonCandidateLegs.push(...legs);
+        }
+      });
+
+      if (autoMergedCount > 0) {
+        showToast({ title: 'Adjustment auto-merged', message: `${autoMergedCount} new leg${autoMergedCount>1?'s':''} — matching position also had a partial exit this sync` });
+      }
+
+      if (candidates.length > 0) {
+        // Hold the non-candidate (and auto-merged) legs aside; they'll be
+        // added once the remaining queue clears
+        setPendingTrades(nonCandidateLegs);
+        setAdjustmentQueue(candidates);
+      } else {
+        addTrades(nonCandidateLegs.length > 0 ? nonCandidateLegs : mapped);
+      }
+    }
+  };
+
+  const normaliseExpiry = (e) => (e || '').toString().slice(0, 10);
+
+  // Resolve the current adjustment prompt: merge into the existing position
+  // (reassign positionId + tag as an adjustment) or add as its own trade.
+  const resolveAdjustment = (asAdjustment) => {
+    const [current, ...rest] = adjustmentQueue;
+    if (!current) return;
+    const resolvedLegs = asAdjustment
+      ? current.legs.map(l => ({
+          ...l,
+          positionId: current.existingPosition.positionId,
+          isAdjustment: true,
+          adjustmentDate: l.date || new Date().toISOString().slice(0, 10),
+        }))
+      : current.legs;
+
+    const nextPending = [...(pendingTrades || []), ...resolvedLegs];
+
+    if (rest.length === 0) {
+      // Last one in the queue — commit everything now
+      addTrades(nextPending);
+      showToast({
+        title: asAdjustment ? 'Adjustment added' : 'Added as separate trade',
+        message: asAdjustment
+          ? `Merged into ${current.existingPosition.instrument} · ${current.existingPosition.strategyName || ''}`
+          : `${current.legs[0].instrument} · new position`,
+      });
+      setPendingTrades(null);
+      setAdjustmentQueue([]);
+    } else {
+      showToast({
+        title: asAdjustment ? 'Adjustment added' : 'Added as separate trade',
+        message: asAdjustment
+          ? `Merged into ${current.existingPosition.instrument} · ${current.existingPosition.strategyName || ''}`
+          : `${current.legs[0].instrument} · new position`,
+      });
+      setPendingTrades(nextPending);
+      setAdjustmentQueue(rest);
     }
   };
 
@@ -639,6 +750,13 @@ export default function BrokerConnect() {
   return (
     <>
       {excelModal && <ExcelImportModal modal={excelModal} onApply={applyExcelMatches} onClose={()=>setExcelModal(null)}/>}
+      {adjustmentQueue.length > 0 && (
+        <AdjustmentPromptModal
+          candidate={adjustmentQueue[0]}
+          queueLength={adjustmentQueue.length}
+          onResolve={resolveAdjustment}
+        />
+      )}
       <div style={{ maxWidth: 780 }}>
       <div className="page-header">
         <div className="page-title">Broker Connect</div>
