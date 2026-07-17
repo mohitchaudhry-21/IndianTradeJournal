@@ -17,6 +17,17 @@ function fmtMoney(n) {
   return sign + '₹' + parts[0] + '.' + parts[1];
 }
 
+// Compact K/L notation for tight panel columns (Max profit/loss and their
+// before-adjustment comparisons) — full comma-formatted rupee figures don't
+// fit the ~180px left panel without wrapping or overflowing.
+function fmtCompactSigned(n, forceNegative) {
+  if (n === null || n === undefined) return '—';
+  const abs = Math.abs(n);
+  const sign = forceNegative ? '−' : (n < 0 ? '−' : '+');
+  const body = abs >= 100000 ? (abs / 100000).toFixed(2) + 'L' : abs >= 1000 ? (abs / 1000).toFixed(2) + 'K' : abs.toFixed(2);
+  return sign + '₹' + body;
+}
+
 function fmtExitDate(d) {
   if (!d) return '';
   const s = String(d).trim();
@@ -1433,6 +1444,23 @@ export default function TradeHistory() {
                 const adjustedPnl = hasAdjustmentLegs && netPnl !== null ? netPnl - (charges2 || 0) : null;
                 const totalMargin = hasAdjustmentLegs ? ((margin || 0) + (margin2 || 0)) || null : null;
 
+                // How the adjustment changed the trade's risk shape — run the
+                // same max profit/loss formulas against just the ORIGINAL legs
+                // (pre-adjustment) so we can show "before → after" alongside
+                // the current (all-legs) figures already computed above.
+                let originalMaxProfit = null, originalMaxLoss = null;
+                if (hasAdjustmentLegs) {
+                  const originalLegs = p.legs.filter(l => !l.isAdjustment);
+                  const originalNetPremium = originalLegs.reduce((sum, l) => {
+                    const lotSize = l.lotSize || 1;
+                    const mult = l.transactionType === 'SELL' ? 1 : -1;
+                    return sum + mult * (l.premium || 0) * l.quantity * lotSize;
+                  }, 0);
+                  const originalPosition = { ...p, legs: originalLegs, netPremiumCollected: originalNetPremium };
+                  originalMaxProfit = calcMaxProfit(originalPosition);
+                  originalMaxLoss   = calcMaxLoss(originalPosition);
+                }
+
                 // Return %: use margin if set, else use max profit (premium)
                 const ret = netPnl !== null && !isOpen
                   ? margin
@@ -1543,14 +1571,40 @@ export default function TradeHistory() {
                           <span style={{ fontSize:12, color:'var(--text-muted)' }}>Margin</span>
                           <MarginCell value={p.margin} position={p} onSave={v => updatePositionMeta(p.positionId, { positionMargin: v })} />
                         </div>
+                        {hasAdjustmentLegs && (
+                          <>
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                              <span style={{ fontSize:12, color:'#fbbf24' }}>Adj. margin</span>
+                              <MarginCell value={p.margin2} position={{ ...p, legs: p.legs.filter(l => l.isAdjustment) }}
+                                onSave={v => updatePositionMeta(p.positionId, { positionMargin2: v })} />
+                            </div>
+                            {(p.margin || p.margin2) && (
+                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                                <span style={{ fontSize:12, color:'#fbbf24' }}>Total margin</span>
+                                <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:600, color:'#fbbf24' }}>{fmtCompactSigned((p.margin || 0) + (p.margin2 || 0)).replace('+','')}</span>
+                              </div>
+                            )}
+                          </>
+                        )}
                         {[
                           { k:'R:R', v: (maxLoss && maxProfit) ? (Math.abs(maxLoss)/maxProfit).toFixed(2)+' : 1' : '—', c:'var(--text-secondary)' },
-                          { k:'Max profit', v: maxProfit != null ? (() => { const a=Math.abs(maxProfit); const s=maxProfit<0?'−':'+'; return a>=100000?s+'₹'+(a/100000).toFixed(2)+'L':a>=1000?s+'₹'+(a/1000).toFixed(2)+'K':s+'₹'+a.toFixed(2); })() : '—', c:'var(--profit)' },
-                          { k:'Max loss', v: maxLoss != null ? (() => { const a=Math.abs(maxLoss); return '−₹'+(a>=100000?(a/100000).toFixed(2)+'L':a>=1000?(a/1000).toFixed(2)+'K':a.toFixed(2)); })() : '—', c:'var(--loss)' },
-                        ].map(({ k, v, c }) => (
-                          <div key={k} style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                            <span style={{ fontSize:12, color:'var(--text-muted)' }}>{k}</span>
-                            <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color:c }}>{v}</span>
+                          { k:'Max profit', v: fmtCompactSigned(maxProfit), c:'var(--profit)',
+                            sub: hasAdjustmentLegs && originalMaxProfit != null && maxProfit != null && Math.round(originalMaxProfit) !== Math.round(maxProfit)
+                              ? `before adj. ${fmtCompactSigned(originalMaxProfit)}` : null },
+                          { k:'Max loss', v: fmtCompactSigned(maxLoss, true), c:'var(--loss)',
+                            sub: hasAdjustmentLegs && originalMaxLoss != null && maxLoss != null && Math.round(originalMaxLoss) !== Math.round(maxLoss)
+                              ? `before adj. ${fmtCompactSigned(originalMaxLoss, true)}` : null },
+                        ].map(({ k, v, c, sub }) => (
+                          <div key={k}>
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                              <span style={{ fontSize:12, color:'var(--text-muted)' }}>{k}</span>
+                              <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color:c }}>{v}</span>
+                            </div>
+                            {sub && (
+                              <div style={{ display:'flex', justifyContent:'flex-end' }}>
+                                <span style={{ fontSize:10, color:'#fbbf24' }}>{sub}</span>
+                              </div>
+                            )}
                           </div>
                         ))}
                         {/* Breakeven — indigo, separated by subtle divider */}
