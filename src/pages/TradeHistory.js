@@ -1571,29 +1571,10 @@ export default function TradeHistory() {
                           <span style={{ fontSize:12, color:'var(--text-muted)' }}>Margin</span>
                           <MarginCell value={p.margin} position={p} onSave={v => updatePositionMeta(p.positionId, { positionMargin: v })} />
                         </div>
-                        {hasAdjustmentLegs && (
-                          <>
-                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                              <span style={{ fontSize:12, color:'#fbbf24' }}>Adj. margin</span>
-                              <MarginCell value={p.margin2} position={{ ...p, legs: p.legs.filter(l => l.isAdjustment) }}
-                                onSave={v => updatePositionMeta(p.positionId, { positionMargin2: v })} />
-                            </div>
-                            {p.margin != null && p.margin2 != null && (
-                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                                <span style={{ fontSize:12, color:'#fbbf24' }}>Total margin</span>
-                                <span style={{ fontFamily:'var(--font-mono)', fontSize:12, fontWeight:600, color:'#fbbf24' }}>{fmtCompactSigned((p.margin || 0) + (p.margin2 || 0)).replace('+','')}</span>
-                              </div>
-                            )}
-                          </>
-                        )}
                         {[
                           { k:'R:R', v: (maxLoss && maxProfit) ? (Math.abs(maxLoss)/maxProfit).toFixed(2)+' : 1' : '—', c:'var(--text-secondary)' },
-                          { k:'Max profit', v: fmtCompactSigned(maxProfit), c:'var(--profit)',
-                            sub: hasAdjustmentLegs && originalMaxProfit != null && maxProfit != null && Math.round(originalMaxProfit) !== Math.round(maxProfit)
-                              ? `before adj. ${fmtCompactSigned(originalMaxProfit)}` : null },
-                          { k:'Max loss', v: fmtCompactSigned(maxLoss, true), c:'var(--loss)',
-                            sub: hasAdjustmentLegs && originalMaxLoss != null && maxLoss != null && Math.round(originalMaxLoss) !== Math.round(maxLoss)
-                              ? `before adj. ${fmtCompactSigned(originalMaxLoss, true)}` : null },
+                          { k:'Max profit', v: fmtCompactSigned(maxProfit), c:'var(--profit)' },
+                          { k:'Max loss', v: fmtCompactSigned(maxLoss, true), c:'var(--loss)' },
                         ].map(({ k, v, c, sub }) => (
                           <div key={k} style={{ marginBottom: sub ? 2 : 0 }}>
                             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
@@ -1633,14 +1614,6 @@ export default function TradeHistory() {
                             {charges != null ? `−₹${charges.toFixed(2)}` : '—'}
                           </span>
                         </div>
-                        {hasAdjustmentLegs && (
-                          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                            <span style={{ fontSize:13, color:'#fbbf24' }}>Adjustment charges</span>
-                            <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color:'var(--loss)' }}>
-                              {charges2 != null ? `−₹${charges2.toFixed(2)}` : '—'}
-                            </span>
-                          </div>
-                        )}
                         <div style={{ height:'0.5px', background:'var(--border)' }}></div>
                         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
                           <span style={{ fontSize:12, color:'var(--text-muted)', flexShrink:0 }}>Net P&L</span>
@@ -1653,23 +1626,6 @@ export default function TradeHistory() {
                               {ret >= 0 ? '+' : ''}{ret.toFixed(2)}%
                             </span>
                           </div>
-                        )}
-                        {hasAdjustmentLegs && adjustedPnl !== null && (
-                          <>
-                            <div style={{ height:'0.5px', background:'rgba(245,158,11,0.3)' }}></div>
-                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:6 }}>
-                              <span style={{ fontSize:12, color:'#fbbf24', flexShrink:0 }}>Adjusted P&L</span>
-                              <span style={{ fontFamily:'var(--font-mono)', fontSize:16, fontWeight:700, color: adjustedPnl > 0 ? 'var(--profit)' : adjustedPnl < 0 ? 'var(--loss)' : 'var(--text-muted)', whiteSpace:'nowrap' }}>{fmtMoney(adjustedPnl)}</span>
-                            </div>
-                            {adjustedRet !== null && (
-                              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                                <span style={{ fontSize:12, color:'#fbbf24' }}>{totalMargin ? 'On total margin' : 'On premium'}</span>
-                                <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color: adjustedRet > 0 ? 'var(--profit)' : adjustedRet < 0 ? 'var(--loss)' : 'var(--text-muted)' }}>
-                                  {adjustedRet >= 0 ? '+' : ''}{adjustedRet.toFixed(2)}%
-                                </span>
-                              </div>
-                            )}
-                          </>
                         )}
                       </div>
 
@@ -1685,6 +1641,59 @@ export default function TradeHistory() {
 
                     {/* ── RIGHT PANEL: legs ── */}
                     <div style={{ padding:'16px 20px', display:'flex', flexDirection:'column', gap:16, WebkitFontSmoothing:'antialiased', MozOsxFontSmoothing:'grayscale', minWidth:0, overflow:'hidden', fontSmooth:'always' }}>
+                      {hasAdjustmentLegs && (
+                        <div style={{ background:'rgba(245,158,11,0.06)', border:'0.5px solid rgba(245,158,11,0.25)', borderRadius:10, padding:'12px 18px' }}>
+                          <div style={{ fontSize:11, color:'#fbbf24', letterSpacing:'.04em', marginBottom:10, textTransform:'uppercase' }}>
+                            Adjustment impact{p.legs.find(l => l.isAdjustment)?.adjustmentDate ? ` · ${fmtDate(p.legs.find(l => l.isAdjustment).adjustmentDate)}` : ''}
+                          </div>
+                          <div style={{ display:'flex', flexWrap:'wrap', gap:28 }}>
+                            <div>
+                              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>Margin</div>
+                              <div style={{ fontSize:13, fontFamily:'var(--font-mono)', color:'var(--text-secondary)' }}>{margin != null ? fmtCompactSigned(margin).replace('+','') : '—'}</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize:11, color:'#fbbf24', marginBottom:3 }}>Adj. margin</div>
+                              <MarginCell value={p.margin2} position={{ ...p, legs: p.legs.filter(l => l.isAdjustment) }}
+                                onSave={v => updatePositionMeta(p.positionId, { positionMargin2: v })} />
+                            </div>
+                            {margin != null && margin2 != null && (
+                              <div>
+                                <div style={{ fontSize:11, color:'#fbbf24', marginBottom:3 }}>Total margin</div>
+                                <div style={{ fontSize:13, fontWeight:600, fontFamily:'var(--font-mono)', color:'#fbbf24' }}>{fmtCompactSigned(margin + margin2).replace('+','')}</div>
+                              </div>
+                            )}
+                            <div>
+                              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>Max profit</div>
+                              <div style={{ fontSize:13, fontFamily:'var(--font-mono)', whiteSpace:'nowrap' }}>
+                                {originalMaxProfit != null
+                                  ? <><span style={{ color:'var(--text-secondary)' }}>{fmtCompactSigned(originalMaxProfit)}</span> <span style={{ color:'var(--text-muted)' }}>→</span> <span style={{ color:'var(--profit)' }}>{fmtCompactSigned(maxProfit)}</span></>
+                                  : <span style={{ color:'var(--profit)' }}>{fmtCompactSigned(maxProfit)}</span>}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:3 }}>Max loss</div>
+                              <div style={{ fontSize:13, fontFamily:'var(--font-mono)', whiteSpace:'nowrap' }}>
+                                {originalMaxLoss != null
+                                  ? <><span style={{ color:'var(--text-secondary)' }}>{fmtCompactSigned(originalMaxLoss, true)}</span> <span style={{ color:'var(--text-muted)' }}>→</span> <span style={{ color:'var(--loss)' }}>{fmtCompactSigned(maxLoss, true)}</span></>
+                                  : <span style={{ color:'var(--loss)' }}>{fmtCompactSigned(maxLoss, true)}</span>}
+                              </div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize:11, color:'#fbbf24', marginBottom:3 }}>Adj. charges</div>
+                              <ChargesCell value={p.charges2} position={{ ...p, legs: p.legs.filter(l => l.isAdjustment) }}
+                                onSave={v => updatePositionMeta(p.positionId, { positionCharges2: v })} />
+                            </div>
+                            {adjustedPnl !== null && (
+                              <div>
+                                <div style={{ fontSize:11, color:'#fbbf24', marginBottom:3 }}>Adjusted P&L</div>
+                                <div style={{ fontSize:14, fontWeight:700, fontFamily:'var(--font-mono)', color: adjustedPnl > 0 ? 'var(--profit)' : adjustedPnl < 0 ? 'var(--loss)' : 'var(--text-muted)', whiteSpace:'nowrap' }}>
+                                  {fmtMoney(adjustedPnl)}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                       {(p.legs || []).map((leg, li) => {
                         const legTx = (leg.transactionType || '').toUpperCase();
                         const exits = leg.exits || [];
