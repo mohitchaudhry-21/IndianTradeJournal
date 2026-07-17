@@ -680,6 +680,8 @@ export function JournalProvider({ children }) {
         notes: first.positionNotes || first.notes || '',
         margin: first.positionMargin || null,
         charges: first.positionCharges || null,
+        margin2: first.positionMargin2 || null,
+        charges2: first.positionCharges2 || null,
         openDate: first.date || first.openDate || null,
         closeDate: legs.find(l => l.exitDate)?.exitDate || null,
       };
