@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 import AccountBadge from '../components/AccountBadge';
 import DateRangeSelector from '../components/DateRangeSelector';
 import { useJournal } from '../context/JournalContext';
@@ -666,6 +667,222 @@ function EditLegPopup({ leg, onClose, onSave }) {
   );
 }
 
+// Manually add an adjustment leg to an existing position — covers the case
+// where the broker sync was missed on the day the adjustment actually
+// happened (or the adjustment was placed with a different broker/manually).
+// The new leg is tagged isAdjustment and merged straight into the SAME
+// position, same as an auto-detected sync-time adjustment would be.
+function AddAdjustmentPopup({ position, onClose, onSave }) {
+  const refLeg = position.legs?.[0] || {};
+  const [optionType,  setOptionType]  = useState(refLeg.optionType || 'PE');
+  const [txType,      setTxType]      = useState('SELL');
+  const [strike,      setStrike]      = useState('');
+  const [quantity,    setQuantity]    = useState(String(refLeg.quantity || '1'));
+  const [premium,     setPremium]     = useState('');
+  const [date,        setDate]        = useState(new Date().toISOString().slice(0, 10));
+
+  const handleSave = () => {
+    const s = parseFloat(strike);
+    const p = parseFloat(premium);
+    const q = parseInt(quantity);
+    if (!s || !p || !q || isNaN(s) || isNaN(p) || isNaN(q)) {
+      alert('Please fill in strike, premium and lots correctly.'); return;
+    }
+    onSave({
+      id: uuidv4(),
+      positionId: position.positionId,
+      accountId: refLeg.accountId,
+      source: 'manual',
+      instrument: position.instrument,
+      expiry: position.expiry,
+      strike: s,
+      optionType,
+      transactionType: txType,
+      quantity: q,
+      lotSize: refLeg.lotSize || 1,
+      premium: p,
+      date,
+      status: 'OPEN',
+      strategyName: position.strategyName,
+      isAdjustment: true,
+      adjustmentDate: date,
+    });
+    onClose();
+  };
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:300, display:'flex', alignItems:'center', justifyContent:'center' }}
+      onClick={e => { if (e.target===e.currentTarget) onClose(); }}>
+      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:24, width:400, boxShadow:'0 16px 48px rgba(0,0,0,0.5)' }}>
+        <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)', marginBottom:4 }}>Add Adjustment</div>
+        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:16 }}>
+          Add a new leg to <strong style={{ color:'var(--text-secondary)' }}>{position.instrument} · {position.strategyName || 'Custom'}</strong> — for when a roll/hedge was placed but the sync was missed that day.
+        </div>
+
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Option Type</label>
+            <select className="form-select" value={optionType} onChange={e => setOptionType(e.target.value)}>
+              <option value="PE">PE (Put)</option>
+              <option value="CE">CE (Call)</option>
+            </select>
+          </div>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Buy / Sell</label>
+            <select className="form-select" value={txType} onChange={e => setTxType(e.target.value)}>
+              <option value="SELL">SELL</option>
+              <option value="BUY">BUY</option>
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Strike Price</label>
+            <input className="form-input" type="number" value={strike}
+              onChange={e => setStrike(e.target.value)} placeholder="e.g. 23000" />
+          </div>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Lots</label>
+            <input className="form-input" type="number" min="1" value={quantity}
+              onChange={e => setQuantity(e.target.value)} placeholder="e.g. 3" />
+          </div>
+        </div>
+
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:18 }}>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Entry Premium (₹)</label>
+            <input className="form-input" type="number" step="0.05" value={premium}
+              onChange={e => setPremium(e.target.value)} placeholder="e.g. 42.50" />
+          </div>
+          <div className="form-group" style={{ marginBottom:0 }}>
+            <label className="form-label">Date</label>
+            <input className="form-input" type="date" value={date}
+              onChange={e => setDate(e.target.value)} />
+          </div>
+        </div>
+
+        <div style={{ display:'flex', gap:10 }}>
+          <button className="btn btn-outline" style={{ flex:1 }} onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" style={{ flex:2 }} onClick={handleSave}>Add Adjustment</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Consolidated position-level "Edit trade" hub — the pencil icon on a leg row
+// opens this instead of jumping straight to a single-leg edit. From here you
+// can: edit any individual leg (strike/prices/dates/status), add a new
+// adjustment leg without leaving the modal, and track margin/charges
+// separately for the original entry vs. anything added as an adjustment
+// (since a roll/hedge blocks its own margin and carries its own charges).
+function EditTradeModal({ position, onClose }) {
+  const { updatePositionMeta, addTrades, updateTrade } = useJournal();
+  const { showToast } = useToast();
+  const [editingLeg,       setEditingLeg]       = useState(null);
+  const [addingAdjustment, setAddingAdjustment]  = useState(false);
+
+  const originalLegs   = (position.legs || []).filter(l => !l.isAdjustment);
+  const adjustmentLegs = (position.legs || []).filter(l => l.isAdjustment);
+  const fmtLeg = l => `${l.transactionType} ${l.strike}${l.optionType} · ${l.quantity}L @ ₹${parseFloat(l.premium).toFixed(2)}`;
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.55)', zIndex:280, display:'flex', alignItems:'center', justifyContent:'center' }}
+      onClick={e => { if (e.target===e.currentTarget) onClose(); }}>
+      <div style={{ background:'var(--bg-card)', border:'1px solid var(--border)', borderRadius:12, padding:24, width:440, maxHeight:'85vh', overflowY:'auto', boxShadow:'0 16px 48px rgba(0,0,0,0.5)' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:4 }}>
+          <div style={{ fontWeight:700, fontSize:15, color:'var(--text-primary)' }}>Edit Trade</div>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', fontSize:18, lineHeight:1 }}>✕</button>
+        </div>
+        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:16 }}>{position.instrument} · {position.strategyName || 'Custom'}</div>
+
+        <div style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>Legs</div>
+        <div style={{ border:'0.5px solid var(--border)', borderRadius:8, overflow:'hidden', marginBottom:10 }}>
+          {[...originalLegs, ...adjustmentLegs].map((leg, i, arr) => (
+            <div key={leg.id || i} style={{ display:'flex', alignItems:'center', gap:8, padding:'8px 10px', borderBottom: i < arr.length-1 ? '0.5px solid var(--border)' : 'none', background: leg.isAdjustment ? 'rgba(245,158,11,0.06)' : 'none' }}>
+              <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-primary)', flex:1, minWidth:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{fmtLeg(leg)}</span>
+              {leg.isAdjustment && (
+                <span style={{ fontSize:9, fontWeight:700, padding:'1px 5px', borderRadius:4, background:'rgba(245,158,11,0.15)', color:'#fbbf24', flexShrink:0, whiteSpace:'nowrap' }}>
+                  Adj · {leg.adjustmentDate || ''}
+                </span>
+              )}
+              <button onClick={() => setEditingLeg(leg)} title="Edit this leg" style={{ background:'none', border:'none', color:'var(--text-muted)', cursor:'pointer', padding:'2px 4px', display:'flex', alignItems:'center', flexShrink:0 }}>
+                <i className="ti ti-pencil" style={{ fontSize:12 }} aria-hidden="true" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <button onClick={() => setAddingAdjustment(true)} style={{ width:'100%', background:'none', border:'0.5px dashed var(--border-hover)', borderRadius:6, color:'var(--text-muted)', cursor:'pointer', padding:'7px 10px', fontSize:11, fontFamily:'var(--font-sans)', marginBottom:18, display:'flex', alignItems:'center', justifyContent:'center', gap:6 }}>
+          <i className="ti ti-plus" style={{ fontSize:12 }} aria-hidden="true" />Add adjustment leg
+        </button>
+
+        <div style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>Margin</div>
+        <div style={{ display:'grid', gridTemplateColumns: adjustmentLegs.length > 0 ? '1fr 1fr' : '1fr', gap:10, marginBottom:18 }}>
+          <div>
+            <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:4 }}>Original</div>
+            <MarginCell value={position.margin} position={{ ...position, legs: originalLegs }}
+              onSave={v => updatePositionMeta(position.positionId, { positionMargin: v })} />
+          </div>
+          {adjustmentLegs.length > 0 && (
+            <div>
+              <div style={{ fontSize:10, color:'#fbbf24', marginBottom:4 }}>Adjustment</div>
+              <MarginCell value={position.margin2} position={{ ...position, legs: adjustmentLegs }}
+                onSave={v => updatePositionMeta(position.positionId, { positionMargin2: v })} />
+            </div>
+          )}
+        </div>
+
+        <div style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.05em', marginBottom:8 }}>Charges</div>
+        <div style={{ display:'grid', gridTemplateColumns: adjustmentLegs.length > 0 ? '1fr 1fr' : '1fr', gap:10, marginBottom:20 }}>
+          <div>
+            <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:4 }}>Original</div>
+            <ChargesCell value={position.charges} position={{ ...position, legs: originalLegs }}
+              onSave={v => updatePositionMeta(position.positionId, { positionCharges: v })} />
+          </div>
+          {adjustmentLegs.length > 0 && (
+            <div>
+              <div style={{ fontSize:10, color:'#fbbf24', marginBottom:4 }}>Adjustment</div>
+              <ChargesCell value={position.charges2} position={{ ...position, legs: adjustmentLegs }}
+                onSave={v => updatePositionMeta(position.positionId, { positionCharges2: v })} />
+            </div>
+          )}
+        </div>
+
+        <button className="btn btn-outline" style={{ width:'100%' }} onClick={onClose}>Close</button>
+      </div>
+
+      {editingLeg && (
+        <EditLegPopup
+          leg={editingLeg}
+          onClose={() => setEditingLeg(null)}
+          onSave={updates => {
+            updateTrade(editingLeg.id, updates);
+            showToast({ title: 'Trade updated', message: updates.status === 'CLOSED' ? `Closed @ ₹${updates.exitPremium}` : 'Set to Open' });
+            setEditingLeg(null);
+          }}
+        />
+      )}
+
+      {addingAdjustment && (
+        <AddAdjustmentPopup
+          position={position}
+          onClose={() => setAddingAdjustment(false)}
+          onSave={newLeg => {
+            const { added } = addTrades([newLeg]);
+            if (added > 0) {
+              showToast({ title: 'Adjustment added', message: `${newLeg.transactionType} ${newLeg.strike}${newLeg.optionType} · ${newLeg.quantity}L @ ₹${newLeg.premium}` });
+            } else {
+              showToast({ title: 'Nothing added', message: 'That leg already exists in this position', type: 'error' });
+            }
+            setAddingAdjustment(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 // Journal / notes panel
 function NotesPanel({ position, onClose, onSave }) {
   const { liveQuotes } = useJournal();
@@ -913,7 +1130,7 @@ function calcBookedPnL(position) {
 }
 
 export default function TradeHistory() {
-  const { positions, deletePosition, updatePositionStrategy, updatePositionMeta, reopenPosition, addLegExit, removeLegExit, updateTrade, liveQuotes } = useJournal();
+  const { positions, deletePosition, updatePositionStrategy, updatePositionMeta, reopenPosition, addLegExit, removeLegExit, updateTrade, addTrades, liveQuotes } = useJournal();
   const { showToast } = useToast();
 
   const [filterInstrument, setFilterInstrument] = useState('');
@@ -924,6 +1141,7 @@ export default function TradeHistory() {
   const [notesPos,         setNotesPos]         = useState(null);
   const [editExitPos,      setEditExitPos]      = useState(null);
   const [reopenPos,        setReopenPos]        = useState(null);
+  const [editTradePos,     setEditTradePos]     = useState(null); // position shown in the consolidated Edit Trade modal
   const [partialExitLeg,   setPartialExitLeg]   = useState(null); // { leg, positionId }
   const [editLegData,      setEditLegData]      = useState(null); // { leg } for editing
 
@@ -1143,6 +1361,13 @@ export default function TradeHistory() {
             showToast({ title: 'Dates updated' });
             setEditExitPos(null);
           }}
+        />
+      )}
+
+      {editTradePos && (
+        <EditTradeModal
+          position={positions.find(p => p.positionId === editTradePos) || editTradePos}
+          onClose={() => setEditTradePos(null)}
         />
       )}
 
@@ -1416,6 +1641,11 @@ export default function TradeHistory() {
                                         <span style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:4, flexShrink:0, background: legTx === 'SELL' ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)', color: legTx === 'SELL' ? '#f87171' : '#4ade80', marginRight:10 }}>{legTx}</span>
                                         <span style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:500, color:'var(--text-primary)', flexShrink:0, marginRight:8 }}>{leg.strike}</span>
                                         <span style={{ fontSize:11, color:'var(--text-muted)', flexShrink:0, marginRight:12 }}>{leg.quantity} lots</span>
+                                        {leg.isAdjustment && (
+                                          <span title={leg.adjustmentDate ? `Added as adjustment on ${leg.adjustmentDate}` : 'Added as adjustment'} style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:4, flexShrink:0, background:'rgba(245,158,11,0.12)', color:'#fbbf24', marginRight:12, whiteSpace:'nowrap' }}>
+                                            ↻ Adjustment{leg.adjustmentDate ? ` · ${leg.adjustmentDate}` : ''}
+                                          </span>
+                                        )}
                                         <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
                                         <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0, marginRight:12 }}>
                                           <span style={{ fontSize:11, letterSpacing:'.03em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap', fontWeight:600 }}>Entry avg</span>
@@ -1437,7 +1667,7 @@ export default function TradeHistory() {
                                       {/* Right: always visible */}
                                       <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
                                         <button onClick={() => setPartialExitLeg({ leg, positionId: p.positionId })} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 9px', fontSize:10, fontFamily:'var(--font-sans)', whiteSpace:'nowrap' }}>+ exit</button>
-                                        <button onClick={() => setEditLegData(leg)} title="Edit trade — all fields" style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 7px', fontSize:11, fontFamily:'var(--font-sans)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                        <button onClick={() => setEditTradePos(p.positionId)} title="Edit trade" style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 7px', fontSize:11, fontFamily:'var(--font-sans)', display:'flex', alignItems:'center', justifyContent:'center' }}>
                                           <i className="ti ti-pencil" style={{ fontSize:12 }} aria-hidden="true" />
                                         </button>
                                         <div style={{ width:'0.5px', background:'var(--border)', height:28 }}></div>
