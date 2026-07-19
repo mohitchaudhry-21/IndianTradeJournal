@@ -376,6 +376,7 @@ function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg, l
               const alreadyExited = (leg.exits || []).reduce((s, e) => s + (e.quantity || 0), 0);
               const remaining = (leg.quantity || 1) - alreadyExited;
               const isPartial = alreadyExited > 0 && remaining > 0;
+              const isFullyExited = alreadyExited > 0 && remaining <= 0;
               // Weighted avg exit price for partially exited lots
               const avgExitPrice = (leg.exits || []).length > 0
                 ? (leg.exits.reduce((s,e) => s + e.exitPremium * e.quantity, 0) / alreadyExited).toFixed(2)
@@ -387,8 +388,8 @@ function PositionCard({ position, onClose, onPartialExit, onDelete, onEditLeg, l
                   <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 15, fontWeight: 600, color: 'var(--text-primary)', minWidth: 70 }}>
                     {leg.strike?.toLocaleString('en-IN')}
                   </span>
-                  <span style={{ color: isPartial ? 'var(--accent)' : 'var(--text-muted)', fontSize: 12 }}>
-                    {isPartial ? `${remaining}L open / ${leg.quantity}L total` : `${leg.quantity} lot${leg.quantity > 1 ? 's' : ''} × ${lotSize}`}
+                  <span style={{ color: isPartial ? 'var(--accent)' : isFullyExited ? 'var(--text-muted)' : 'var(--text-muted)', fontSize: 12 }}>
+                    {isFullyExited ? `Closed · ${leg.quantity}L` : isPartial ? `${remaining}L open / ${leg.quantity}L total` : `${leg.quantity} lot${leg.quantity > 1 ? 's' : ''} × ${lotSize}`}
                   </span>
                   <span style={{ marginLeft: 'auto', fontFamily: "'JetBrains Mono', monospace", color: 'var(--text-secondary)', fontSize: 13 }}>
                     @ ₹{leg.premium}
@@ -438,15 +439,15 @@ export default function Positions() {
 
   const open = useMemo(() =>
     positions
-      .filter(p => p.status === 'OPEN')
+      .filter(p => p.status === 'OPEN' || p.status === 'PARTIAL')
       .filter(p => !filterInstrument || p.instrument === filterInstrument)
       .filter(p => !filterStrategy || p.strategyName === filterStrategy)
       .sort((a, b) => (a.daysToExpiry ?? 999) - (b.daysToExpiry ?? 999)),
     [positions, filterInstrument, filterStrategy]
   );
 
-  const instruments = [...new Set(positions.filter(p => p.status === 'OPEN').map(p => p.instrument))];
-  const strategies  = [...new Set(positions.filter(p => p.status === 'OPEN').map(p => p.strategyName))];
+  const instruments = [...new Set(positions.filter(p => p.status === 'OPEN' || p.status === 'PARTIAL').map(p => p.instrument))];
+  const strategies  = [...new Set(positions.filter(p => p.status === 'OPEN' || p.status === 'PARTIAL').map(p => p.strategyName))];
 
   const handleClose = (pos) => setClosingPos(pos);
   const handleConfirmClose = (exits) => {
