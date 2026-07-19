@@ -36,7 +36,12 @@ function StatCard({ label, value, color }) {
 
 export default function OptionsAnalyzer() {
   const { positions } = useJournal();
-  const openPositions = useMemo(() => positions.filter(p => p.status === 'OPEN'), [positions]);
+  // Include PARTIAL positions too, not just fully-OPEN ones — a position with
+  // any partial exit (which most adjustments involve: closing part of one leg
+  // while adding another) still has real open exposure worth analyzing. The
+  // leg-level enrichment below already correctly computes remaining quantity
+  // per leg and drops any leg that's fully exited, so it's safe to widen this.
+  const openPositions = useMemo(() => positions.filter(p => p.status === 'OPEN' || p.status === 'PARTIAL'), [positions]);
 
   const [selectedPositionId, setSelectedPositionId] = useState(openPositions[0]?.positionId || null);
   const [checkedLegIds, setCheckedLegIds] = useState(new Set());
