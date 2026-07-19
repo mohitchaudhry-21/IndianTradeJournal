@@ -68,7 +68,7 @@ export default function Dashboard() {
   );
 
   const openPositions = useMemo(() =>
-    positions.filter(p => p.status === 'OPEN')
+    positions.filter(p => p.status === 'OPEN' || p.status === 'PARTIAL')
       .sort((a, b) => (a.daysToExpiry ?? 999) - (b.daysToExpiry ?? 999)),
     [positions]
   );
