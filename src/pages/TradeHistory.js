@@ -1631,6 +1631,7 @@ export default function TradeHistory() {
 
                       {/* Action buttons */}
                       <div style={{ padding:'12px 18px', marginTop:'auto', display:'flex', flexDirection:'column', gap:5 }}>
+                        <button onClick={() => setEditTradePos(p.positionId)} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:6, color:'var(--text-muted)', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center' }}>✎ Edit trade</button>
                         <button onClick={() => setEditExitPos(p)} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:6, color:'var(--text-muted)', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center' }}>✎ Edit dates</button>
                         <button onClick={() => setNotesPos(p)} style={{ background: hasNotes ? 'rgba(245,158,11,0.08)' : 'none', border: hasNotes ? '0.5px solid rgba(245,158,11,0.3)' : '0.5px solid var(--border-hover)', borderRadius:6, color: hasNotes ? 'var(--accent)' : 'var(--text-muted)', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center' }}>{hasNotes ? '📝 View note' : '+ Add note'}</button>
                         {!isOpen && <button onClick={() => setReopenPos(p)} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:6, color:'var(--text-muted)', cursor:'pointer', padding:'5px 10px', fontSize:11, fontFamily:'var(--font-sans)', width:'100%', textAlign:'center' }}>↺ Reopen</button>}
@@ -1773,7 +1774,7 @@ export default function TradeHistory() {
                                       {/* Right: always visible */}
                                       <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
                                         <button onClick={() => setPartialExitLeg({ leg, positionId: p.positionId })} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 9px', fontSize:10, fontFamily:'var(--font-sans)', whiteSpace:'nowrap' }}>+ exit</button>
-                                        <button onClick={() => setEditTradePos(p.positionId)} title="Edit trade" style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 7px', fontSize:11, fontFamily:'var(--font-sans)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                        <button onClick={() => setEditLegData(leg)} title="Edit this leg" style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 7px', fontSize:11, fontFamily:'var(--font-sans)', display:'flex', alignItems:'center', justifyContent:'center' }}>
                                           <i className="ti ti-pencil" style={{ fontSize:12 }} aria-hidden="true" />
                                         </button>
                                         <div style={{ width:'0.5px', background:'var(--border)', height:28 }}></div>
