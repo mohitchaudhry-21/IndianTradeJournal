@@ -641,17 +641,14 @@ export function JournalProvider({ children }) {
         const lotSize = l.lotSize || settings.lotSizes[l.instrument] || 1;
         const exits = l.exits || [];
 
-        if (l.status === 'CLOSED' || l.status === 'EXPIRED') {
-          // Fully closed leg — use exitPremium (weighted avg)
-          const exitP = l.exitPremium !== undefined ? l.exitPremium : 0;
-          if (l.transactionType === 'SELL') {
-            return sum + (l.premium - exitP) * l.quantity * lotSize;
-          } else {
-            return sum + (exitP - l.premium) * l.quantity * lotSize;
-          }
-        }
-
-        // Partially exited leg — sum up each exit tranche
+        // Prefer actual exit tranches over the single exitPremium summary
+        // field whenever tranches exist — they're the real per-fill data.
+        // exitPremium is meant to be their weighted average, but it's a
+        // separate field that can drift out of sync with the tranches it's
+        // supposed to summarize (e.g. a stale/incorrect resync overwriting
+        // just that field). Summing the tranches directly is the source of
+        // truth and matches what calcBookedPnL already does for the
+        // position-card display.
         if (exits.length > 0) {
           return sum + exits.reduce((eSum, e) => {
             const exitP = e.exitPremium || 0;
@@ -662,6 +659,16 @@ export function JournalProvider({ children }) {
               return eSum + (exitP - l.premium) * qty * lotSize;
             }
           }, 0);
+        }
+
+        if (l.status === 'CLOSED' || l.status === 'EXPIRED') {
+          // Fully closed leg, no tranches recorded — use exitPremium directly
+          const exitP = l.exitPremium !== undefined ? l.exitPremium : 0;
+          if (l.transactionType === 'SELL') {
+            return sum + (l.premium - exitP) * l.quantity * lotSize;
+          } else {
+            return sum + (exitP - l.premium) * l.quantity * lotSize;
+          }
         }
 
         return sum;
