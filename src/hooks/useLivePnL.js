@@ -10,19 +10,30 @@ export function useLivePnL(intervalMs = 30000, enabled = true) {
   const [error, setError]         = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
   const intervalRef = useRef(null);
+  const inFlight = useRef(false); // guards against overlapping requests piling up
 
   const refresh = useCallback(async () => {
     if (!enabled) return;
+    if (inFlight.current) return; // previous request still running — skip this tick rather than stack another on top
+    inFlight.current = true;
     setLoading(true);
     try {
       const data = await fetchLiveQuotes();
-      setQuotes(data);
+      // Merge rather than replace — if AngelOne is mid rate-limit-cooldown
+      // (or any other transient hiccup), fetchLiveQuotes() resolves
+      // successfully but with an empty/partial object rather than throwing.
+      // Replacing wholesale would wipe out the last known-good quotes and
+      // make the sidebar's Live P&L widget disappear every single time this
+      // happens, instead of just holding its last value until the next
+      // successful poll comes in.
+      setQuotes(prev => ({ ...prev, ...data }));
       setLastUpdated(new Date());
       setError(null);
     } catch (e) {
       setError(e.message || 'Failed to fetch live prices');
     } finally {
       setLoading(false);
+      inFlight.current = false;
     }
   }, [enabled]);
 
