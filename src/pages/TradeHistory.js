@@ -1487,13 +1487,24 @@ export default function TradeHistory() {
                     const lTx = (leg.transactionType || '').toUpperCase();
                     const sign = lTx === 'SELL' ? 1 : -1;
                     const ls = leg.lotSize || 1;
-                    (leg.exits || []).forEach((e, ei) => {
+                    // Same fallback the display uses: a leg closed via a single
+                    // full close (no prior partial exits) never gets an entry
+                    // pushed into its `exits` array — only a top-level
+                    // exitPremium/exitDate/status. Without this fallback here,
+                    // such legs were invisible to the "net" grouping entirely,
+                    // even though two of them closing on the same date is
+                    // exactly the case "net" is meant to surface.
+                    const legExits = (leg.exits && leg.exits.length > 0)
+                      ? leg.exits
+                      : (leg.exitPremium != null ? [{ exitPremium: leg.exitPremium, quantity: leg.quantity, exitDate: leg.exitDate }] : []);
+                    legExits.forEach((e, ei) => {
                       const key = e.exitDate ? e.exitDate.slice(0,10) : `exit_${ei}`;
                       const ep = parseFloat(e.exitPremium || 0);
                       const pnlVal = sign * (leg.premium - ep) * e.quantity * ls;
-                      if (!map[key]) map[key] = { pnl: 0, count: 0 };
+                      if (!map[key]) map[key] = { pnl: 0, count: 0, legs: [] };
                       map[key].pnl += pnlVal;
                       map[key].count += 1;
+                      map[key].legs.push(`${leg.strike}${leg.optionType}`);
                     });
                   });
                   return map;
@@ -1695,136 +1706,163 @@ export default function TradeHistory() {
                           </div>
                         </div>
                       )}
-                      {(p.legs || []).map((leg, li) => {
-                        const legTx = (leg.transactionType || '').toUpperCase();
-                        const exits = leg.exits || [];
-                        const isProfit = legTx === 'SELL'; // SELL legs profit when price falls
-                        const spineColor = isProfit ? 'var(--profit)' : 'var(--loss)';
-                        const dotColor   = isProfit ? '#22c55e'      : '#ef4444';
-                        const legPnl = (() => {
-                          const sign = legTx === 'SELL' ? 1 : -1;
-                          const entry = leg.premium || 0;
-                          const ls = leg.lotSize || 1;
-                          if (exits.length > 0) return exits.reduce((s, e) => s + sign * (entry - e.exitPremium) * e.quantity * ls, 0);
-                          if (leg.exitPremium != null) return sign * (entry - leg.exitPremium) * (leg.quantity || 1) * ls;
-                          return null;
-                        })();
+                      {(() => {
+                        const legs = p.legs || [];
+                        // Same grouping key combinedExitPnl uses — the date of
+                        // a leg's (first) exit tranche, or its single exitPremium's date.
+                        const legGroupKey = (leg) => {
+                          const legExits = (leg.exits && leg.exits.length > 0) ? leg.exits : (leg.exitPremium != null ? [{ exitDate: leg.exitDate }] : []);
+                          if (legExits.length === 0) return null;
+                          const d = legExits[0].exitDate;
+                          return d ? d.slice(0,10) : null;
+                        };
 
-                        return (
-                          <div key={leg.id || li}>
-                            {li > 0 && <div style={{ height:'0.5px', background:'var(--border)', marginBottom:16 }}></div>}
-                            {(() => {
-                              const allExits = exits.length > 0 ? exits : (leg.exitPremium != null ? [{ exitPremium: leg.exitPremium, quantity: leg.quantity, exitDate: leg.exitDate, charges: null }] : []);
-                              const HDR_H = 52;
-                              const ROW_H = 44;
-                              // Weighted exit avg
-                              const totalQty = allExits.reduce((s, e) => s + (e.quantity || 0), 0);
-                              const wtdExitAvg = totalQty > 0 ? allExits.reduce((s, e) => s + parseFloat(e.exitPremium || 0) * (e.quantity || 0), 0) / totalQty : null;
-                              // Decay captured: for SELL = (entry - exitAvg) / entry * 100; for BUY = (entry - exitAvg) / entry * 100 (negative = good hedge)
-                              const decay = wtdExitAvg != null && leg.premium > 0 ? ((leg.premium - wtdExitAvg) / leg.premium * 100) : null;
-                              return (
-                                <div style={{ display:'flex', gap:14 }}>
-                                  {/* Spine */}
-                                  <div style={{ display:'flex', flexDirection:'column', alignItems:'center', width:18, flexShrink:0 }}>
-                                    <div style={{ height: HDR_H/2 - 5.5 + 'px' }}></div>
-                                    <div style={{ width:11, height:11, borderRadius:'50%', background:'#6366f1', flexShrink:0 }}></div>
-                                    {allExits.length > 0 ? allExits.map((_, ei) => (
-                                      <React.Fragment key={ei}>
-                                        <div style={{ width:'1.5px', height: ei === 0 ? HDR_H/2 + ROW_H/2 - 6 + 'px' : ROW_H + 'px', background: ei === 0 ? `linear-gradient(180deg,#6366f1,${dotColor})` : dotColor, opacity: ei === 0 ? 1 : 0.45 }}></div>
-                                        <div style={{ width:9, height:9, borderRadius:'50%', background:dotColor, flexShrink:0 }}></div>
-                                      </React.Fragment>
-                                    )) : (
-                                      <div style={{ width:'1.5px', flex:1, background:'rgba(99,102,241,0.25)' }}></div>
+                        const renderLegBlock = (leg, li) => {
+                          const legTx = (leg.transactionType || '').toUpperCase();
+                          const exits = leg.exits || [];
+                          const isProfit = legTx === 'SELL';
+                          const dotColor = isProfit ? '#22c55e' : '#ef4444';
+                          const legPnl = (() => {
+                            const sign = legTx === 'SELL' ? 1 : -1;
+                            const entry = leg.premium || 0;
+                            const ls = leg.lotSize || 1;
+                            if (exits.length > 0) return exits.reduce((s, e) => s + sign * (entry - e.exitPremium) * e.quantity * ls, 0);
+                            if (leg.exitPremium != null) return sign * (entry - leg.exitPremium) * (leg.quantity || 1) * ls;
+                            return null;
+                          })();
+                          const allExits = exits.length > 0 ? exits : (leg.exitPremium != null ? [{ exitPremium: leg.exitPremium, quantity: leg.quantity, exitDate: leg.exitDate, charges: null }] : []);
+                          const HDR_H = 52;
+                          const ROW_H = 44;
+                          const totalQty = allExits.reduce((s, e) => s + (e.quantity || 0), 0);
+                          const wtdExitAvg = totalQty > 0 ? allExits.reduce((s, e) => s + parseFloat(e.exitPremium || 0) * (e.quantity || 0), 0) / totalQty : null;
+                          const decay = wtdExitAvg != null && leg.premium > 0 ? ((leg.premium - wtdExitAvg) / leg.premium * 100) : null;
+                          return (
+                            <div style={{ display:'flex', gap:14 }}>
+                              {/* Spine */}
+                              <div style={{ display:'flex', flexDirection:'column', alignItems:'center', width:18, flexShrink:0 }}>
+                                <div style={{ height: HDR_H/2 - 5.5 + 'px' }}></div>
+                                <div style={{ width:11, height:11, borderRadius:'50%', background:'#6366f1', flexShrink:0 }}></div>
+                                {allExits.length > 0 ? allExits.map((_, ei) => (
+                                  <React.Fragment key={ei}>
+                                    <div style={{ width:'1.5px', height: ei === 0 ? HDR_H/2 + ROW_H/2 - 6 + 'px' : ROW_H + 'px', background: ei === 0 ? `linear-gradient(180deg,#6366f1,${dotColor})` : dotColor, opacity: ei === 0 ? 1 : 0.45 }}></div>
+                                    <div style={{ width:9, height:9, borderRadius:'50%', background:dotColor, flexShrink:0 }}></div>
+                                  </React.Fragment>
+                                )) : (
+                                  <div style={{ width:'1.5px', flex:1, background:'rgba(99,102,241,0.25)' }}></div>
+                                )}
+                              </div>
+
+                              {/* Content */}
+                              <div style={{ flex:1, minWidth:0 }}>
+                                <div style={{ display:'grid', gridTemplateColumns:'1fr auto', alignItems:'center', height: HDR_H + 'px', borderBottom:'0.5px solid var(--border)', gap:16 }}>
+                                  <div style={{ display:'flex', alignItems:'center', minWidth:0 }}>
+                                    <span style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:4, flexShrink:0, background:'rgba(59,130,246,0.15)', color:'#60a5fa', marginRight:5 }}>{leg.optionType || 'CE'}</span>
+                                    <span style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:4, flexShrink:0, background: legTx === 'SELL' ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)', color: legTx === 'SELL' ? '#f87171' : '#4ade80', marginRight:10 }}>{legTx}</span>
+                                    <span style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:500, color:'var(--text-primary)', flexShrink:0, marginRight:8 }}>{leg.strike}</span>
+                                    <span style={{ fontSize:11, color:'var(--text-muted)', flexShrink:0, marginRight:12 }}>{leg.quantity} lots</span>
+                                    {leg.isAdjustment && (
+                                      <span title={leg.adjustmentDate ? `Added as adjustment on ${leg.adjustmentDate}` : 'Added as adjustment'} style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:4, flexShrink:0, background:'rgba(245,158,11,0.12)', color:'#fbbf24', marginRight:12, whiteSpace:'nowrap' }}>
+                                        ↻ Adjustment{leg.adjustmentDate ? ` · ${leg.adjustmentDate}` : ''}
+                                      </span>
                                     )}
-                                  </div>
-
-                                  {/* Content */}
-                                  <div style={{ flex:1, minWidth:0 }}>
-                                    {/* Leg header — grid: stats left, buttons+pnl right */}
-                                    <div style={{ display:'grid', gridTemplateColumns:'1fr auto', alignItems:'center', height: HDR_H + 'px', borderBottom:'0.5px solid var(--border)', gap:16 }}>
-                                      {/* Left: badges + strike + stats */}
-                                      <div style={{ display:'flex', alignItems:'center', minWidth:0 }}>
-                                        <span style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:4, flexShrink:0, background:'rgba(59,130,246,0.15)', color:'#60a5fa', marginRight:5 }}>{leg.optionType || 'CE'}</span>
-                                        <span style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:4, flexShrink:0, background: legTx === 'SELL' ? 'rgba(239,68,68,0.12)' : 'rgba(34,197,94,0.12)', color: legTx === 'SELL' ? '#f87171' : '#4ade80', marginRight:10 }}>{legTx}</span>
-                                        <span style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:500, color:'var(--text-primary)', flexShrink:0, marginRight:8 }}>{leg.strike}</span>
-                                        <span style={{ fontSize:11, color:'var(--text-muted)', flexShrink:0, marginRight:12 }}>{leg.quantity} lots</span>
-                                        {leg.isAdjustment && (
-                                          <span title={leg.adjustmentDate ? `Added as adjustment on ${leg.adjustmentDate}` : 'Added as adjustment'} style={{ display:'inline-flex', alignItems:'center', fontSize:10, fontWeight:700, padding:'1px 6px', borderRadius:4, flexShrink:0, background:'rgba(245,158,11,0.12)', color:'#fbbf24', marginRight:12, whiteSpace:'nowrap' }}>
-                                            ↻ Adjustment{leg.adjustmentDate ? ` · ${leg.adjustmentDate}` : ''}
-                                          </span>
-                                        )}
-                                        <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
-                                        <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0, marginRight:12 }}>
-                                          <span style={{ fontSize:11, letterSpacing:'.03em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap', fontWeight:600 }}>Entry avg</span>
-                                          <span style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:700, color:'var(--text-primary)', whiteSpace:'nowrap' }}>₹{parseFloat(leg.premium).toFixed(2)}</span>
-                                        </div>
-                                        {wtdExitAvg !== null && <>
-                                          <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
-                                          <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0, marginRight:12 }}>
-                                            <span style={{ fontSize:11, letterSpacing:'.03em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap', fontWeight:600 }}>Exit avg</span>
-                                            <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: legTx === 'SELL' ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>₹{wtdExitAvg.toFixed(2)}</span>
-                                          </div>
-                                          <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
-                                          <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0 }}>
-                                            <span style={{ fontSize:11, letterSpacing:'.03em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap', fontWeight:600 }}>Decay captured</span>
-                                            <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: decay >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{decay !== null ? decay.toFixed(2) + '%' : '—'}</span>
-                                          </div>
-                                        </>}
-                                      </div>
-                                      {/* Right: always visible */}
-                                      <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
-                                        <button onClick={() => setPartialExitLeg({ leg, positionId: p.positionId })} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 9px', fontSize:10, fontFamily:'var(--font-sans)', whiteSpace:'nowrap' }}>+ exit</button>
-                                        <button onClick={() => setEditLegData(leg)} title="Edit this leg" style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 7px', fontSize:11, fontFamily:'var(--font-sans)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                                          <i className="ti ti-pencil" style={{ fontSize:12 }} aria-hidden="true" />
-                                        </button>
-                                        <div style={{ width:'0.5px', background:'var(--border)', height:28 }}></div>
-                                        {legPnl !== null
-                                          ? <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(legPnl)}</span>
-                                          : <span style={{ fontSize:12, color:'var(--text-muted)' }}>open</span>}
-                                      </div>
+                                    <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
+                                    <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0, marginRight:12 }}>
+                                      <span style={{ fontSize:11, letterSpacing:'.03em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap', fontWeight:600 }}>Entry avg</span>
+                                      <span style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:700, color:'var(--text-primary)', whiteSpace:'nowrap' }}>₹{parseFloat(leg.premium).toFixed(2)}</span>
                                     </div>
-
-                                    {/* Exit rows */}
-                                    {exits.length > 0 && exits.map((e, ei) => {
-                                      const ep = parseFloat(e.exitPremium || 0);
-                                      const ePnl = (legTx === 'SELL' ? 1 : -1) * (leg.premium - ep) * e.quantity * (leg.lotSize || 1);
-                                      const dateKey = e.exitDate ? e.exitDate.slice(0,10) : null;
-                                      const combined = dateKey && combinedExitPnl[dateKey];
-                                      const showNet = combined && combined.count >= 2;
-                                      return (
-                                        <div key={ei} style={{ display:'grid', gridTemplateColumns:'56px 110px 1fr auto', gap:14, alignItems:'center', height: ROW_H + 'px', borderTop: ei === 0 ? 'none' : '0.5px solid var(--border)', paddingLeft:4 }}>
-                                          <span style={{ fontSize:12, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>Exit {ei+1}</span>
-                                          <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{ep.toFixed(2)}</span>
-                                          <span style={{ fontSize:12, color:'var(--text-muted)' }}>{e.quantity}L &nbsp;·&nbsp; {fmtExitDate(e.exitDate)}</span>
-                                          <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', gap:3 }}>
-                                            <span style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(ePnl)}</span>
-                                            {showNet && (
-                                              <div style={{ display:'flex', alignItems:'center', gap:4 }}>
-                                                <span style={{ fontSize:11, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.03em', fontWeight:600 }}>net</span>
-                                                <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: combined.pnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(combined.pnl)}</span>
-                                              </div>
-                                            )}
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-
-                                    {/* Single exit (no tranches) */}
-                                    {exits.length === 0 && leg.exitPremium != null && (
-                                      <div style={{ display:'grid', gridTemplateColumns:'56px 110px 1fr auto', gap:14, alignItems:'center', height: ROW_H + 'px', paddingLeft:4 }}>
-                                        <span style={{ fontSize:11, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>Exit</span>
-                                        <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{parseFloat(leg.exitPremium).toFixed(2)}</span>
-                                        <span style={{ fontSize:11, color:'var(--text-muted)' }}>{leg.quantity}L &nbsp;·&nbsp; {fmtExitDate(leg.exitDate)}</span>
-                                        <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, textAlign:'right', color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(legPnl)}</span>
+                                    {wtdExitAvg !== null && <>
+                                      <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
+                                      <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0, marginRight:12 }}>
+                                        <span style={{ fontSize:11, letterSpacing:'.03em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap', fontWeight:600 }}>Exit avg</span>
+                                        <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: legTx === 'SELL' ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>₹{wtdExitAvg.toFixed(2)}</span>
                                       </div>
-                                    )}
+                                      <div style={{ width:'0.5px', background:'var(--border)', height:28, flexShrink:0, marginRight:12 }}></div>
+                                      <div style={{ display:'flex', flexDirection:'column', gap:2, flexShrink:0 }}>
+                                        <span style={{ fontSize:11, letterSpacing:'.03em', textTransform:'uppercase', color:'var(--text-muted)', whiteSpace:'nowrap', fontWeight:600 }}>Decay captured</span>
+                                        <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: decay >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{decay !== null ? decay.toFixed(2) + '%' : '—'}</span>
+                                      </div>
+                                    </>}
+                                  </div>
+                                  <div style={{ display:'flex', alignItems:'center', gap:10, flexShrink:0 }}>
+                                    <button onClick={() => setPartialExitLeg({ leg, positionId: p.positionId })} style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 9px', fontSize:10, fontFamily:'var(--font-sans)', whiteSpace:'nowrap' }}>+ exit</button>
+                                    <button onClick={() => setEditLegData(leg)} title="Edit this leg" style={{ background:'none', border:'0.5px solid var(--border-hover)', borderRadius:5, color:'var(--text-muted)', cursor:'pointer', padding:'2px 7px', fontSize:11, fontFamily:'var(--font-sans)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                                      <i className="ti ti-pencil" style={{ fontSize:12 }} aria-hidden="true" />
+                                    </button>
+                                    <div style={{ width:'0.5px', background:'var(--border)', height:28 }}></div>
+                                    {legPnl !== null
+                                      ? <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(legPnl)}</span>
+                                      : <span style={{ fontSize:12, color:'var(--text-muted)' }}>open</span>}
                                   </div>
                                 </div>
-                              );
-                            })()}
-                          </div>
-                        );
-                      })}
+
+                                {exits.length > 0 && exits.map((e, ei) => {
+                                  const ep = parseFloat(e.exitPremium || 0);
+                                  const ePnl = (legTx === 'SELL' ? 1 : -1) * (leg.premium - ep) * e.quantity * (leg.lotSize || 1);
+                                  return (
+                                    <div key={ei} style={{ display:'grid', gridTemplateColumns:'56px 110px 1fr auto', gap:14, alignItems:'center', height: ROW_H + 'px', borderTop: ei === 0 ? 'none' : '0.5px solid var(--border)', paddingLeft:4 }}>
+                                      <span style={{ fontSize:12, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>Exit {ei+1}</span>
+                                      <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{ep.toFixed(2)}</span>
+                                      <span style={{ fontSize:12, color:'var(--text-muted)' }}>{e.quantity}L &nbsp;·&nbsp; {fmtExitDate(e.exitDate)}</span>
+                                      <span style={{ fontFamily:'var(--font-mono)', fontSize:15, fontWeight:700, color: ePnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(ePnl)}</span>
+                                    </div>
+                                  );
+                                })}
+
+                                {exits.length === 0 && leg.exitPremium != null && (
+                                  <div style={{ display:'grid', gridTemplateColumns:'56px 110px 1fr auto', gap:14, alignItems:'center', height: ROW_H + 'px', paddingLeft:4 }}>
+                                    <span style={{ fontSize:11, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>Exit</span>
+                                    <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)' }}>₹{parseFloat(leg.exitPremium).toFixed(2)}</span>
+                                    <span style={{ fontSize:11, color:'var(--text-muted)' }}>{leg.quantity}L &nbsp;·&nbsp; {fmtExitDate(leg.exitDate)}</span>
+                                    <span style={{ fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700, textAlign:'right', color: legPnl >= 0 ? 'var(--profit)' : 'var(--loss)', whiteSpace:'nowrap' }}>{fmtMoney(legPnl)}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        };
+
+                        const items = [];
+                        let i = 0;
+                        while (i < legs.length) {
+                          const leg = legs[i];
+                          const key = legGroupKey(leg);
+                          const group = key ? combinedExitPnl[key] : null;
+                          const nextLeg = legs[i+1];
+                          const nextKey = nextLeg ? legGroupKey(nextLeg) : null;
+                          if (group && group.count >= 2 && nextLeg && nextKey === key) {
+                            const barColor = group.pnl >= 0 ? 'var(--profit)' : 'var(--loss)';
+                            const bgTint = group.pnl >= 0 ? 'rgba(34,197,94,0.07)' : 'rgba(239,68,68,0.07)';
+                            items.push(
+                              <div key={leg.id || i}>
+                                {i > 0 && <div style={{ height:'0.5px', background:'var(--border)', marginBottom:16 }}></div>}
+                                <div style={{ display:'flex', gap:10 }}>
+                                  <div style={{ width:3, borderRadius:2, background:barColor, flexShrink:0, alignSelf:'stretch' }}></div>
+                                  <div style={{ flex:1, minWidth:0, display:'flex', flexDirection:'column', gap:16 }}>
+                                    {renderLegBlock(leg, i)}
+                                    {renderLegBlock(nextLeg, i+1)}
+                                  </div>
+                                </div>
+                                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginTop:8, padding:'7px 12px', background:bgTint, borderRadius:6 }}>
+                                  <span style={{ fontSize:11, color:barColor, textTransform:'uppercase', letterSpacing:'.03em', fontWeight:600 }}>
+                                    Net · {[...new Set(group.legs)].join(' + ')}
+                                  </span>
+                                  <span style={{ fontFamily:'var(--font-mono)', fontSize:14, fontWeight:700, color:barColor }}>{fmtMoney(group.pnl)}</span>
+                                </div>
+                              </div>
+                            );
+                            i += 2;
+                          } else {
+                            items.push(
+                              <div key={leg.id || i}>
+                                {i > 0 && <div style={{ height:'0.5px', background:'var(--border)', marginBottom:16 }}></div>}
+                                {renderLegBlock(leg, i)}
+                              </div>
+                            );
+                            i += 1;
+                          }
+                        }
+                        return items;
+                      })()}
 
                       {/* Note section — fills empty space at bottom right */}
                       {hasNotes ? (
