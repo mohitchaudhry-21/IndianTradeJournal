@@ -44,7 +44,7 @@ export function JournalProvider({ children }) {
   // Single shared live-quotes poll — all pages/components read from this
   // same instance via context, so every display shows identical numbers
   // instead of each component fetching its own slightly-offset snapshot.
-  const { quotes: liveQuotes, loading: liveLoading, lastUpdated: liveLastUpdated, refresh: refreshLiveQuotes } = useLivePnL(5000, true);
+  const { quotes: liveQuotes, loading: liveLoading, lastUpdated: liveLastUpdated, refresh: refreshLiveQuotes } = useLivePnL(15000, true);
   const saved = loadData();
 
   const [activeAccountId, setActiveAccountId_raw] = useState(
@@ -445,6 +445,20 @@ export function JournalProvider({ children }) {
         const existingExits = t.exits || [];
         const alreadyExitedQty = existingExits.reduce((s, e) => s + (e.quantity || 0), 0);
         const remainingQty = (leg.remainingQty !== undefined) ? leg.remainingQty : (t.quantity || 1) - alreadyExitedQty;
+
+        // Already fully closed via real tranches — a re-sync re-matching this
+        // same leg later (e.g. against an already-expired/delisted contract,
+        // where the broker's own snapshot data is less reliable) must NOT
+        // silently overwrite the properly weighted exitPremium with a fresh
+        // single value. That's exactly how a correct weighted average like
+        // ₹220.23 quietly became ₹17.10 on a later sync. Once tranches already
+        // cover the full quantity, this leg's realized P&L is settled — leave
+        // it alone. (A genuine correction still goes through Edit Trade,
+        // which writes directly rather than through this sync-reconciliation
+        // path.)
+        if (existingExits.length > 0 && alreadyExitedQty >= (t.quantity || 1) && t.status === 'CLOSED') {
+          return t;
+        }
 
         let exits = existingExits;
         let exitPremium = leg.exitPremium !== null && leg.exitPremium !== undefined
