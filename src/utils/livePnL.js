@@ -33,7 +33,15 @@ export function calcUnrealizedPnL(position, quotes) {
   let allFound = true;
 
   position.legs.forEach(leg => {
-    // Skip legs that are fully exited already (no remaining quantity)
+    // A leg has no remaining open quantity either because its exit tranches
+    // already cover it, OR because it was closed directly (status set to
+    // CLOSED/EXPIRED with a top-level exitPremium, e.g. via the Edit Trade
+    // popup) without ever populating the exits array. Checking only the
+    // exits tally missed that second case — it would keep demanding a live
+    // quote for an already-closed leg that the broker will never report
+    // again, permanently blocking this position's whole calculation even
+    // when its genuinely open legs already have perfectly good quotes.
+    if (leg.status === 'CLOSED' || leg.status === 'EXPIRED') return;
     const exitedQty = (leg.exits || []).reduce((s, e) => s + (e.quantity || 0), 0);
     const remainingQty = (leg.quantity || 1) - exitedQty;
     if (remainingQty <= 0) return; // nothing open on this leg
