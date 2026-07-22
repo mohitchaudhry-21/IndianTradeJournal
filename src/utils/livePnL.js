@@ -28,7 +28,7 @@ export async function fetchLiveQuotes() {
 // Calculate unrealised P&L for a single open position given a quotes map
 // Returns null if any leg is missing a live quote (can't calculate fully)
 export function calcUnrealizedPnL(position, quotes) {
-  if (!position?.legs?.length || position.status !== 'OPEN') return null;
+  if (!position?.legs?.length || (position.status !== 'OPEN' && position.status !== 'PARTIAL')) return null;
   let total = 0;
   let allFound = true;
 
